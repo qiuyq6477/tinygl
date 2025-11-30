@@ -304,59 +304,91 @@ struct TextureObject {
 
     // 双线性插值采样 (Bilinear Interpolation)
     Vec4 sampleBilinear(float u, float v, int level) const {
-        if (level < 0 || level >= levels.size()) return {1, 0, 1, 1}; // Error
-        
-        const auto& pixels = levels[level];
-        // 计算当前 Level 的宽高
+        if(level >= levels.size()) return {0,0,0,1};
         int w = std::max(1, width >> level);
         int h = std::max(1, height >> level);
 
-        // 纹理坐标 Wrap (Repeat)
-        u = u * w - 0.5f; // -0.5 是为了中心对齐
-        v = v * h - 0.5f;
+        // 应用 Wrap
+        float uImg = applyWrap(u, wrapS) * w - 0.5f;
+        float vImg = applyWrap(v, wrapT) * h - 0.5f;
 
-        int x0 = (int)std::floor(u);
-        int y0 = (int)std::floor(v);
+        int x0 = (int)std::floor(uImg);
+        int y0 = (int)std::floor(vImg);
         int x1 = x0 + 1;
         int y1 = y0 + 1;
-
+        
         // 权重
-        float s = u - x0;
-        float t = v - y0;
+        float s = uImg - x0;
+        float t = vImg - y0;
 
-        auto getPixel = [&](int x, int y) -> Vec4 {
-            // Repeat Mode 模拟
-            x = (x % w + w) % w;
-            y = (y % h + h) % h;
-            uint32_t p = pixels[y * w + x];
-            return Vec4((p&0xFF)/255.0f, ((p>>8)&0xFF)/255.0f, ((p>>16)&0xFF)/255.0f, ((p>>24)&0xFF)/255.0f);
+        // 注意：getTexel 内部有 clamp，所以 wrap 逻辑最好在坐标转整数时处理
+        // 对于 REPEAT 模式，如果 x1 越界，应该回到 0。
+        auto wrapIdx = [](int idx, int max, GLenum mode) {
+             if (mode == GL_REPEAT) return (idx % max + max) % max;
+             return std::clamp(idx, 0, max - 1);
         };
+        
+        x0 = wrapIdx(x0, w, wrapS); x1 = wrapIdx(x1, w, wrapS);
+        y0 = wrapIdx(y0, h, wrapT); y1 = wrapIdx(y1, h, wrapT);
 
-        Vec4 c00 = getPixel(x0, y0);
-        Vec4 c10 = getPixel(x1, y0);
-        Vec4 c01 = getPixel(x0, y1);
-        Vec4 c11 = getPixel(x1, y1);
+        Vec4 c00 = getTexel(level, x0, y0);
+        Vec4 c10 = getTexel(level, x1, y0);
+        Vec4 c01 = getTexel(level, x0, y1);
+        Vec4 c11 = getTexel(level, x1, y1);
 
-        // 双线性插值公式
-        // lerp(lerp(c00, c10, s), lerp(c01, c11, s), t)
         auto lerp = [](const Vec4& a, const Vec4& b, float f) { return a * (1.0f - f) + b * f; };
         return lerp(lerp(c00, c10, s), lerp(c01, c11, s), t);
     }
 
-    // 三线性插值 (Trilinear) / Mipmap 采样
-    // lod: Level of Detail (浮点数)
+    // 主采样函数 (根据 LOD 选择 Filter)
     Vec4 sample(float u, float v, float lod = 0.0f) const {
         if (levels.empty()) return {1, 0, 1, 1};
 
-        lod = std::max(0.0f, std::min(lod, (float)levels.size() - 1.0f));
+        // 1. Magnification (放大): LOD < 0 (纹理像素比屏幕像素大)
+        if (lod <= 0.0f && magFilter == GL_NEAREST) {
+            int w = width; int h = height;
+            int x = (int)(applyWrap(u, wrapS) * w);
+            int y = (int)(applyWrap(v, wrapT) * h);
+            return getTexel(0, x, y); // Nearest Base Level
+        }
+        
+        // 2. Minification (缩小): LOD > 0
+        // 限制 LOD 范围
+        float maxLevel = (float)levels.size() - 1;
+        lod = std::clamp(lod, 0.0f, maxLevel);
+
+        // 根据 minFilter 选择策略
+        if (minFilter == GL_NEAREST) {
+            return sampleBilinear(u, v, 0); // 忽略 Mipmap，仅 Base Level (实际标准是 Nearest on Base)
+        }
+        if (minFilter == GL_LINEAR) {
+             return sampleBilinear(u, v, 0); // Base Level Bilinear
+        }
+        if (minFilter == GL_NEAREST_MIPMAP_NEAREST) {
+            int level = (int)std::round(lod);
+            int w = std::max(1, width >> level);
+            int h = std::max(1, height >> level);
+            int x = (int)(applyWrap(u, wrapS) * w);
+            int y = (int)(applyWrap(v, wrapT) * h);
+            return getTexel(level, x, y);
+        }
+        if (minFilter == GL_LINEAR_MIPMAP_NEAREST) {
+            int level = (int)std::round(lod);
+            return sampleBilinear(u, v, level);
+        }
+        if (minFilter == GL_NEAREST_MIPMAP_LINEAR) {
+            // 在两个 Mipmap 层级间插值，但层级内使用 Nearest
+            // (省略实现，较少用)
+            return sampleBilinear(u, v, (int)lod); 
+        }
+
+        // Default: GL_LINEAR_MIPMAP_LINEAR (Trilinear)
         int levelBase = (int)lod;
-        int levelNext = std::min(levelBase + 1, (int)levels.size() - 1);
+        int levelNext = std::min(levelBase + 1, (int)maxLevel);
         float f = lod - levelBase;
 
-        // 在两层之间进行双线性插值，然后再插值层级
         Vec4 cBase = sampleBilinear(u, v, levelBase);
         Vec4 cNext = sampleBilinear(u, v, levelNext);
-
         return cBase * (1.0f - f) + cNext * f;
     }
 };
@@ -377,8 +409,9 @@ struct VertexArrayObject {
 };
 
 // Shader & Program
-struct ShaderContext {
-    Vec4 varyings[MAX_VARYINGS];
+struct ShaderContext { 
+    Vec4 varyings[MAX_VARYINGS]; 
+    float lod = 0.0f; // [新增]
 };
 
 // VOut: 顶点着色器的输出，也是裁剪阶段的输入
@@ -399,6 +432,11 @@ struct ProgramObject {
     std::unordered_map<GLint, UniformValue> uniforms;
     std::function<Vec4(const std::vector<Vec4>&, ShaderContext&)> vertexShader;
     std::function<Vec4(const ShaderContext&)> fragmentShader;
+};
+
+// 辅助：计算平面梯度的结构
+struct Gradients {
+    float dfdx, dfdy;
 };
 
 // ==========================================
@@ -714,6 +752,15 @@ public:
         v.scn.w = rhw; // 存储 1/w 用于透视插值
     }
 
+    // 辅助：计算属性 f 在屏幕空间的偏导数
+    Gradients calcGradients(const VOut& v0, const VOut& v1, const VOut& v2, float invArea, float f0, float f1, float f2) {
+        float temp0 = f1 - f0;
+        float temp1 = f2 - f0;
+        float dfdx = (temp0 * (v2.scn.y - v0.scn.y) - temp1 * (v1.scn.y - v0.scn.y)) * invArea;
+        float dfdy = (temp1 * (v1.scn.x - v0.scn.x) - temp0 * (v2.scn.x - v0.scn.x)) * invArea;
+        return {dfdx, dfdy};
+    }
+
     // 纯粹的光栅化三角形逻辑 (Rasterize Triangle)
     // 输入已经是 Screen Space 的三个顶点
     void rasterizeTriangle(const VOut& v0, const VOut& v1, const VOut& v2) {
@@ -737,6 +784,33 @@ public:
         if (area <= 0) return;
         float invArea = 1.0f / area;
 
+        // [新增] 1. 预计算 1/w, U/w, V/w 的屏幕空间梯度
+        // 假设 UV 存储在 varyings[0] (x=u, y=v)
+        // 这里的 varyings 已经是经过 Vertex Shader 的，但还没有除以 w
+        // 注意：我们的 v.ctx.varyings 存储的是原始属性（未除w），v.scn.w 存储的是 1/w
+        
+        // 属性 0: 1/w
+        float w0 = v0.scn.w, w1 = v1.scn.w, w2 = v2.scn.w;
+        Gradients gradW = calcGradients(v0, v1, v2, invArea, w0, w1, w2);
+
+        // 属性 1: U/w (假设 U 在 varyings[0].x)
+        float u0 = v0.ctx.varyings[0].x * w0;
+        float u1 = v1.ctx.varyings[0].x * w1;
+        float u2 = v2.ctx.varyings[0].x * w2;
+        Gradients gradU_w = calcGradients(v0, v1, v2, invArea, u0, u1, u2);
+
+        // 属性 2: V/w (假设 V 在 varyings[0].y)
+        float v_0 = v0.ctx.varyings[0].y * w0; // 变量名 v_0 避免冲突
+        float v_1 = v1.ctx.varyings[0].y * w1;
+        float v_2 = v2.ctx.varyings[0].y * w2;
+        Gradients gradV_w = calcGradients(v0, v1, v2, invArea, v_0, v_1, v_2);
+        
+        // 纹理尺寸 (用于 scaling)
+        // 注意：这里需要知道当前绑定的纹理尺寸，稍微有点耦合，
+        // 或者在 Shader 中传 LOD，这里只传导数。为简化，假设 TextureUnit 0
+        float texW = 256.0f, texH = 256.0f;
+        if (auto* t = getTexture(0)) { texW = t->width; texH = t->height; }
+
         for (int y = minY; y <= maxY; ++y) {
             for (int x = minX; x <= maxX; ++x) {
                 Vec4 p((float)x + 0.5f, (float)y + 0.5f, 0, 0);
@@ -757,9 +831,40 @@ public:
                     int pix = y * fbWidth + x;
                     if (z < depthBuffer[pix]) {
                         depthBuffer[pix] = z;
+                        
+                        // [新增] 2. 逐像素计算 LOD
+                        // 恢复当前的 g = 1/w
+                        float g = w0 * w0 + w1 * w1 + w2 * w2; // 当前像素的 1/w
+                        float g2 = g * g;
+
+                        // 利用商法则计算 du/dx, du/dy
+                        // d(f/g)/dx = (f'g - fg') / g^2
+                        // f = U/w, g = 1/w
+                        // f' = gradU_w.dfdx (常数)
+                        // g' = gradW.dfdx (常数)
+                        
+                        // 当前像素的 f = U/w
+                        float f_u = w0 * u0 + w1 * u1 + w2 * u2;
+                        float f_v = w0 * v_0 + w1 * v_1 + w2 * v_2;
+
+                        float dudx = (gradU_w.dfdx * g - f_u * gradW.dfdx) / g2;
+                        float dudy = (gradU_w.dfdy * g - f_u * gradW.dfdy) / g2;
+                        float dvdx = (gradV_w.dfdx * g - f_v * gradW.dfdx) / g2;
+                        float dvdy = (gradV_w.dfdy * g - f_v * gradW.dfdy) / g2;
+
+                        // 计算 rho (纹理空间距离)
+                        float deltaX = std::sqrt(dudx*dudx * texW*texW + dvdx*dvdx * texH*texH);
+                        float deltaY = std::sqrt(dudy*dudy * texW*texW + dvdy*dvdy * texH*texH);
+                        float rho = std::max(deltaX, deltaY);
+                        
+                        // 计算 LOD
+                        float lod = std::log2(rho);
+                        
+                        // 填入 Context
+                        ShaderContext fsIn;
+                        fsIn.lod = lod;
 
                         // Attribute Interpolation
-                        ShaderContext fsIn;
                         for (int k = 0; k < MAX_VARYINGS; ++k) {
                             // Perspective Correct Interpolation Formula:
                             // Attr = (Attr0/w0 * b0 + Attr1/w1 * b1 + Attr2/w2 * b2) / (1/w_interpolated)
@@ -1135,7 +1240,7 @@ void drawCubeSample() {
         int unit = 0;
         if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
         Vec4 texColor = {1,1,1,1};
-        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(inCtx.varyings[0].x, inCtx.varyings[0].y);
+        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.lod);
         // 混合顶点颜色和纹理
         return inCtx.varyings[1] * texColor;
     });
@@ -1146,7 +1251,10 @@ void drawCubeSample() {
     for(int i=0; i<256*256; i++) 
         pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; // White / Black
     ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
+    // 设置纹理参数
+    ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    
     // 3. 构建 Cube 数据 (修正版：24个顶点，标准UV映射)
     // 为了让每个面都有正确的纹理映射，每个面必须有独立的顶点数据。
     // 6 个面 * 4 个顶点 = 24 个顶点
@@ -1222,7 +1330,7 @@ void drawCubeSample() {
     // 4. 生成位置和大小
     float rX = 0;
     float rY = 0;
-    float rZ = -1;
+    float rZ = -30;
     float rS = 1;
     
     LOG_INFO("Generated Cube at (" + std::to_string(rX) + ", " + std::to_string(rY) + ", " + std::to_string(rZ) + ") Scale: " + std::to_string(rS));
