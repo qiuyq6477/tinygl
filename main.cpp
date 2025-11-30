@@ -161,6 +161,25 @@ const GLenum GL_TEXTURE13 = 0x84CD;
 const GLenum GL_TEXTURE14 = 0x84CE;
 const GLenum GL_TEXTURE15 = 0x84CF;
 
+// 纹理参数枚举
+const GLenum GL_TEXTURE_WRAP_S = 0x2802;
+const GLenum GL_TEXTURE_WRAP_T = 0x2803;
+const GLenum GL_TEXTURE_MIN_FILTER = 0x2801;
+const GLenum GL_TEXTURE_MAG_FILTER = 0x2800;
+
+// Wrap Modes
+const GLenum GL_REPEAT = 0x2901;
+const GLenum GL_CLAMP_TO_EDGE = 0x812F;
+const GLenum GL_MIRRORED_REPEAT = 0x8370;
+
+// Filter Modes
+const GLenum GL_NEAREST = 0x2600;
+const GLenum GL_LINEAR = 0x2601;
+const GLenum GL_NEAREST_MIPMAP_NEAREST = 0x2700;
+const GLenum GL_LINEAR_MIPMAP_NEAREST = 0x2701;
+const GLenum GL_NEAREST_MIPMAP_LINEAR = 0x2702;
+const GLenum GL_LINEAR_MIPMAP_LINEAR = 0x2703;
+
 // System Limits & Defaults
 constexpr int MAX_ATTRIBS       = 16;   // 最大顶点属性数量
 constexpr int MAX_VARYINGS      = 8;    // 最大插值变量数量
@@ -196,19 +215,149 @@ struct BufferObject {
 struct TextureObject {
     GLuint id;
     GLsizei width = 0, height = 0;
-    std::vector<uint32_t> pixels; 
+    
+    // Mipmaps 存储：Level 0 是原始图像，Level 1 是 1/2 大小，以此类推
+    std::vector<std::vector<uint32_t>> levels; 
 
-    Vec4 sample(float u, float v) const {
-        if (pixels.empty()) return {1, 0, 1, 1}; // Magenta
-        u -= std::floor(u); v -= std::floor(v);
-        int x = std::clamp((int)(u * width), 0, width - 1);
-        int y = std::clamp((int)(v * height), 0, height - 1);
-        uint32_t p = pixels[y * width + x];
-        float r = (p & 0xFF) / 255.0f;
-        float g = ((p >> 8) & 0xFF) / 255.0f;
-        float b = ((p >> 16) & 0xFF) / 255.0f;
-        float a = ((p >> 24) & 0xFF) / 255.0f;
-        return Vec4(r, g, b, a);
+    // 纹理参数状态
+    GLenum wrapS = GL_REPEAT;
+    GLenum wrapT = GL_REPEAT;
+    GLenum minFilter = GL_NEAREST_MIPMAP_LINEAR; // 默认三线性
+    GLenum magFilter = GL_LINEAR;
+
+
+    // 生成 Mipmaps (Box Filter 下采样)
+    void generateMipmaps() {
+        if (levels.empty()) return;
+        
+        // 确保 Level 0 存在
+        int w = width;
+        int h = height;
+        int currentLevel = 0;
+
+        while (w > 1 || h > 1) {
+            const auto& src = levels[currentLevel];
+            int nextW = std::max(1, w / 2);
+            int nextH = std::max(1, h / 2);
+            std::vector<uint32_t> dst(nextW * nextH);
+
+            for (int y = 0; y < nextH; ++y) {
+                for (int x = 0; x < nextW; ++x) {
+                    // 简单的 2x2 均值采样
+                    int srcX = x * 2;
+                    int srcY = y * 2;
+                    // 边界检查省略，因为总是缩小
+                    uint32_t c00 = src[srcY * w + srcX];
+                    uint32_t c10 = src[srcY * w + std::min(srcX + 1, w - 1)];
+                    uint32_t c01 = src[std::min(srcY + 1, h - 1) * w + srcX];
+                    uint32_t c11 = src[std::min(srcY + 1, h - 1) * w + std::min(srcX + 1, w - 1)];
+
+                    auto unpack = [](uint32_t c, int shift) { return (c >> shift) & 0xFF; };
+                    auto avg = [&](int shift) {
+                        return (unpack(c00, shift) + unpack(c10, shift) + unpack(c01, shift) + unpack(c11, shift)) / 4;
+                    };
+
+                    uint8_t R = avg(0);
+                    uint8_t G = avg(8);
+                    uint8_t B = avg(16);
+                    uint8_t A = avg(24);
+                    dst[y * nextW + x] = (A << 24) | (B << 16) | (G << 8) | R;
+                }
+            }
+
+            levels.push_back(std::move(dst));
+            w = nextW;
+            h = nextH;
+            currentLevel++;
+        }
+        LOG_INFO("Generated " + std::to_string(levels.size()) + " mipmap levels.");
+    }
+
+    // 处理 Wrap Mode
+    float applyWrap(float val, GLenum mode) const {
+        switch (mode) {
+            case GL_REPEAT: 
+                return val - std::floor(val);
+            case GL_MIRRORED_REPEAT: 
+                return std::abs(val - 2.0f * std::floor(val / 2.0f)) - 1.0f; // 简化版
+            case GL_CLAMP_TO_EDGE: 
+                return std::clamp(val, 0.0f, 0.9999f); // 防止触底
+            default: return val - std::floor(val);
+        }
+    }
+
+    // 获取单个像素 (Nearest)
+    Vec4 getTexel(int level, int x, int y) const {
+        // 安全检查
+        if(level < 0 || level >= levels.size()) return {0,0,0,1};
+        int w = std::max(1, width >> level);
+        int h = std::max(1, height >> level);
+        
+        // 此处不再处理 Wrap，假设传入的 x, y 已经在 [0, w-1] 范围内
+        // 但为了安全起见：
+        x = std::clamp(x, 0, w - 1);
+        y = std::clamp(y, 0, h - 1);
+        
+        uint32_t p = levels[level][y * w + x];
+        return Vec4((p&0xFF)/255.0f, ((p>>8)&0xFF)/255.0f, ((p>>16)&0xFF)/255.0f, ((p>>24)&0xFF)/255.0f);
+    }
+
+    // 双线性插值采样 (Bilinear Interpolation)
+    Vec4 sampleBilinear(float u, float v, int level) const {
+        if (level < 0 || level >= levels.size()) return {1, 0, 1, 1}; // Error
+        
+        const auto& pixels = levels[level];
+        // 计算当前 Level 的宽高
+        int w = std::max(1, width >> level);
+        int h = std::max(1, height >> level);
+
+        // 纹理坐标 Wrap (Repeat)
+        u = u * w - 0.5f; // -0.5 是为了中心对齐
+        v = v * h - 0.5f;
+
+        int x0 = (int)std::floor(u);
+        int y0 = (int)std::floor(v);
+        int x1 = x0 + 1;
+        int y1 = y0 + 1;
+
+        // 权重
+        float s = u - x0;
+        float t = v - y0;
+
+        auto getPixel = [&](int x, int y) -> Vec4 {
+            // Repeat Mode 模拟
+            x = (x % w + w) % w;
+            y = (y % h + h) % h;
+            uint32_t p = pixels[y * w + x];
+            return Vec4((p&0xFF)/255.0f, ((p>>8)&0xFF)/255.0f, ((p>>16)&0xFF)/255.0f, ((p>>24)&0xFF)/255.0f);
+        };
+
+        Vec4 c00 = getPixel(x0, y0);
+        Vec4 c10 = getPixel(x1, y0);
+        Vec4 c01 = getPixel(x0, y1);
+        Vec4 c11 = getPixel(x1, y1);
+
+        // 双线性插值公式
+        // lerp(lerp(c00, c10, s), lerp(c01, c11, s), t)
+        auto lerp = [](const Vec4& a, const Vec4& b, float f) { return a * (1.0f - f) + b * f; };
+        return lerp(lerp(c00, c10, s), lerp(c01, c11, s), t);
+    }
+
+    // 三线性插值 (Trilinear) / Mipmap 采样
+    // lod: Level of Detail (浮点数)
+    Vec4 sample(float u, float v, float lod = 0.0f) const {
+        if (levels.empty()) return {1, 0, 1, 1};
+
+        lod = std::max(0.0f, std::min(lod, (float)levels.size() - 1.0f));
+        int levelBase = (int)lod;
+        int levelNext = std::min(levelBase + 1, (int)levels.size() - 1);
+        float f = lod - levelBase;
+
+        // 在两层之间进行双线性插值，然后再插值层级
+        Vec4 cBase = sampleBilinear(u, v, levelBase);
+        Vec4 cNext = sampleBilinear(u, v, levelNext);
+
+        return cBase * (1.0f - f) + cNext * f;
     }
 };
 
@@ -389,16 +538,34 @@ public:
         }
     }
 
-    void glTexImage2D(GLenum target, GLint level, GLint internal, GLsizei w, GLsizei h, GLint border, GLenum format, GLenum type, const void* pixels) {
+    void glTexImage2D(GLenum t, GLint l, GLint i, GLsizei w, GLsizei h, GLint b, GLenum f, GLenum ty, const void* p) {
+        auto* tex = getTexture(m_activeTextureUnit); if(!tex) return;
+        tex->width = w; 
+        tex->height = h;
+        // 清空旧数据，初始化 Level 0
+        tex->levels.clear();
+        tex->levels.resize(1);
+        tex->levels[0].resize(w * h);
+        
+        if(p) memcpy(tex->levels[0].data(), p, w*h*4);
+        
+        // 自动生成 Mipmaps (模拟 glGenerateMipmap)
+        tex->generateMipmaps();
+        LOG_INFO("Loaded Texture " + std::to_string(w) + "x" + std::to_string(h) + " with Mipmaps.");
+    }
+
+    // 设置纹理参数
+    void glTexParameteri(GLenum target, GLenum pname, GLint param) {
+        if (target != GL_TEXTURE_2D) return;
         TextureObject* tex = getTexture(m_activeTextureUnit);
-        if (!tex) {
-            LOG_ERROR("No texture bound to unit " + std::to_string(m_activeTextureUnit));
-            return;
+        if (!tex) return;
+
+        switch (pname) {
+            case GL_TEXTURE_WRAP_S: tex->wrapS = (GLenum)param; break;
+            case GL_TEXTURE_WRAP_T: tex->wrapT = (GLenum)param; break;
+            case GL_TEXTURE_MIN_FILTER: tex->minFilter = (GLenum)param; break;
+            case GL_TEXTURE_MAG_FILTER: tex->magFilter = (GLenum)param; break;
         }
-        tex->width = w; tex->height = h;
-        tex->pixels.resize(w * h);
-        if (pixels) std::memcpy(tex->pixels.data(), pixels, w*h*4);
-        LOG_INFO("Loaded Texture: " + std::to_string(w) + "x" + std::to_string(h));
     }
 
     // --- Program ---
@@ -677,7 +844,7 @@ public:
             }
         }
     }
-    
+
     void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         LOG_INFO("DrawElements Count: " + std::to_string(count));
         
