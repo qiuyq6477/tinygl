@@ -18,6 +18,7 @@
 #include <string>
 #include <memory>
 #include <iomanip>
+#include <random>
 
 // ==========================================
 // 1. 日志系统 (Logging System)
@@ -57,12 +58,63 @@ struct Vec4 {
 
 struct Mat4 {
     float m[16];
+
+    // 初始化为单位矩阵
     static Mat4 Identity() {
         Mat4 res = {0};
         res.m[0] = res.m[5] = res.m[10] = res.m[15] = 1.0f;
         return res;
     }
+
+    // 平移矩阵
+    static Mat4 Translate(float x, float y, float z) {
+        Mat4 res = Identity();
+        res.m[12] = x; res.m[13] = y; res.m[14] = z; // Column-major layout: translation is in last column
+        return res;
+    }
+
+    // 缩放矩阵
+    static Mat4 Scale(float x, float y, float z) {
+        Mat4 res = Identity();
+        res.m[0] = x; res.m[5] = y; res.m[10] = z;
+        return res;
+    }
+
+    // 透视投影矩阵 (简易版 FOV=90, Aspect=1)
+    // 使得 Z 坐标产生透视效果 (w = -z)
+    static Mat4 Perspective(float fovInDegrees, float aspect, float near, float far) {
+        Mat4 res = {0};
+        float fovInRadians = fovInDegrees * M_PI / 180.0f;
+        float f = 1.0f / std::tan(fovInRadians * 0.5f);
+        res.m[0] = f / aspect;
+        res.m[5] = f;
+        res.m[10] = (far + near) / (near - far);
+        res.m[11] = -1.0f; // Convention: Camera looks towards -Z
+        res.m[14] = (2.0f * far * near) / (near - far);
+        return res;
+    }
+
+    // 矩阵乘法 (A * B)
+    Mat4 operator*(const Mat4& r) const {
+        Mat4 res = {0};
+        for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 4; ++col) {
+                float sum = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    // Column-major access: m[col * 4 + row]
+                    // But our struct is flat array, let's assume standard OpenGL Column-Major order:
+                    // Index = col * 4 + row
+                    sum += m[k*4 + row] * r.m[col*4 + k];
+                }
+                res.m[col*4 + row] = sum;
+            }
+        }
+        return res;
+    }
+
+    // 矩阵 * 向量
     Vec4 operator*(const Vec4& v) const {
+        // x = m0*vx + m4*vy + m8*vz + m12*vw
         return Vec4(
             m[0]*v.x + m[4]*v.y + m[8]*v.z + m[12]*v.w,
             m[1]*v.x + m[5]*v.y + m[9]*v.z + m[13]*v.w,
@@ -800,8 +852,163 @@ void glDrawArraySample()
     ctx.savePPM("result_arrays.ppm");
 }
 
+
+void drawCubeSample() {
+    int windowWidth = 800, windowHeight = 600;
+    SoftRenderContext ctx(windowWidth, windowHeight);
+    GLuint progID = ctx.glCreateProgram();
+    GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
+    GLint uTex = ctx.glGetUniformLocation(progID, "uTex");
+
+    // 1. 设置 Shader (逻辑保持不变，依赖传入的 MVP 矩阵)
+    ctx.setVertexShader(progID, [uMVP, &ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
+        outCtx.varyings[0] = attribs[2]; // UV
+        outCtx.varyings[1] = attribs[1]; // Color
+        
+        Mat4 mvp = Mat4::Identity();
+        if (auto* p = ctx.getCurrentProgram()) {
+             if (p->uniforms.count(uMVP)) std::memcpy(mvp.m, p->uniforms[uMVP].data.mat, 16*sizeof(float));
+        }
+        Vec4 pos = attribs[0]; 
+        pos.w = 1.0f;
+        return mvp * pos; // MVP 变换
+    });
+
+    ctx.setFragmentShader(progID, [uTex, &ctx](const ShaderContext& inCtx) -> Vec4 {
+        int unit = 0;
+        if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
+        Vec4 texColor = {1,1,1,1};
+        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(inCtx.varyings[0].x, inCtx.varyings[0].y);
+        // 混合顶点颜色和纹理
+        return inCtx.varyings[1] * texColor;
+    });
+
+    // 2. 生成简单的纹理 (白/蓝 格子)
+    GLuint tex; ctx.glGenTextures(1, &tex); ctx.glActiveTexture(GL_TEXTURE0); ctx.glBindTexture(GL_TEXTURE_2D, tex);
+    std::vector<uint32_t> pixels(256 * 256);
+    for(int i=0; i<256*256; i++) 
+        pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; // White / Black
+    ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    // 3. 构建 Cube 数据 (修正版：24个顶点，标准UV映射)
+    // 为了让每个面都有正确的纹理映射，每个面必须有独立的顶点数据。
+    // 6 个面 * 4 个顶点 = 24 个顶点
+    float cubeVertices[] = {
+        //   x,     y,    z,       r, g, b,       u, v
+        // 1. Front Face (Z = 1)
+        -1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   1.0f, 1.0f,
+        -1.0f,  1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   0.0f, 1.0f,
+
+        // 2. Back Face (Z = -1)
+         1.0f, -1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   0.0f, 0.0f,
+        -1.0f, -1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   1.0f, 0.0f,
+        -1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   1.0f, 1.0f,
+         1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   0.0f, 1.0f,
+
+        // 3. Left Face (X = -1)
+        -1.0f, -1.0f, -1.0f,    0.0f, 0.0f, 1.0f,   0.0f, 0.0f,
+        -1.0f, -1.0f,  1.0f,    0.0f, 0.0f, 1.0f,   1.0f, 0.0f,
+        -1.0f,  1.0f,  1.0f,    0.0f, 0.0f, 1.0f,   1.0f, 1.0f,
+        -1.0f,  1.0f, -1.0f,    0.0f, 0.0f, 1.0f,   0.0f, 1.0f,
+
+        // 4. Right Face (X = 1)
+         1.0f, -1.0f,  1.0f,    1.0f, 1.0f, 0.0f,   0.0f, 0.0f,
+         1.0f, -1.0f, -1.0f,    1.0f, 1.0f, 0.0f,   1.0f, 0.0f,
+         1.0f,  1.0f, -1.0f,    1.0f, 1.0f, 0.0f,   1.0f, 1.0f,
+         1.0f,  1.0f,  1.0f,    1.0f, 1.0f, 0.0f,   0.0f, 1.0f,
+
+        // 5. Top Face (Y = 1)
+        -1.0f,  1.0f,  1.0f,    0.0f, 1.0f, 1.0f,   0.0f, 0.0f,
+         1.0f,  1.0f,  1.0f,    0.0f, 1.0f, 1.0f,   1.0f, 0.0f,
+         1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 1.0f,   1.0f, 1.0f,
+        -1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 1.0f,   0.0f, 1.0f,
+
+        // 6. Bottom Face (Y = -1)
+        -1.0f, -1.0f, -1.0f,    1.0f, 0.0f, 1.0f,   0.0f, 0.0f,
+         1.0f, -1.0f, -1.0f,    1.0f, 0.0f, 1.0f,   1.0f, 0.0f,
+         1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 1.0f,   1.0f, 1.0f,
+        -1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 1.0f,   0.0f, 1.0f
+    };
+
+    // 索引也要更新，适配 24 个顶点
+    // 规律：每个面 4 个顶点，画 2 个三角形
+    uint32_t cubeIndices[36];
+    for(int i=0; i<6; i++) {
+        uint32_t base = i * 4;
+        // Tri 1
+        cubeIndices[i*6+0] = base + 0;
+        cubeIndices[i*6+1] = base + 1;
+        cubeIndices[i*6+2] = base + 2;
+        // Tri 2
+        cubeIndices[i*6+3] = base + 2;
+        cubeIndices[i*6+4] = base + 3;
+        cubeIndices[i*6+5] = base + 0;
+    }
+
+
+    // Upload Data
+    GLuint vao, vbo, ebo;
+    ctx.glGenVertexArrays(1, &vao); ctx.glBindVertexArray(vao);
+    ctx.glGenBuffers(1, &vbo); ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+    ctx.glGenBuffers(1, &ebo); ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
+
+    // Attributes
+    constexpr int STRIDE = 8 * sizeof(float);
+    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, STRIDE, (void*)0);                   ctx.glEnableVertexAttribArray(0);
+    ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, STRIDE, (void*)(3*sizeof(float)));   ctx.glEnableVertexAttribArray(1);
+    ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, STRIDE, (void*)(6*sizeof(float)));   ctx.glEnableVertexAttribArray(2);
+
+    // 4. 生成位置和大小
+    float rX = 10;
+    float rY = 10;
+    float rZ = -20;
+    float rS = 1;
+    
+    LOG_INFO("Generated Cube at (" + std::to_string(rX) + ", " + std::to_string(rY) + ", " + std::to_string(rZ) + ") Scale: " + std::to_string(rS));
+
+    // 5. 计算矩阵 (MVP = Projection * View * Model)
+    // View: 简单的 Identity (相机在原点，看向 -Z)
+    Mat4 view = Mat4::Identity();
+    // Projection: 透视投影 (FOV 60度)
+    // 必须使用透视投影，否则 Z 轴的深度无法体现近大远小的效果
+    float aspect = (float)windowWidth / (float)windowHeight;
+    Mat4 proj = Mat4::Perspective(60.0f, aspect, 0.1f, 100.0f); // 60 deg FOV
+
+    // 6. Draw
+    ctx.glUseProgram(progID);
+    ctx.glUniform1i(uTex, 0);
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> distPosXY(-20.0f, 20.0f); // 屏幕中央附近
+    std::uniform_real_distribution<> distPosZ(-10.0f, -20.0f); // 相机后方 10 到 20 单位
+    std::uniform_real_distribution<> distScale(1.0f, 2.0f);  // 缩放
+
+    for(int i = 0;i < 20; i++)
+    {
+        rX += distPosXY(gen);
+        rY += distPosXY(gen);
+        rZ += distPosZ(gen);
+        rS = distScale(gen);
+
+        // Model: 先缩放，再平移
+        Mat4 model = Mat4::Translate(rX, rY, rZ) * Mat4::Scale(rS, rS, rS);
+        // MVP = P * V * M (注意乘法顺序，通常是反向应用)
+        Mat4 mvp = proj * view * model;
+        ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
+        ctx.glDrawElements(GL_TRIANGLES, 36, 0, (void*)0); // 36 indices
+    }
+    
+    ctx.savePPM("result_random_cube.ppm");
+}
+
 int main() {
     glDrawArraySample();
     glDrawElementsSample();
+    drawCubeSample();
     return 0;
 }
