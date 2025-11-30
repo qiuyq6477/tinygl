@@ -52,6 +52,7 @@ struct Vec4 {
     Vec4 operator+(const Vec4& v) const { return {x+v.x, y+v.y, z+v.z, w+v.w}; }
     Vec4 operator-(const Vec4& v) const { return {x-v.x, y-v.y, z-v.z, w-v.w}; }
     Vec4 operator*(float s) const { return {x*s, y*s, z*s, w*s}; }
+    Vec4 operator*(const Vec4& v) const { return {x*v.x, y*v.y, z*v.z, w*v.w}; }
 };
 
 struct Mat4 {
@@ -407,10 +408,15 @@ public:
             float rhw = 1.0f / w;
             
             // Viewport Transform
-            vOuts[i].scn.x = (vOuts[i].pos.x * rhw + 1.0f) * 0.5f * fbWidth;
-            vOuts[i].scn.y = (vOuts[i].pos.y * rhw + 1.0f) * 0.5f * fbHeight;
-            vOuts[i].scn.z = vOuts[i].pos.z * rhw;
-            vOuts[i].scn.w = rhw; // Store 1/w
+            // 【Fix 1】: Y轴翻转 (Viewport Transform)
+            // 原公式: (y + 1) * 0.5 -> 导致 Y=-1(底) 映射到 0(图顶)
+            // 新公式: (1 - y) * 0.5 -> 导致 Y=+1(顶) 映射到 0(图顶)，Y=-1(底) 映射到 Height
+            vOuts[i].scn = { 
+                (vOuts[i].pos.x*rhw+1.0f)*0.5f*fbWidth, 
+                (1.0f - vOuts[i].pos.y*rhw)*0.5f*fbHeight, // 翻转 Y
+                vOuts[i].pos.z*rhw, 
+                rhw 
+            };
         }
 
         // 3. Rasterization
@@ -422,10 +428,13 @@ public:
             int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
             int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
 
-            // 【Fix 2】: 修正 Edge 函数为标准叉乘: (B-A) x (P-A)
-            // 这样逆时针(CCW)的三角形 Area 才是正数
+            // 【Fix 2】: Edge Function 修正
+            // 由于 Y 轴翻转了，叉乘的方向也变了。
+            // 为了保持 CCW 三角形为正面积 (Area > 0)，我们需要交换相减的顺序或者对整体取反。
+            // 旧公式: (b.x - a.x)*(p.y - a.y) - (b.y - a.y)*(p.x - a.x)
+            // 新公式: 下面交换了减数和被减数，适配 Y-Down 坐标系
             auto edge = [](const Vec4& a, const Vec4& b, const Vec4& p) {
-                return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+                return (b.y - a.y) * (p.x - a.x) - (b.x - a.x) * (p.y - a.y);
             };
 
             float area = edge(v0.scn, v1.scn, v2.scn);
@@ -499,9 +508,15 @@ int main() {
     GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
     GLint uTex = ctx.glGetUniformLocation(progID, "uTex");
 
+    // Vertex Shader: 增加对 Color (索引1) 的处理，UV 移至索引 2
     ctx.setVertexShader(progID, [uMVP, &ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        Vec4 pos = attribs[0];
-        outCtx.varyings[0] = attribs[1];
+        Vec4 pos   = attribs[0]; // Loc 0: 位置
+        Vec4 color = attribs[1]; // Loc 1: 颜色 (新增)
+        Vec4 uv    = attribs[2]; // Loc 2: UV (原 Loc 1)
+
+        outCtx.varyings[0] = uv;    // 传递 UV
+        outCtx.varyings[1] = color; // 传递 颜色 (插值)
+
         Mat4 mvp = Mat4::Identity();
         if (auto* p = ctx.getCurrentProgram()) {
              if (p->uniforms.count(uMVP)) std::memcpy(mvp.m, p->uniforms[uMVP].data.mat, 16*sizeof(float));
@@ -510,11 +525,19 @@ int main() {
         return mvp * pos;
     });
 
+    // Fragment Shader: 将插值后的颜色与纹理相乘
     ctx.setFragmentShader(progID, [uTex, &ctx](const ShaderContext& inCtx) -> Vec4 {
+        Vec4 uv    = inCtx.varyings[0];
+        Vec4 color = inCtx.varyings[1]; // 获取插值后的顶点颜色
+
         int unit = 0;
         if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
-        if (auto* tex = ctx.getTexture(unit)) return tex->sample(inCtx.varyings[0].x, inCtx.varyings[0].y);
-        return Vec4(1, 0, 1, 1);
+        
+        Vec4 texColor = {1, 1, 1, 1};
+        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(uv.x, uv.y);
+
+        // 核心修改: 顶点颜色 * 纹理颜色
+        return color * texColor; 
     });
 
     GLuint tex;
@@ -527,7 +550,13 @@ int main() {
     }
     ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-    float vertices[] = { -0.5f,-0.5f,0.0f, 0.0f,0.0f,  0.5f,-0.5f,0.0f, 1.0f,0.0f,  0.5f,0.5f,0.0f, 1.0f,1.0f,  -0.5f,0.5f,0.0f, 0.0f,1.0f };
+    float vertices[] = {
+        // Position (XYZ)     // Color (RGB)       // UV (UV)
+        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,    0.0f, 0.0f, // 左下 (红)
+         0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,    1.0f, 0.0f, // 右下 (绿)
+         0.5f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f,    1.0f, 1.0f, // 右上 (蓝)
+        -0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 0.0f,    0.0f, 1.0f  // 左上 (黄)
+    };
     uint32_t indices[] = { 0, 1, 2, 2, 3, 0 };
 
     GLuint vao, vbo, ebo;
@@ -540,10 +569,20 @@ int main() {
     ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, 5*sizeof(float), (void*)0);
+    // 计算新的步长: 8个float * 4字节 = 32字节
+    GLsizei stride = 8 * sizeof(float);
+
+    // 属性 0: Position (偏移 0)
+    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)0);
     ctx.glEnableVertexAttribArray(0);
-    ctx.glVertexAttribPointer(1, 2, GL_FLOAT, false, 5*sizeof(float), (void*)(3*sizeof(float)));
+
+    // 属性 1: Color (新增，偏移 3 * float)
+    ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, stride, (void*)(3 * sizeof(float)));
     ctx.glEnableVertexAttribArray(1);
+
+    // 属性 2: UV (原属性1，偏移 6 * float)
+    ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6 * sizeof(float)));
+    ctx.glEnableVertexAttribArray(2);
 
     ctx.glUseProgram(progID);
     ctx.glUniform1i(uTex, 0);
