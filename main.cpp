@@ -91,6 +91,36 @@ const GLenum GL_TEXTURE_2D = 0x0DE1;
 const GLenum GL_RGBA = 0x1908;
 const GLenum GL_UNSIGNED_BYTE = 0x1401;
 
+// 纹理单元常量
+const GLenum GL_TEXTURE0 = 0x84C0;
+const GLenum GL_TEXTURE1 = 0x84C1;
+const GLenum GL_TEXTURE2 = 0x84C2;
+const GLenum GL_TEXTURE3 = 0x84C3;
+const GLenum GL_TEXTURE4 = 0x84C4;
+const GLenum GL_TEXTURE5 = 0x84C5;
+const GLenum GL_TEXTURE6 = 0x84C6;
+const GLenum GL_TEXTURE7 = 0x84C7;
+const GLenum GL_TEXTURE8 = 0x84C8;
+const GLenum GL_TEXTURE9 = 0x84C9;
+const GLenum GL_TEXTURE10 = 0x84CA;
+const GLenum GL_TEXTURE11 = 0x84CB;
+const GLenum GL_TEXTURE12 = 0x84CC;
+const GLenum GL_TEXTURE13 = 0x84CD;
+const GLenum GL_TEXTURE14 = 0x84CE;
+const GLenum GL_TEXTURE15 = 0x84CF;
+
+// System Limits & Defaults
+constexpr int MAX_ATTRIBS       = 16;   // 最大顶点属性数量
+constexpr int MAX_VARYINGS      = 8;    // 最大插值变量数量
+constexpr int MAX_TEXTURE_UNITS = 16;   // 最大纹理单元数量
+
+// Math & Colors
+constexpr float EPSILON         = 1e-5f;
+constexpr float DEPTH_INFINITY  = 1e9f;
+constexpr uint32_t COLOR_BLACK  = 0xFF000000; // AABBGGRR (Alpha=255, RGB=0)
+constexpr uint32_t COLOR_WHITE  = 0xFFFFFFFF;
+constexpr uint32_t COLOR_GREY   = 0xFFAAAAAA;
+
 // Buffer
 struct BufferObject {
     std::vector<uint8_t> data;
@@ -141,13 +171,13 @@ struct VertexAttribState {
 };
 
 struct VertexArrayObject {
-    VertexAttribState attributes[16];
+    VertexAttribState attributes[MAX_ATTRIBS];
     GLuint elementBufferID = 0;
 };
 
 // Shader & Program
 struct ShaderContext {
-    Vec4 varyings[8];
+    Vec4 varyings[MAX_VARYINGS];
 };
 
 struct UniformValue {
@@ -177,7 +207,7 @@ private:
     GLuint m_boundVertexArray = 0;
     GLuint m_currentProgram = 0;
     GLuint m_activeTextureUnit = 0;
-    GLuint m_boundTextures[32] = {0};
+    GLuint m_boundTextures[MAX_TEXTURE_UNITS] = {0};
 
     GLuint m_nextID = 1;
     GLsizei fbWidth = 800;
@@ -187,12 +217,15 @@ private:
     std::vector<float> depthBuffer;
 
 public:
-    SoftRenderContext() {
+    SoftRenderContext(GLsizei width, GLsizei height) {
+        fbWidth = width;
+        fbHeight = height;
+
         vaos[0] = VertexArrayObject{}; 
-        colorBuffer.resize(fbWidth * fbHeight, 0xFF000000); // 黑色背景
+        colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
         // 【Fix 1】: Depth 初始化为极大值，确保 z=1.0 的物体能通过测试
-        depthBuffer.resize(fbWidth * fbHeight, 1e9f);       
-        LOG_INFO("Context Initialized (800x600)");
+        depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY);       
+        LOG_INFO("Context Initialized (" + std::to_string(fbWidth) + "x" + std::to_string(fbHeight) + ")");
     }
 
     // --- Accessors ---
@@ -254,7 +287,7 @@ public:
     void glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
 
     void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer) {
-        if (index >= 16) return;
+        if (index >= MAX_ATTRIBS) return;
         if (m_boundArrayBuffer == 0) {
             LOG_ERROR("No VBO bound!");
             return;
@@ -269,7 +302,7 @@ public:
     }
 
     void glEnableVertexAttribArray(GLuint index) {
-        if (index < 16) getVAO().attributes[index].enabled = true;
+        if (index < MAX_ATTRIBS) getVAO().attributes[index].enabled = true;
     }
 
     // --- Textures (FIXED) ---
@@ -283,7 +316,7 @@ public:
     }
 
     void glActiveTexture(GLenum texture) {
-        if (texture >= 0x84C0 && texture < 0x84C0 + 32) m_activeTextureUnit = texture - 0x84C0;
+        if (texture >= GL_TEXTURE0 && texture < GL_TEXTURE0 + 32) m_activeTextureUnit = texture - GL_TEXTURE0;
     }
 
     void glBindTexture(GLenum target, GLuint texture) {
@@ -365,6 +398,86 @@ public:
             it->second.readSafe<float>(offset + i*sizeof(float), raw[i]);
         }
         return Vec4(raw[0], raw[1], raw[2], raw[3]);
+    }
+
+    // glDrawArrays
+    void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
+        auto* prog = getCurrentProgram(); 
+        if(!prog) return;
+        auto& vao = getVAO();
+        
+        // 1. Vertex Shader Processing
+        // 直接为 count 个顶点分配空间
+        struct VOut { Vec4 pos; Vec4 scn; ShaderContext ctx; };
+        std::vector<VOut> vOuts(count);
+
+        for(int i=0; i<count; ++i) {
+            int vertexIndex = first + i; // 线性索引
+            std::vector<Vec4> ins(16);
+            for(int k=0; k<16; k++) {
+                if(vao.attributes[k].enabled) ins[k] = fetchAttribute(vao.attributes[k], vertexIndex);
+            }
+            
+            ShaderContext ctx;
+            vOuts[i].pos = prog->vertexShader(ins, ctx);
+            vOuts[i].ctx = ctx;
+            
+            float w = vOuts[i].pos.w; if(std::abs(w)<1e-5) w=1.0f;
+            float rhw = 1.0f/w;
+            
+            // Viewport Transform (保持 Y 轴翻转修复)
+            vOuts[i].scn = { 
+                (vOuts[i].pos.x*rhw+1.0f)*0.5f*fbWidth, 
+                (1.0f - vOuts[i].pos.y*rhw)*0.5f*fbHeight, 
+                vOuts[i].pos.z*rhw, 
+                rhw 
+            };
+        }
+
+        // 2. Rasterization (Triangle Traversal)
+        if (mode != GL_TRIANGLES) return;
+
+        for(int i=0; i<count; i+=3) {
+            // 确保有足够的顶点组成三角形
+            if (i + 2 >= count) break;
+
+            auto &v0 = vOuts[i], &v1 = vOuts[i+1], &v2 = vOuts[i+2];
+            
+            int minX=std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x})), maxX=std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x})+1);
+            int minY=std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y})), maxY=std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y})+1);
+
+            // Edge Function (Y-Down 修正版)
+            auto edge = [](const Vec4& a, const Vec4& b, const Vec4& p) {
+                return (b.y - a.y) * (p.x - a.x) - (b.x - a.x) * (p.y - a.y);
+            };
+
+            float area = edge(v0.scn, v1.scn, v2.scn);
+            if(area <= 0) continue; // Backface Culling
+
+            for(int y=minY; y<=maxY; ++y) {
+                for(int x=minX; x<=maxX; ++x) {
+                    Vec4 p((float)x+0.5f, (float)y+0.5f, 0, 0);
+                    float w0=edge(v1.scn, v2.scn, p), w1=edge(v2.scn, v0.scn, p), w2=edge(v0.scn, v1.scn, p);
+                    
+                    if(w0>=0 && w1>=0 && w2>=0) {
+                        w0/=area; w1/=area; w2/=area;
+                        float z = 1.0f / (w0*v0.scn.w + w1*v1.scn.w + w2*v2.scn.w);
+                        int pix = y*fbWidth+x;
+                        if(z < depthBuffer[pix]) {
+                            depthBuffer[pix] = z;
+                            ShaderContext fsIn;
+                            for(int k=0; k<8; k++) {
+                                Vec4 a = v0.ctx.varyings[k]*v0.scn.w*w0 + v1.ctx.varyings[k]*v1.scn.w*w1 + v2.ctx.varyings[k]*v2.scn.w*w2;
+                                fsIn.varyings[k] = a * z;
+                            }
+                            Vec4 c = prog->fragmentShader(fsIn);
+                            colorBuffer[pix] = (255<<24) | ((int)(std::clamp(c.z,0.f,1.f)*255)<<16) | ((int)(std::clamp(c.y,0.f,1.f)*255)<<8) | (int)(std::clamp(c.x,0.f,1.f)*255);
+                        }
+                    }
+                }
+            }
+        }
+        LOG_INFO("DrawArrays Finished. Vertex Count: " + std::to_string(count));
     }
 
     void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
@@ -501,8 +614,10 @@ public:
     }
 };
 
-int main() {
-    SoftRenderContext ctx;
+
+void glDrawElementsSample()
+{
+    SoftRenderContext ctx(800, 600);
 
     GLuint progID = ctx.glCreateProgram();
     GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
@@ -542,11 +657,11 @@ int main() {
 
     GLuint tex;
     ctx.glGenTextures(1, &tex);
-    ctx.glActiveTexture(0x84C0);
+    ctx.glActiveTexture(GL_TEXTURE0);
     ctx.glBindTexture(GL_TEXTURE_2D, tex);
     std::vector<uint32_t> pixels(256*256);
     for(int y=0; y<256; ++y) for(int x=0; x<256; ++x) {
-        pixels[y*256+x] = (((x/32)+(y/32))%2) ? 0xFFFFFFFF : 0xFF0000FF;
+        pixels[y*256+x] = (((x/32)+(y/32))%2) ? COLOR_WHITE : COLOR_GREY;
     }
     ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
@@ -591,5 +706,102 @@ int main() {
 
     ctx.glDrawElements(GL_TRIANGLES, 6, 0, (void*)0);
     ctx.savePPM("result.ppm");
+}
+
+void glDrawArraySample()
+{
+    SoftRenderContext ctx(800, 600);
+
+    GLuint progID = ctx.glCreateProgram();
+    GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
+    GLint uTex = ctx.glGetUniformLocation(progID, "uTex");
+
+    // Vertex Shader: 增加对 Color (索引1) 的处理，UV 移至索引 2
+    ctx.setVertexShader(progID, [uMVP, &ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
+        Vec4 pos   = attribs[0]; // Loc 0: 位置
+        Vec4 color = attribs[1]; // Loc 1: 颜色 (新增)
+        Vec4 uv    = attribs[2]; // Loc 2: UV (原 Loc 1)
+
+        outCtx.varyings[0] = uv;    // 传递 UV
+        outCtx.varyings[1] = color; // 传递 颜色 (插值)
+
+        Mat4 mvp = Mat4::Identity();
+        if (auto* p = ctx.getCurrentProgram()) {
+             if (p->uniforms.count(uMVP)) std::memcpy(mvp.m, p->uniforms[uMVP].data.mat, 16*sizeof(float));
+        }
+        pos.w = 1.0f;
+        return mvp * pos;
+    });
+
+    // Fragment Shader: 将插值后的颜色与纹理相乘
+    ctx.setFragmentShader(progID, [uTex, &ctx](const ShaderContext& inCtx) -> Vec4 {
+        Vec4 uv    = inCtx.varyings[0];
+        Vec4 color = inCtx.varyings[1]; // 获取插值后的顶点颜色
+
+        int unit = 0;
+        if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
+        
+        Vec4 texColor = {1, 1, 1, 1};
+        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(uv.x, uv.y);
+
+        // 核心修改: 顶点颜色 * 纹理颜色
+        return color * texColor; 
+    });
+
+    GLuint tex;
+    ctx.glGenTextures(1, &tex);
+    ctx.glActiveTexture(GL_TEXTURE0);
+    ctx.glBindTexture(GL_TEXTURE_2D, tex);
+    std::vector<uint32_t> pixels(256*256);
+    for(int y=0; y<256; ++y) for(int x=0; x<256; ++x) {
+        pixels[y*256+x] = (((x/32)+(y/32))%2) ? COLOR_WHITE : COLOR_GREY;
+    }
+    ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    
+    // --- Vertex Data (VBO Only / Non-Indexed) ---
+    // 为了画一个矩形，我们需要2个三角形。
+    // 在没有 EBO 的情况下，我们需要手动列出所有 6 个顶点。
+    // 顺序: Tri 1 (BL, BR, TR), Tri 2 (TR, TL, BL)
+    float vertices[] = {
+        // Pos(3)             Color(3)           UV(2)
+        // Triangle 1
+        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,  0.0f, 0.0f, // BL (Red)
+         0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,  1.0f, 0.0f, // BR (Green)
+         0.5f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f,  1.0f, 1.0f, // TR (Blue)
+
+        // Triangle 2
+         0.5f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f,  1.0f, 1.0f, // TR (Blue)
+        -0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 0.0f,  0.0f, 1.0f, // TL (Yellow)
+        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,  0.0f, 0.0f  // BL (Red)
+    };
+
+    // --- Setup Buffers ---
+    // 注意：不再创建 EBO
+    GLuint vao, vbo;
+    ctx.glGenVertexArrays(1, &vao); ctx.glBindVertexArray(vao);
+    ctx.glGenBuffers(1, &vbo); ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    // --- Configure Attributes ---
+    GLsizei stride = 8 * sizeof(float);
+    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)0);                   ctx.glEnableVertexAttribArray(0);
+    ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, stride, (void*)(3*sizeof(float)));   ctx.glEnableVertexAttribArray(1);
+    ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6*sizeof(float)));   ctx.glEnableVertexAttribArray(2);
+
+    // --- Draw ---
+    ctx.glUseProgram(progID);
+    ctx.glUniform1i(uTex, 0);
+    Mat4 mvp = Mat4::Identity(); mvp.m[0]=1.5f; mvp.m[5]=1.5f;
+    ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
+
+    // 使用 glDrawArrays 绘制 6 个顶点
+    ctx.glDrawArrays(GL_TRIANGLES, 0, 6);
+    
+    ctx.savePPM("result_arrays.ppm");
+}
+
+int main() {
+    glDrawArraySample();
+    glDrawElementsSample();
     return 0;
 }
