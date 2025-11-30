@@ -232,6 +232,13 @@ struct ShaderContext {
     Vec4 varyings[MAX_VARYINGS];
 };
 
+// VOut: 顶点着色器的输出，也是裁剪阶段的输入
+struct VOut { 
+    Vec4 pos;       // Clip Space Position (未除以 w)
+    Vec4 scn;       // Screen Space Position (已除以 w)
+    ShaderContext ctx; 
+};
+
 struct UniformValue {
     enum Type { INT, FLOAT, MAT4 } type;
     union { int i; float f; float mat[16]; } data;
@@ -436,6 +443,179 @@ public:
         }
     }
 
+    // --- 裁剪与光栅化辅助结构 ---
+    // 线性插值辅助函数 (Linear Interpolation)
+    // 用于在被裁剪的边上生成新的顶点
+    // t: [0, 1] 插值系数
+    VOut lerpVertex(const VOut& a, const VOut& b, float t) {
+        VOut res;
+        // 1. 插值位置 (Clip Space)
+        res.pos = a.pos * (1.0f - t) + b.pos * t;
+        
+        // 2. 插值 Varyings (颜色、UV等)
+        // 注意：这里的插值是线性的，但在投影后是不正确的。
+        // 不过由于我们是在 Clip Space (4D) 进行裁剪，还未进行透视除法，
+        // 所以直接线性插值属性是数学上正确的 (Rational Linear Interpolation)。
+        for (int i = 0; i < MAX_VARYINGS; ++i) {
+            res.ctx.varyings[i] = a.ctx.varyings[i] * (1.0f - t) + b.ctx.varyings[i] * t;
+        }
+        return res;
+    }
+
+    // Sutherland-Hodgman 裁剪算法的核心：针对单个平面进行裁剪
+    // inputVerts: 输入的顶点列表
+    // planeID: 0=Left, 1=Right, 2=Bottom, 3=Top, 4=Near, 5=Far
+    std::vector<VOut> clipAgainstPlane(const std::vector<VOut>& inputVerts, int planeID) {
+        std::vector<VOut> outputVerts;
+        if (inputVerts.empty()) return outputVerts;
+
+        // Lambda: 判断点是否在平面内 (Inside Test)
+        // OpenGL Frustum Planes based on w:
+        // Left:   w + x > 0 | Right:  w - x > 0
+        // Bottom: w + y > 0 | Top:    w - y > 0
+        // Near:   w + z > 0 | Far:    w - z > 0
+        auto isInside = [&](const Vec4& p) {
+            switch (planeID) {
+                case 0: return p.w + p.x >= 0; // Left
+                case 1: return p.w - p.x >= 0; // Right
+                case 2: return p.w + p.y >= 0; // Bottom
+                case 3: return p.w - p.y >= 0; // Top
+                case 4: return p.w + p.z >= EPSILON; // Near (关键! 防止除以0)
+                case 5: return p.w - p.z >= 0; // Far
+                default: return true;
+            }
+        };
+
+        // Lambda: 计算线段与平面的交点插值系数 t (Intersection)
+        // 利用相似三角形原理: t = dist_in / (dist_in - dist_out)
+        auto getIntersectT = [&](const Vec4& prev, const Vec4& curr) {
+            float dp = 0, dc = 0; // Dist Prev, Dist Curr
+            switch (planeID) {
+                case 0: dp = prev.w + prev.x; dc = curr.w + curr.x; break;
+                case 1: dp = prev.w - prev.x; dc = curr.w - curr.x; break;
+                case 2: dp = prev.w + prev.y; dc = curr.w + curr.y; break;
+                case 3: dp = prev.w - prev.y; dc = curr.w - curr.y; break;
+                case 4: dp = prev.w + prev.z; dc = curr.w + curr.z; break;
+                case 5: dp = prev.w - prev.z; dc = curr.w - curr.z; break;
+            }
+            return dp / (dp - dc);
+        };
+
+        const VOut* prev = &inputVerts.back();
+        bool prevInside = isInside(prev->pos);
+
+        for (const auto& curr : inputVerts) {
+            bool currInside = isInside(curr.pos);
+
+            if (currInside) {
+                if (!prevInside) {
+                    // 情况 1: Out -> In (外部进入内部)
+                    // 需要在交点处生成新顶点，并加入
+                    float t = getIntersectT(prev->pos, curr.pos);
+                    outputVerts.push_back(lerpVertex(*prev, curr, t));
+                }
+                // 情况 2: In -> In (一直在内部)
+                // 直接加入当前点
+                outputVerts.push_back(curr);
+            } else if (prevInside) {
+                // 情况 3: In -> Out (内部跑到外部)
+                // 需要在交点处生成新顶点，并加入
+                float t = getIntersectT(prev->pos, curr.pos);
+                outputVerts.push_back(lerpVertex(*prev, curr, t));
+            }
+            // 情况 4: Out -> Out (一直在外部)，直接丢弃
+
+            prev = &curr;
+            prevInside = currInside;
+        }
+
+        return outputVerts;
+    }
+
+    // 执行透视除法与视口变换 (Perspective Division & Viewport)
+    // 将 Clip Space (x,y,z,w) -> Screen Space (sx, sy, sz, 1/w)
+    void transformToScreen(VOut& v) {
+        float w = v.pos.w;
+        // 此时 w 已经被 Near Plane 裁剪过，一定 > EPSILON
+        float rhw = 1.0f / w;
+
+        // Viewport Mapping: [-1, 1] -> [0, Width/Height]
+        // 注意 Y 轴翻转: (1.0 - y)
+        v.scn.x = (v.pos.x * rhw + 1.0f) * 0.5f * fbWidth;
+        v.scn.y = (1.0f - v.pos.y * rhw) * 0.5f * fbHeight;
+        v.scn.z = v.pos.z * rhw;
+        v.scn.w = rhw; // 存储 1/w 用于透视插值
+    }
+
+    // 纯粹的光栅化三角形逻辑 (Rasterize Triangle)
+    // 输入已经是 Screen Space 的三个顶点
+    void rasterizeTriangle(const VOut& v0, const VOut& v1, const VOut& v2) {
+        auto* prog = getCurrentProgram();
+        
+        // Bounding Box
+        int minX = std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
+        int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
+        int minY = std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
+        int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
+
+        // Edge Function (Y-Down 修正版)
+        auto edge = [](const Vec4& a, const Vec4& b, const Vec4& p) {
+            return (b.y - a.y) * (p.x - a.x) - (b.x - a.x) * (p.y - a.y);
+        };
+
+        // Pre-compute area (Doubled Area)
+        float area = edge(v0.scn, v1.scn, v2.scn);
+        
+        // Backface Culling (CCW)
+        if (area <= 0) return;
+        float invArea = 1.0f / area;
+
+        for (int y = minY; y <= maxY; ++y) {
+            for (int x = minX; x <= maxX; ++x) {
+                Vec4 p((float)x + 0.5f, (float)y + 0.5f, 0, 0);
+                
+                float w0 = edge(v1.scn, v2.scn, p);
+                float w1 = edge(v2.scn, v0.scn, p);
+                float w2 = edge(v0.scn, v1.scn, p);
+
+                // Inside Test
+                if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+                    w0 *= invArea; w1 *= invArea; w2 *= invArea;
+                    
+                    // Perspective Correct Depth
+                    float zInv = w0 * v0.scn.w + w1 * v1.scn.w + w2 * v2.scn.w;
+                    float z = 1.0f / zInv;
+
+                    // Depth Test
+                    int pix = y * fbWidth + x;
+                    if (z < depthBuffer[pix]) {
+                        depthBuffer[pix] = z;
+
+                        // Attribute Interpolation
+                        ShaderContext fsIn;
+                        for (int k = 0; k < MAX_VARYINGS; ++k) {
+                            // Perspective Correct Interpolation Formula:
+                            // Attr = (Attr0/w0 * b0 + Attr1/w1 * b1 + Attr2/w2 * b2) / (1/w_interpolated)
+                            Vec4 a = v0.ctx.varyings[k] * v0.scn.w * w0 + 
+                                     v1.ctx.varyings[k] * v1.scn.w * w1 + 
+                                     v2.ctx.varyings[k] * v2.scn.w * w2;
+                            fsIn.varyings[k] = a * z;
+                        }
+
+                        // Fragment Shader
+                        Vec4 c = prog->fragmentShader(fsIn);
+                        
+                        // Output
+                        uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
+                        uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
+                        uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
+                        colorBuffer[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+                    }
+                }
+            }
+        }
+    }
+
     // --- Rasterizer ---
     Vec4 fetchAttribute(const VertexAttribState& attr, int idx) {
         if (!attr.enabled) return Vec4(0,0,0,1);
@@ -454,201 +634,111 @@ public:
 
     // glDrawArrays
     void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
-        auto* prog = getCurrentProgram(); 
-        if(!prog) return;
-        auto& vao = getVAO();
+        auto* prog = getCurrentProgram();
+        if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
         
-        // 1. Vertex Shader Processing
-        // 直接为 count 个顶点分配空间
-        struct VOut { Vec4 pos; Vec4 scn; ShaderContext ctx; };
-        std::vector<VOut> vOuts(count);
-
-        for(int i=0; i<count; ++i) {
-            int vertexIndex = first + i; // 线性索引
-            std::vector<Vec4> ins(16);
-            for(int k=0; k<16; k++) {
-                if(vao.attributes[k].enabled) ins[k] = fetchAttribute(vao.attributes[k], vertexIndex);
-            }
-            
-            ShaderContext ctx;
-            vOuts[i].pos = prog->vertexShader(ins, ctx);
-            vOuts[i].ctx = ctx;
-            
-            float w = vOuts[i].pos.w; if(std::abs(w)<1e-5) w=1.0f;
-            float rhw = 1.0f/w;
-            
-            // Viewport Transform (保持 Y 轴翻转修复)
-            vOuts[i].scn = { 
-                (vOuts[i].pos.x*rhw+1.0f)*0.5f*fbWidth, 
-                (1.0f - vOuts[i].pos.y*rhw)*0.5f*fbHeight, 
-                vOuts[i].pos.z*rhw, 
-                rhw 
-            };
-        }
-
-        // 2. Rasterization (Triangle Traversal)
-        if (mode != GL_TRIANGLES) return;
-
+        // 遍历所有三角形 (每次处理3个顶点，线性读取)
         for(int i=0; i<count; i+=3) {
-            // 确保有足够的顶点组成三角形
+            // 如果剩余顶点不足一个三角形则退出
             if (i + 2 >= count) break;
 
-            auto &v0 = vOuts[i], &v1 = vOuts[i+1], &v2 = vOuts[i+2];
+            std::vector<VOut> triangle(3);
             
-            int minX=std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x})), maxX=std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x})+1);
-            int minY=std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y})), maxY=std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y})+1);
-
-            // Edge Function (Y-Down 修正版)
-            auto edge = [](const Vec4& a, const Vec4& b, const Vec4& p) {
-                return (b.y - a.y) * (p.x - a.x) - (b.x - a.x) * (p.y - a.y);
-            };
-
-            float area = edge(v0.scn, v1.scn, v2.scn);
-            if(area <= 0) continue; // Backface Culling
-
-            for(int y=minY; y<=maxY; ++y) {
-                for(int x=minX; x<=maxX; ++x) {
-                    Vec4 p((float)x+0.5f, (float)y+0.5f, 0, 0);
-                    float w0=edge(v1.scn, v2.scn, p), w1=edge(v2.scn, v0.scn, p), w2=edge(v0.scn, v1.scn, p);
-                    
-                    if(w0>=0 && w1>=0 && w2>=0) {
-                        w0/=area; w1/=area; w2/=area;
-                        float z = 1.0f / (w0*v0.scn.w + w1*v1.scn.w + w2*v2.scn.w);
-                        int pix = y*fbWidth+x;
-                        if(z < depthBuffer[pix]) {
-                            depthBuffer[pix] = z;
-                            ShaderContext fsIn;
-                            for(int k=0; k<8; k++) {
-                                Vec4 a = v0.ctx.varyings[k]*v0.scn.w*w0 + v1.ctx.varyings[k]*v1.scn.w*w1 + v2.ctx.varyings[k]*v2.scn.w*w2;
-                                fsIn.varyings[k] = a * z;
-                            }
-                            Vec4 c = prog->fragmentShader(fsIn);
-                            colorBuffer[pix] = (255<<24) | ((int)(std::clamp(c.z,0.f,1.f)*255)<<16) | ((int)(std::clamp(c.y,0.f,1.f)*255)<<8) | (int)(std::clamp(c.x,0.f,1.f)*255);
-                        }
-                    }
+            // Step 1: Vertex Processing
+            for (int k=0; k<3; ++k) {
+                // 直接使用线性索引 (first + i + k)
+                int vertexIdx = first + i + k;
+                
+                std::vector<Vec4> ins(MAX_ATTRIBS);
+                VertexArrayObject& vao = getVAO();
+                for(int a=0; a<MAX_ATTRIBS; a++) {
+                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
                 }
+                
+                ShaderContext ctx;
+                triangle[k].pos = prog->vertexShader(ins, ctx);
+                triangle[k].ctx = ctx;
+            }
+
+            // Step 2: Clipping (复制自 glDrawElements)
+            std::vector<VOut> polygon = triangle;
+            for (int p = 0; p < 6; ++p) {
+                polygon = clipAgainstPlane(polygon, p);
+                if (polygon.empty()) break;
+            }
+            if (polygon.empty()) continue;
+
+            // Step 3: Transform (复制自 glDrawElements)
+            for (auto& v : polygon) transformToScreen(v);
+
+            // Step 4: Rasterization (复制自 glDrawElements)
+            for (size_t k = 1; k < polygon.size() - 1; ++k) {
+                rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
             }
         }
-        LOG_INFO("DrawArrays Finished. Vertex Count: " + std::to_string(count));
     }
-
+    
     void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         LOG_INFO("DrawElements Count: " + std::to_string(count));
-    
-        ProgramObject* prog = getCurrentProgram();
-        if (!prog || !prog->vertexShader || !prog->fragmentShader) {
-            LOG_ERROR("Invalid Program State");
-            return;
-        }
-
-        VertexArrayObject& vao = getVAO();
-        if (vao.elementBufferID == 0) { LOG_ERROR("No EBO Bound"); return; }
         
-        // 1. Indices
+        ProgramObject* prog = getCurrentProgram();
+        if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
+        VertexArrayObject& vao = getVAO();
+        if (vao.elementBufferID == 0) return;
+
+        // 1. 读取索引
         std::vector<uint32_t> idxCache(count);
         size_t idxOffset = reinterpret_cast<size_t>(indices);
         for(int i=0; i<count; ++i) {
             buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*4, idxCache[i]);
         }
 
-        // 2. Vertex Shader
-        uint32_t maxIdx = 0;
-        for(auto i : idxCache) maxIdx = std::max(maxIdx, i);
-        
-        struct VOut { Vec4 pos; Vec4 scn; ShaderContext ctx; };
-        std::vector<VOut> vOuts(maxIdx + 1);
-
-        for(uint32_t i=0; i<=maxIdx; ++i) {
-            std::vector<Vec4> ins(16);
-            for(int k=0; k<16; ++k) {
-                if(vao.attributes[k].enabled) ins[k] = fetchAttribute(vao.attributes[k], i);
-            }
-            ShaderContext ctx;
-            vOuts[i].pos = prog->vertexShader(ins, ctx);
-            vOuts[i].ctx = ctx;
-
-            float w = vOuts[i].pos.w;
-            // 防止除以0
-            if (std::abs(w) < 1e-5) w = 1.0f;
-            float rhw = 1.0f / w;
-            
-            // Viewport Transform
-            // 【Fix 1】: Y轴翻转 (Viewport Transform)
-            // 原公式: (y + 1) * 0.5 -> 导致 Y=-1(底) 映射到 0(图顶)
-            // 新公式: (1 - y) * 0.5 -> 导致 Y=+1(顶) 映射到 0(图顶)，Y=-1(底) 映射到 Height
-            vOuts[i].scn = { 
-                (vOuts[i].pos.x*rhw+1.0f)*0.5f*fbWidth, 
-                (1.0f - vOuts[i].pos.y*rhw)*0.5f*fbHeight, // 翻转 Y
-                vOuts[i].pos.z*rhw, 
-                rhw 
-            };
-        }
-
-        // 3. Rasterization
+        // 遍历所有三角形 (每次处理3个顶点)
         for(int i=0; i<count; i+=3) {
-            auto &v0 = vOuts[idxCache[i]], &v1 = vOuts[idxCache[i+1]], &v2 = vOuts[idxCache[i+2]];
+            std::vector<VOut> triangle(3);
             
-            int minX = std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
-            int minY = std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
-            int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
-            int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
-
-            // 【Fix 2】: Edge Function 修正
-            // 由于 Y 轴翻转了，叉乘的方向也变了。
-            // 为了保持 CCW 三角形为正面积 (Area > 0)，我们需要交换相减的顺序或者对整体取反。
-            // 旧公式: (b.x - a.x)*(p.y - a.y) - (b.y - a.y)*(p.x - a.x)
-            // 新公式: 下面交换了减数和被减数，适配 Y-Down 坐标系
-            auto edge = [](const Vec4& a, const Vec4& b, const Vec4& p) {
-                return (b.y - a.y) * (p.x - a.x) - (b.x - a.x) * (p.y - a.y);
-            };
-
-            float area = edge(v0.scn, v1.scn, v2.scn);
-            
-            // 如果想看背面，可以注释掉这行。但在标准 OpenGL 中 CCW 为正。
-            if (area <= 0) continue; 
-
-            for(int y=minY; y<=maxY; ++y) {
-                for(int x=minX; x<=maxX; ++x) {
-                    Vec4 p((float)x+0.5f, (float)y+0.5f, 0, 0);
-                    
-                    // 计算重心坐标权重
-                    float w0 = edge(v1.scn, v2.scn, p);
-                    float w1 = edge(v2.scn, v0.scn, p);
-                    float w2 = edge(v0.scn, v1.scn, p);
-                    
-                    // 如果点在三角形内 (所有权重符号一致)
-                    if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-                        w0 /= area; w1 /= area; w2 /= area;
-                        
-                        // 透视矫正插值深度 1/z
-                        float zInv = w0*v0.scn.w + w1*v1.scn.w + w2*v2.scn.w;
-                        float z = 1.0f/zInv;
-                        
-                        int pix = y*fbWidth+x;
-                        // 【Fix 3】: 深度测试改为 < (因为depth初始值极大)
-                        if (z < depthBuffer[pix]) {
-                            depthBuffer[pix] = z;
-                            
-                            ShaderContext fsIn;
-                            for(int k=0; k<8; ++k) {
-                                // 透视矫正属性插值
-                                Vec4 a0 = v0.ctx.varyings[k]*v0.scn.w;
-                                Vec4 a1 = v1.ctx.varyings[k]*v1.scn.w;
-                                Vec4 a2 = v2.ctx.varyings[k]*v2.scn.w;
-                                fsIn.varyings[k] = (a0*w0 + a1*w1 + a2*w2) * z;
-                            }
-                            
-                            Vec4 c = prog->fragmentShader(fsIn);
-                            uint8_t R = (uint8_t)(std::clamp(c.x,0.0f,1.0f)*255);
-                            uint8_t G = (uint8_t)(std::clamp(c.y,0.0f,1.0f)*255);
-                            uint8_t B = (uint8_t)(std::clamp(c.z,0.0f,1.0f)*255);
-                            // AABBGGRR 格式
-                            colorBuffer[pix] = (255<<24) | (B<<16) | (G<<8) | R;
-                        }
-                    }
+            // Step 1: Vertex Processing (运行顶点着色器)
+            for (int k=0; k<3; ++k) {
+                uint32_t vertexIdx = idxCache[i+k];
+                std::vector<Vec4> ins(MAX_ATTRIBS);
+                for(int a=0; a<MAX_ATTRIBS; a++) {
+                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
                 }
+                
+                ShaderContext ctx;
+                // 注意：VS 输出的是 Clip Space Position (未除 w)
+                triangle[k].pos = prog->vertexShader(ins, ctx);
+                triangle[k].ctx = ctx;
+            }
+
+            // Step 2: Clipping (裁剪)
+            // 将三角形依次通过 6 个平面的裁剪
+            // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
+            // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
+            std::vector<VOut> polygon = triangle;
+            
+            // 依次针对 6 个平面裁剪
+            for (int p = 0; p < 6; ++p) {
+                polygon = clipAgainstPlane(polygon, p);
+                if (polygon.empty()) break; // 如果完全被裁掉了，提前结束
+            }
+            
+            if (polygon.empty()) continue;
+
+            // Step 3: Perspective Division & Viewport (坐标变换)
+            // 对裁剪剩下的多边形顶点进行变换
+            for (auto& v : polygon) {
+                transformToScreen(v);
+            }
+
+            // Step 4: Triangulation & Rasterization (扇形剖分与光栅化)
+            // 裁剪后的多边形可能是 3, 4, 5... 个顶点 (凸多边形)
+            // 我们将其拆解为 (v0, v1, v2), (v0, v2, v3)...
+            for (size_t k = 1; k < polygon.size() - 1; ++k) {
+                rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
             }
         }
+        
         LOG_INFO("Draw Finished.");
     }
 
@@ -963,45 +1053,28 @@ void drawCubeSample() {
     ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, STRIDE, (void*)(6*sizeof(float)));   ctx.glEnableVertexAttribArray(2);
 
     // 4. 生成位置和大小
-    float rX = 10;
-    float rY = 10;
-    float rZ = -20;
+    float rX = 0;
+    float rY = 0;
+    float rZ = -1;
     float rS = 1;
     
     LOG_INFO("Generated Cube at (" + std::to_string(rX) + ", " + std::to_string(rY) + ", " + std::to_string(rZ) + ") Scale: " + std::to_string(rS));
 
     // 5. 计算矩阵 (MVP = Projection * View * Model)
+    // Model: 先缩放，再平移
+    Mat4 model = Mat4::Translate(rX, rY, rZ) * Mat4::Scale(rS, rS, rS);
     // View: 简单的 Identity (相机在原点，看向 -Z)
     Mat4 view = Mat4::Identity();
-    // Projection: 透视投影 (FOV 60度)
-    // 必须使用透视投影，否则 Z 轴的深度无法体现近大远小的效果
     float aspect = (float)windowWidth / (float)windowHeight;
-    Mat4 proj = Mat4::Perspective(60.0f, aspect, 0.1f, 100.0f); // 60 deg FOV
-
+    Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f); // 60 deg FOV
+    // MVP = P * V * M (注意乘法顺序，通常是反向应用)
+    Mat4 mvp = proj * view * model;
     // 6. Draw
     ctx.glUseProgram(progID);
     ctx.glUniform1i(uTex, 0);
+    ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> distPosXY(-20.0f, 20.0f); // 屏幕中央附近
-    std::uniform_real_distribution<> distPosZ(-10.0f, -20.0f); // 相机后方 10 到 20 单位
-    std::uniform_real_distribution<> distScale(1.0f, 2.0f);  // 缩放
-
-    for(int i = 0;i < 20; i++)
-    {
-        rX += distPosXY(gen);
-        rY += distPosXY(gen);
-        rZ += distPosZ(gen);
-        rS = distScale(gen);
-
-        // Model: 先缩放，再平移
-        Mat4 model = Mat4::Translate(rX, rY, rZ) * Mat4::Scale(rS, rS, rS);
-        // MVP = P * V * M (注意乘法顺序，通常是反向应用)
-        Mat4 mvp = proj * view * model;
-        ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
-        ctx.glDrawElements(GL_TRIANGLES, 36, 0, (void*)0); // 36 indices
-    }
+    ctx.glDrawElements(GL_TRIANGLES, 36, 0, (void*)0); // 36 indices
     
     ctx.savePPM("result_random_cube.ppm");
 }
