@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(tinygl)
+project(tinygl CXX)
 
 # 设置 C 标准
 set(CMAKE_CXX_STANDARD 11)
@@ -12,7 +12,7 @@ if(NOT DEFINED VC_PLATFORM)
 endif()
 
 # 自动扫描 demos 目录下的所有 .c 文件
-file(GLOB DEMO_FILES "demos/*.c")
+file(GLOB DEMO_FILES "demos/*.cpp")
 # 提取文件名（去掉路径和扩展名）作为案例名称
 set(DEMOS "")
 foreach(DEMO_FILE ${DEMO_FILES})

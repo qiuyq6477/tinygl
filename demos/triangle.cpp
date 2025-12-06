@@ -1,4 +1,4 @@
-#include "../vc/vc.c"
+#include "../vc/vc.cpp"
 
 #define WIDTH 960
 #define HEIGHT 720
@@ -28,6 +28,17 @@ static inline void rotate_point(float *x, float *y)
     float dir = atan2f(dy, dx) + triangle_angle;
     *x = cosf(dir)*mag + WIDTH/2;
     *y = sinf(dir)*mag + HEIGHT/2;
+}
+
+void vc_init(void)
+{
+    // TODO: initialization logic
+}
+
+void vc_input(SDL_Event *event)
+{
+    // TODO: input handling logic
+    (void) event;
 }
 
 Olivec_Canvas vc_render(float dt)

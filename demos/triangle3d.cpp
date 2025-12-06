@@ -1,4 +1,4 @@
-#include "../vc/vc.c"
+#include "../vc/vc.cpp"
 
 #define WIDTH 960
 #define HEIGHT 720
@@ -49,6 +49,9 @@ static float global_time = 1.0;
 
 float sinf(float);
 float cosf(float);
+
+void vc_init(void) {}
+void vc_input(SDL_Event *event) {(void)event;}
 
 Olivec_Canvas vc_render(float dt)
 {

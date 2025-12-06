@@ -256,32 +256,7 @@ static char olivec_default_glyphs[128][OLIVEC_DEFAULT_FONT_HEIGHT][OLIVEC_DEFAUL
         {1, 1, 1, 1, 0},
     },
 
-    ['A'] = {0},
-    ['B'] = {0},
-    ['C'] = {0},
-    ['D'] = {0},
-    ['E'] = {0},
-    ['F'] = {0},
-    ['G'] = {0},
-    ['H'] = {0},
-    ['I'] = {0},
-    ['J'] = {0},
-    ['K'] = {0},
-    ['L'] = {0},
-    ['M'] = {0},
-    ['N'] = {0},
-    ['O'] = {0},
-    ['P'] = {0},
-    ['Q'] = {0},
-    ['R'] = {0},
-    ['S'] = {0},
-    ['T'] = {0},
-    ['U'] = {0},
-    ['V'] = {0},
-    ['W'] = {0},
-    ['X'] = {0},
-    ['Y'] = {0},
-    ['Z'] = {0},
+
 
     ['0'] = {
         {0, 1, 1, 0, 0},
@@ -409,7 +384,7 @@ typedef struct {
     size_t stride;
 } Olivec_Canvas;
 
-#define OLIVEC_CANVAS_NULL ((Olivec_Canvas) {0})
+#define OLIVEC_CANVAS_NULL (Olivec_Canvas{})
 #define OLIVEC_PIXEL(oc, x, y) (oc).pixels[(y)*(oc).stride + (x)]
 
 OLIVECDEF Olivec_Canvas olivec_canvas(uint32_t *pixels, size_t width, size_t height, size_t stride);
@@ -516,7 +491,7 @@ OLIVECDEF bool olivec_normalize_rect(int x, int y, int w, int h,
 
 OLIVECDEF Olivec_Canvas olivec_subcanvas(Olivec_Canvas oc, int x, int y, int w, int h)
 {
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     if (!olivec_normalize_rect(x, y, w, h, oc.width, oc.height, &nr)) return OLIVEC_CANVAS_NULL;
     oc.pixels = &OLIVEC_PIXEL(oc, nr.x1, nr.y1);
     oc.width = nr.x2 - nr.x1 + 1;
@@ -562,7 +537,7 @@ OLIVECDEF void olivec_fill(Olivec_Canvas oc, uint32_t color)
 
 OLIVECDEF void olivec_rect(Olivec_Canvas oc, int x, int y, int w, int h, uint32_t color)
 {
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     if (!olivec_normalize_rect(x, y, w, h, oc.width, oc.height, &nr)) return;
     for (int x = nr.x1; x <= nr.x2; ++x) {
         for (int y = nr.y1; y <= nr.y2; ++y) {
@@ -591,7 +566,7 @@ OLIVECDEF void olivec_frame(Olivec_Canvas oc, int x, int y, int w, int h, size_t
 
 OLIVECDEF void olivec_ellipse(Olivec_Canvas oc, int cx, int cy, int rx, int ry, uint32_t color)
 {
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     int rx1 = rx + OLIVEC_SIGN(int, rx);
     int ry1 = ry + OLIVEC_SIGN(int, ry);
     if (!olivec_normalize_rect(cx - rx1, cy - ry1, 2*rx1, 2*ry1, oc.width, oc.height, &nr)) return;
@@ -611,7 +586,7 @@ OLIVECDEF void olivec_ellipse(Olivec_Canvas oc, int cx, int cy, int rx, int ry, 
 
 OLIVECDEF void olivec_circle(Olivec_Canvas oc, int cx, int cy, int r, uint32_t color)
 {
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     int r1 = r + OLIVEC_SIGN(int, r);
     if (!olivec_normalize_rect(cx - r1, cy - r1, 2*r1, 2*r1, oc.width, oc.height, &nr)) return;
 
@@ -913,7 +888,7 @@ OLIVECDEF void olivec_sprite_blend(Olivec_Canvas oc, int x, int y, int w, int h,
     if (sprite.width == 0) return;
     if (sprite.height == 0) return;
 
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     if (!olivec_normalize_rect(x, y, w, h, oc.width, oc.height, &nr)) return;
 
     int xa = nr.ox1;
@@ -936,7 +911,7 @@ OLIVECDEF void olivec_sprite_copy(Olivec_Canvas oc, int x, int y, int w, int h, 
 
     // TODO: consider introducing flip parameter instead of relying on negative width and height
     // Similar to how SDL_RenderCopyEx does that
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     if (!olivec_normalize_rect(x, y, w, h, oc.width, oc.height, &nr)) return;
 
     int xa = nr.ox1;
@@ -1000,7 +975,7 @@ OLIVECDEF void olivec_sprite_copy_bilinear(Olivec_Canvas oc, int x, int y, int w
     if (w <= 0) return;
     if (h <= 0) return;
 
-    Olivec_Normalized_Rect nr = {0};
+    Olivec_Normalized_Rect nr {};
     if (!olivec_normalize_rect(x, y, w, h, oc.width, oc.height, &nr)) return;
 
     for (int y = nr.y1; y <= nr.y2; ++y) {

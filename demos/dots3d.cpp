@@ -1,4 +1,4 @@
-#include "../vc/vc.c"
+#include "../vc/vc.cpp"
 
 float sqrtf(float x);
 float atan2f(float y, float x);
@@ -19,6 +19,9 @@ float cosf(float x);
 
 static uint32_t pixels[WIDTH*HEIGHT];
 static float angle = 0;
+
+void vc_init(void) {}
+void vc_input(SDL_Event *event) { (void)event; }
 
 Olivec_Canvas vc_render(float dt)
 {

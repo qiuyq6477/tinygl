@@ -30,9 +30,15 @@
 // ```
 
 #define OLIVEC_IMPLEMENTATION
-#include "olive.c"
 
-Olivec_Canvas vc_render(float dt);
+#include "olive.cpp"
+#include <SDL2/SDL.h> // Moved to top for SDL_Event definition
+// Declare functions that the demo is expected to provide
+extern "C" {
+    void vc_init(void);
+    void vc_input(SDL_Event *event);
+    Olivec_Canvas vc_render(float dt);
+}
 
 #ifndef VC_PLATFORM
 #error "Please define VC_PLATFORM macro"
@@ -77,53 +83,56 @@ int main(void)
         if (window == NULL) return_defer(1);
 
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-        if (renderer == NULL) return_defer(1);
-
-        Uint32 prev = SDL_GetTicks();
-        bool pause = false;
-        for (;;) {
-            // Compute Delta Time
-            Uint32 curr = SDL_GetTicks();
-            float dt = (curr - prev)/1000.f;
-            prev = curr;
-
-            // Flush the events
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-                switch (event.type) {
-                case SDL_QUIT: {
-                    return_defer(0);
-                } break;
-                case SDL_KEYDOWN: {
-                    if (event.key.keysym.sym == SDLK_SPACE) pause = !pause;
-                } break;
-                }
-            }
-
-            if (!pause) {
-                // Render the texture
-                Olivec_Canvas oc_src = vc_render(dt);
-                if (oc_src.width != vc_sdl_actual_width || oc_src.height != vc_sdl_actual_height) {
-                    if (!vc_sdl_resize_texture(renderer, oc_src.width, oc_src.height)) return_defer(1);
-                    SDL_SetWindowSize(window, vc_sdl_actual_width, vc_sdl_actual_height);
-                }
+                if (renderer == NULL) return_defer(1);
+        
+                vc_init();
                 
-                // Ensure texture is created and has valid dimensions
-                if (vc_sdl_texture == NULL || vc_sdl_actual_width == 0 || vc_sdl_actual_height == 0) {
-                    continue;  // Skip this frame if texture is not ready
-                }
-                
-                SDL_Rect window_rect = {0, 0, (int)vc_sdl_actual_width, (int)vc_sdl_actual_height};
-                void *pixels_dst;
-                int pitch;
-                if (SDL_LockTexture(vc_sdl_texture, &window_rect, &pixels_dst, &pitch) < 0) return_defer(1);
-                for (size_t y = 0; y < vc_sdl_actual_height; ++y) {
-                    // TODO: it would be cool if Olivec_Canvas supported pitch in bytes instead of pixels
-                    // It would be more flexible and we could draw on the locked texture memory directly
-                    memcpy((char*)pixels_dst + y*pitch, oc_src.pixels + y*vc_sdl_actual_width, vc_sdl_actual_width*sizeof(uint32_t));
-                }
-                SDL_UnlockTexture(vc_sdl_texture);
-            }
+                Uint32 prev = SDL_GetTicks();
+                bool pause = false;
+                for (;;) {
+                    // Compute Delta Time
+                    Uint32 curr = SDL_GetTicks();
+                    float dt = (curr - prev)/1000.f;
+                    prev = curr;
+        
+                    // Flush the events
+                    SDL_Event event;
+                    while (SDL_PollEvent(&event)) {
+                        vc_input(&event);
+                        switch (event.type) {
+                        case SDL_QUIT: {
+                            return_defer(0);
+                        } break;
+                        case SDL_KEYDOWN: {
+                            if (event.key.keysym.sym == SDLK_SPACE) pause = !pause;
+                        } break;
+                        }
+                    }
+        
+                    if (!pause) {
+                        // Render the texture
+                        Olivec_Canvas oc_src = vc_render(dt);
+                        if (oc_src.width != vc_sdl_actual_width || oc_src.height != vc_sdl_actual_height) {
+                            if (!vc_sdl_resize_texture(renderer, oc_src.width, oc_src.height)) return_defer(1);
+                            SDL_SetWindowSize(window, vc_sdl_actual_width, vc_sdl_actual_height);
+                        }
+                        
+                        // Ensure texture is created and has valid dimensions
+                        if (vc_sdl_texture == NULL || vc_sdl_actual_width == 0 || vc_sdl_actual_height == 0) {
+                            continue;  // Skip this frame if texture is not ready
+                        }
+                        
+                        SDL_Rect window_rect = {0, 0, (int)vc_sdl_actual_width, (int)vc_sdl_actual_height};
+                        void *pixels_dst;
+                        int pitch;
+                        if (SDL_LockTexture(vc_sdl_texture, &window_rect, &pixels_dst, &pitch) < 0) return_defer(1);
+                        for (size_t y = 0; y < vc_sdl_actual_height; ++y) {
+                            // TODO: it would be cool if Olivec_Canvas supported pitch in bytes instead of pixels
+                            // It would be more flexible and we could draw on the locked texture memory directly
+                            memcpy((char*)pixels_dst + y*pitch, oc_src.pixels + y*vc_sdl_actual_width, vc_sdl_actual_width*sizeof(uint32_t));
+                        }
+                        SDL_UnlockTexture(vc_sdl_texture);
+                    }
 
             // Display the texture
             if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) < 0) return_defer(1);
