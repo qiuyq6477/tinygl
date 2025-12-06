@@ -23,6 +23,36 @@
 
 
 // ==========================================
+// 0. 基础容器 (Basic Containers)
+// ==========================================
+template<typename T, size_t Capacity>
+struct StaticVector {
+    T data[Capacity];
+    size_t count = 0;
+
+    void push_back(const T& val) {
+        if (count < Capacity) {
+            data[count++] = val;
+        }
+    }
+
+    void clear() { count = 0; }
+    bool empty() const { return count == 0; }
+    size_t size() const { return count; }
+
+    T& operator[](size_t i) { return data[i]; }
+    const T& operator[](size_t i) const { return data[i]; }
+
+    T* begin() { return data; }
+    T* end() { return data + count; }
+    const T* begin() const { return data; }
+    const T* end() const { return data + count; }
+    
+    T& back() { return data[count - 1]; }
+    const T& back() const { return data[count - 1]; }
+};
+
+// ==========================================
 // 1. 日志系统 (Logging System)
 // ==========================================
 enum LogLevel { INFO, WARN, ERRR };
@@ -39,7 +69,7 @@ public:
     }
 };
 
-#define LOG_INFO(msg) Logger::log(INFO, __FUNCTION__, msg)
+#define LOG_INFO(msg) // Logger::log(INFO, __FUNCTION__, msg)
 #define LOG_WARN(msg) Logger::log(WARN, __FUNCTION__, msg)
 #define LOG_ERROR(msg) Logger::log(ERRR, __FUNCTION__, msg)
 
@@ -523,9 +553,14 @@ private:
     
     std::vector<uint32_t> colorBuffer;
     std::vector<float> depthBuffer;
+    std::vector<uint32_t> m_indexCache;
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
 public:
+    // Fast-access storage for MVP matrix to allow shaders to read it directly via pointer
+    // avoiding both hash lookups and heap allocations for lambda captures.
+    Mat4 currMVP;
+
     SoftRenderContext(GLsizei width, GLsizei height) {
         fbWidth = width;
         fbHeight = height;
@@ -796,8 +831,8 @@ public:
     // Sutherland-Hodgman 裁剪算法的核心：针对单个平面进行裁剪
     // inputVerts: 输入的顶点列表
     // planeID: 0=Left, 1=Right, 2=Bottom, 3=Top, 4=Near, 5=Far
-    std::vector<VOut> clipAgainstPlane(const std::vector<VOut>& inputVerts, int planeID) {
-        std::vector<VOut> outputVerts;
+    StaticVector<VOut, 16> clipAgainstPlane(const StaticVector<VOut, 16>& inputVerts, int planeID) {
+        StaticVector<VOut, 16> outputVerts;
         if (inputVerts.empty()) return outputVerts;
 
         // Lambda: 判断点是否在平面内 (Inside Test)
@@ -883,7 +918,7 @@ public:
     }
 
     // Clips a line against the canonical view volume. Returns the clipped vertices.
-    std::vector<VOut> clipLine(const VOut& v0, const VOut& v1) {
+    StaticVector<VOut, 16> clipLine(const VOut& v0, const VOut& v1) {
         float t0 = 0.0f, t1 = 1.0f;
         Vec4 d = v1.pos - v0.pos;
 
@@ -895,7 +930,7 @@ public:
         if (!clipLineAxis( d.z + d.w, -(v0.pos.z + v0.pos.w), t0, t1)) return {}; // Near
         if (!clipLineAxis(-d.z + d.w,  (v0.pos.z - v0.pos.w), t0, t1)) return {}; // Far
 
-        std::vector<VOut> clippedVerts;
+        StaticVector<VOut, 16> clippedVerts;
         if (t0 > 0.0f) {
             clippedVerts.push_back(lerpVertex(v0, v1, t0));
         } else {
@@ -1065,15 +1100,15 @@ public:
     }
 
     // --- Rasterizer ---
-    std::vector<uint32_t> readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
-        std::vector<uint32_t> int_indices;
-        int_indices.reserve(count);
+    const std::vector<uint32_t>& readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
+        m_indexCache.clear();
+        m_indexCache.reserve(count);
         size_t idxOffset = reinterpret_cast<size_t>(indices_ptr);
         
         VertexArrayObject& vao = getVAO();
         if (vao.elementBufferID == 0) {
             LOG_ERROR("No EBO bound to current VAO for glDrawElements");
-            return {};
+            return m_indexCache;
         }
 
         switch (type) {
@@ -1081,7 +1116,7 @@ public:
                 for(int i=0; i<count; ++i) {
                     uint32_t index;
                     buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*sizeof(uint32_t), index);
-                    int_indices.push_back(index);
+                    m_indexCache.push_back(index);
                 }
                 break;
             }
@@ -1089,7 +1124,7 @@ public:
                 for(int i=0; i<count; ++i) {
                     uint16_t index;
                     buffers[vao.elementBufferID].readSafe<uint16_t>(idxOffset + i*sizeof(uint16_t), index);
-                    int_indices.push_back(static_cast<uint32_t>(index));
+                    m_indexCache.push_back(static_cast<uint32_t>(index));
                 }
                 break;
             }
@@ -1097,15 +1132,15 @@ public:
                  for(int i=0; i<count; ++i) {
                     uint8_t index;
                     buffers[vao.elementBufferID].readSafe<uint8_t>(idxOffset + i*sizeof(uint8_t), index);
-                    int_indices.push_back(static_cast<uint32_t>(index));
+                    m_indexCache.push_back(static_cast<uint32_t>(index));
                 }
                 break;
             }
             default:
                 LOG_ERROR("Unsupported index type in glDrawElements");
-                return {};
+                return m_indexCache;
         }
-        return int_indices;
+        return m_indexCache;
     }
 
 
@@ -1133,7 +1168,7 @@ public:
             }
 
             // Step 2: Line Clipping
-            std::vector<VOut> clipped = clipLine(v0, v1);
+            StaticVector<VOut, 16> clipped = clipLine(v0, v1);
 
             if (!clipped.empty()) {
                 // Step 3: Transform and Rasterize
@@ -1142,7 +1177,6 @@ public:
                 rasterizeLine(clipped[0], clipped[1]);
             }
         }
-        LOG_INFO("Line processing finished.");
     }
 
     void processPoints(const std::vector<uint32_t>& indices, GLsizei count) {
@@ -1173,7 +1207,6 @@ public:
                 rasterizePoint(v);
             }
         }
-        LOG_INFO("Point processing finished.");
     }
 
     void rasterizeLine(const VOut& v0, const VOut& v1) {
@@ -1294,7 +1327,7 @@ public:
         for(GLsizei i = 0; i < count; i += 3) {
             if (i + 2 >= count) break;
 
-            std::vector<VOut> triangle(3);
+            StaticVector<VOut, 16> triangle;
             
             // Step 1: Vertex Processing
             for (int k = 0; k < 3; ++k) {
@@ -1305,16 +1338,18 @@ public:
                 }
                 
                 ShaderContext ctx;
+                VOut v;
                 // 注意：VS 输出的是 Clip Space Position (未除 w)
-                triangle[k].pos = prog->vertexShader(ins, ctx);
-                triangle[k].ctx = ctx;
+                v.pos = prog->vertexShader(ins, ctx);
+                v.ctx = ctx;
+                triangle.push_back(v);
             }
 
             // Step 2: Clipping (裁剪)
             // 将三角形依次通过 6 个平面的裁剪
             // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
             // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
-            std::vector<VOut> polygon = triangle;
+            StaticVector<VOut, 16> polygon = triangle;
             
             // 依次针对 6 个平面裁剪
             for (int p = 0; p < 6; ++p) {
@@ -1337,7 +1372,6 @@ public:
                 rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
             }
         }
-        LOG_INFO("Triangle processing finished.");
     }
 
     Vec4 fetchAttribute(const VertexAttribState& attr, int idx) {
@@ -1391,7 +1425,7 @@ public:
             // 如果剩余顶点不足一个三角形则退出
             if (i + 2 >= count) break;
 
-            std::vector<VOut> triangle(3);
+            StaticVector<VOut, 16> triangle;
             
             // Step 1: Vertex Processing
             for (int k=0; k<3; ++k) {
@@ -1404,12 +1438,14 @@ public:
                 }
                 
                 ShaderContext ctx;
-                triangle[k].pos = prog->vertexShader(ins, ctx);
-                triangle[k].ctx = ctx;
+                VOut v;
+                v.pos = prog->vertexShader(ins, ctx);
+                v.ctx = ctx;
+                triangle.push_back(v);
             }
 
             // Step 2: Clipping (复制自 glDrawElements)
-            std::vector<VOut> polygon = triangle;
+            StaticVector<VOut, 16> polygon = triangle;
             for (int p = 0; p < 6; ++p) {
                 polygon = clipAgainstPlane(polygon, p);
                 if (polygon.empty()) break;
@@ -1430,7 +1466,7 @@ public:
         ProgramObject* prog = getCurrentProgram();
         if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
         
-        std::vector<uint32_t> idxCache = readIndicesAsInts(count, type, indices);
+        const std::vector<uint32_t>& idxCache = readIndicesAsInts(count, type, indices);
         if (idxCache.empty()) return;
 
         switch (mode) {
@@ -1462,329 +1498,3 @@ public:
         LOG_INFO("Saved PPM to " + std::string(filename));
     }
 };
-
-
-void glDrawElementsSample()
-{
-    SoftRenderContext ctx(800, 600);
-
-    GLuint progID = ctx.glCreateProgram();
-    GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
-    GLint uTex = ctx.glGetUniformLocation(progID, "uTex");
-
-    // Vertex Shader: 增加对 Color (索引1) 的处理，UV 移至索引 2
-    ctx.setVertexShader(progID, [uMVP, &ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        Vec4 pos   = attribs[0]; // Loc 0: 位置
-        Vec4 color = attribs[1]; // Loc 1: 颜色 (新增)
-        Vec4 uv    = attribs[2]; // Loc 2: UV (原 Loc 1)
-
-        outCtx.varyings[0] = uv;    // 传递 UV
-        outCtx.varyings[1] = color; // 传递 颜色 (插值)
-
-        Mat4 mvp = Mat4::Identity();
-        if (auto* p = ctx.getCurrentProgram()) {
-             if (p->uniforms.count(uMVP)) std::memcpy(mvp.m, p->uniforms[uMVP].data.mat, 16*sizeof(float));
-        }
-        pos.w = 1.0f;
-        return mvp * pos;
-    });
-
-    // Fragment Shader: 将插值后的颜色与纹理相乘
-    ctx.setFragmentShader(progID, [uTex, &ctx](const ShaderContext& inCtx) -> Vec4 {
-        Vec4 uv    = inCtx.varyings[0];
-        Vec4 color = inCtx.varyings[1]; // 获取插值后的顶点颜色
-
-        int unit = 0;
-        if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
-        
-        Vec4 texColor = {1, 1, 1, 1};
-        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(uv.x, uv.y);
-
-        // 核心修改: 顶点颜色 * 纹理颜色
-        return color * texColor; 
-    });
-
-    GLuint tex;
-    ctx.glGenTextures(1, &tex);
-    ctx.glActiveTexture(GL_TEXTURE0);
-    ctx.glBindTexture(GL_TEXTURE_2D, tex);
-    std::vector<uint32_t> pixels(256*256);
-    for(int y=0; y<256; ++y) for(int x=0; x<256; ++x) {
-        pixels[y*256+x] = (((x/32)+(y/32))%2) ? COLOR_WHITE : COLOR_GREY;
-    }
-    ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
-    float vertices[] = {
-        // Position (XYZ)     // Color (RGB)       // UV (UV)
-        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,    0.0f, 0.0f, // 左下 (红)
-         0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,    1.0f, 0.0f, // 右下 (绿)
-         0.5f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f,    1.0f, 1.0f, // 右上 (蓝)
-        -0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 0.0f,    0.0f, 1.0f  // 左上 (黄)
-    };
-    uint32_t indices[] = { 0, 1, 2, 2, 3, 0 };
-
-    GLuint vao, vbo, ebo;
-    ctx.glGenVertexArrays(1, &vao);
-    ctx.glBindVertexArray(vao);
-    ctx.glGenBuffers(1, &vbo);
-    ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    ctx.glGenBuffers(1, &ebo);
-    ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    // 计算新的步长: 8个float * 4字节 = 32字节
-    GLsizei stride = 8 * sizeof(float);
-
-    // 属性 0: Position (偏移 0)
-    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)0);
-    ctx.glEnableVertexAttribArray(0);
-
-    // 属性 1: Color (新增，偏移 3 * float)
-    ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, stride, (void*)(3 * sizeof(float)));
-    ctx.glEnableVertexAttribArray(1);
-
-    // 属性 2: UV (原属性1，偏移 6 * float)
-    ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6 * sizeof(float)));
-    ctx.glEnableVertexAttribArray(2);
-
-    ctx.glUseProgram(progID);
-    ctx.glUniform1i(uTex, 0);
-    Mat4 mvp = Mat4::Identity(); mvp.m[0]=1.5f; mvp.m[5]=1.5f;
-    ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
-
-    ctx.glDrawElements(GL_TRIANGLES, 6, 0, (void*)0);
-    ctx.savePPM("result.ppm");
-}
-
-void glDrawArraySample()
-{
-    SoftRenderContext ctx(800, 600);
-
-    GLuint progID = ctx.glCreateProgram();
-    GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
-    GLint uTex = ctx.glGetUniformLocation(progID, "uTex");
-
-    // Vertex Shader: 增加对 Color (索引1) 的处理，UV 移至索引 2
-    ctx.setVertexShader(progID, [uMVP, &ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        Vec4 pos   = attribs[0]; // Loc 0: 位置
-        Vec4 color = attribs[1]; // Loc 1: 颜色 (新增)
-        Vec4 uv    = attribs[2]; // Loc 2: UV (原 Loc 1)
-
-        outCtx.varyings[0] = uv;    // 传递 UV
-        outCtx.varyings[1] = color; // 传递 颜色 (插值)
-
-        Mat4 mvp = Mat4::Identity();
-        if (auto* p = ctx.getCurrentProgram()) {
-             if (p->uniforms.count(uMVP)) std::memcpy(mvp.m, p->uniforms[uMVP].data.mat, 16*sizeof(float));
-        }
-        pos.w = 1.0f;
-        return mvp * pos;
-    });
-
-    // Fragment Shader: 将插值后的颜色与纹理相乘
-    ctx.setFragmentShader(progID, [uTex, &ctx](const ShaderContext& inCtx) -> Vec4 {
-        Vec4 uv    = inCtx.varyings[0];
-        Vec4 color = inCtx.varyings[1]; // 获取插值后的顶点颜色
-
-        int unit = 0;
-        if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
-        
-        Vec4 texColor = {1, 1, 1, 1};
-        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(uv.x, uv.y);
-
-        // 核心修改: 顶点颜色 * 纹理颜色
-        return color * texColor; 
-    });
-
-    GLuint tex;
-    ctx.glGenTextures(1, &tex);
-    ctx.glActiveTexture(GL_TEXTURE0);
-    ctx.glBindTexture(GL_TEXTURE_2D, tex);
-    std::vector<uint32_t> pixels(256*256);
-    for(int y=0; y<256; ++y) for(int x=0; x<256; ++x) {
-        pixels[y*256+x] = (((x/32)+(y/32))%2) ? COLOR_WHITE : COLOR_GREY;
-    }
-    ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    
-    // --- Vertex Data (VBO Only / Non-Indexed) ---
-    // 为了画一个矩形，我们需要2个三角形。
-    // 在没有 EBO 的情况下，我们需要手动列出所有 6 个顶点。
-    // 顺序: Tri 1 (BL, BR, TR), Tri 2 (TR, TL, BL)
-    float vertices[] = {
-        // Pos(3)             Color(3)           UV(2)
-        // Triangle 1
-        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,  0.0f, 0.0f, // BL (Red)
-         0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,  1.0f, 0.0f, // BR (Green)
-         0.5f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f,  1.0f, 1.0f, // TR (Blue)
-
-        // Triangle 2
-         0.5f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f,  1.0f, 1.0f, // TR (Blue)
-        -0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 0.0f,  0.0f, 1.0f, // TL (Yellow)
-        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,  0.0f, 0.0f  // BL (Red)
-    };
-
-    // --- Setup Buffers ---
-    // 注意：不再创建 EBO
-    GLuint vao, vbo;
-    ctx.glGenVertexArrays(1, &vao); ctx.glBindVertexArray(vao);
-    ctx.glGenBuffers(1, &vbo); ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // --- Configure Attributes ---
-    GLsizei stride = 8 * sizeof(float);
-    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)0);                   ctx.glEnableVertexAttribArray(0);
-    ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, stride, (void*)(3*sizeof(float)));   ctx.glEnableVertexAttribArray(1);
-    ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6*sizeof(float)));   ctx.glEnableVertexAttribArray(2);
-
-    // --- Draw ---
-    ctx.glUseProgram(progID);
-    ctx.glUniform1i(uTex, 0);
-    Mat4 mvp = Mat4::Identity(); mvp.m[0]=1.5f; mvp.m[5]=1.5f;
-    ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
-
-    // 使用 glDrawArrays 绘制 6 个顶点
-    ctx.glDrawArrays(GL_TRIANGLES, 0, 6);
-    
-    ctx.savePPM("result_arrays.ppm");
-}
-
-
-void drawCubeSample() {
-    int windowWidth = 800, windowHeight = 600;
-    SoftRenderContext ctx(windowWidth, windowHeight);
-    GLuint progID = ctx.glCreateProgram();
-    GLint uMVP = ctx.glGetUniformLocation(progID, "uMVP");
-    GLint uTex = ctx.glGetUniformLocation(progID, "uTex");
-
-    // 1. 设置 Shader (逻辑保持不变，依赖传入的 MVP 矩阵)
-    ctx.setVertexShader(progID, [uMVP, &ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        outCtx.varyings[0] = attribs[2]; // UV
-        outCtx.varyings[1] = attribs[1]; // Color
-        
-        Mat4 mvp = Mat4::Identity();
-        if (auto* p = ctx.getCurrentProgram()) {
-             if (p->uniforms.count(uMVP)) std::memcpy(mvp.m, p->uniforms[uMVP].data.mat, 16*sizeof(float));
-        }
-        Vec4 pos = attribs[0]; 
-        pos.w = 1.0f;
-        return mvp * pos; // MVP 变换
-    });
-
-    ctx.setFragmentShader(progID, [uTex, &ctx](const ShaderContext& inCtx) -> Vec4 {
-        int unit = 0;
-        if (auto* p = ctx.getCurrentProgram()) if (p->uniforms.count(uTex)) unit = p->uniforms[uTex].data.i;
-        Vec4 texColor = {1,1,1,1};
-        if (auto* tex = ctx.getTexture(unit)) texColor = tex->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.lod);
-        // 混合顶点颜色和纹理
-        return inCtx.varyings[1] * texColor;
-    });
-
-    // 2. 生成简单的纹理 (白/蓝 格子)
-    GLuint tex; ctx.glGenTextures(1, &tex); ctx.glActiveTexture(GL_TEXTURE0); ctx.glBindTexture(GL_TEXTURE_2D, tex);
-    std::vector<uint32_t> pixels(256 * 256);
-    for(int i=0; i<256*256; i++) 
-        pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; // White / Black
-    ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    // 设置纹理参数
-    ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    
-    // 3. 构建 Cube 数据 (修正版：24个顶点，标准UV映射)
-    // 为了让每个面都有正确的纹理映射，每个面必须有独立的顶点数据。
-    // 6 个面 * 4 个顶点 = 24 个顶点
-    float cubeVertices[] = {
-        //   x,     y,    z,       r, g, b,       u, v
-        // 1. Front Face (Z = 1)
-        -1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   1.0f, 1.0f,
-        -1.0f,  1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   0.0f, 1.0f,
-
-        // 2. Back Face (Z = -1)
-         1.0f, -1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   0.0f, 0.0f,
-        -1.0f, -1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   1.0f, 0.0f,
-        -1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   1.0f, 1.0f,
-         1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   0.0f, 1.0f,
-
-        // 3. Left Face (X = -1)
-        -1.0f, -1.0f, -1.0f,    0.0f, 0.0f, 1.0f,   0.0f, 0.0f,
-        -1.0f, -1.0f,  1.0f,    0.0f, 0.0f, 1.0f,   1.0f, 0.0f,
-        -1.0f,  1.0f,  1.0f,    0.0f, 0.0f, 1.0f,   1.0f, 1.0f,
-        -1.0f,  1.0f, -1.0f,    0.0f, 0.0f, 1.0f,   0.0f, 1.0f,
-
-        // 4. Right Face (X = 1)
-         1.0f, -1.0f,  1.0f,    1.0f, 1.0f, 0.0f,   0.0f, 0.0f,
-         1.0f, -1.0f, -1.0f,    1.0f, 1.0f, 0.0f,   1.0f, 0.0f,
-         1.0f,  1.0f, -1.0f,    1.0f, 1.0f, 0.0f,   1.0f, 1.0f,
-         1.0f,  1.0f,  1.0f,    1.0f, 1.0f, 0.0f,   0.0f, 1.0f,
-
-        // 5. Top Face (Y = 1)
-        -1.0f,  1.0f,  1.0f,    0.0f, 1.0f, 1.0f,   0.0f, 0.0f,
-         1.0f,  1.0f,  1.0f,    0.0f, 1.0f, 1.0f,   1.0f, 0.0f,
-         1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 1.0f,   1.0f, 1.0f,
-        -1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 1.0f,   0.0f, 1.0f,
-
-        // 6. Bottom Face (Y = -1)
-        -1.0f, -1.0f, -1.0f,    1.0f, 0.0f, 1.0f,   0.0f, 0.0f,
-         1.0f, -1.0f, -1.0f,    1.0f, 0.0f, 1.0f,   1.0f, 0.0f,
-         1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 1.0f,   1.0f, 1.0f,
-        -1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 1.0f,   0.0f, 1.0f
-    };
-
-    // 索引也要更新，适配 24 个顶点
-    // 规律：每个面 4 个顶点，画 2 个三角形
-    uint32_t cubeIndices[36];
-    for(int i=0; i<6; i++) {
-        uint32_t base = i * 4;
-        // Tri 1
-        cubeIndices[i*6+0] = base + 0;
-        cubeIndices[i*6+1] = base + 1;
-        cubeIndices[i*6+2] = base + 2;
-        // Tri 2
-        cubeIndices[i*6+3] = base + 2;
-        cubeIndices[i*6+4] = base + 3;
-        cubeIndices[i*6+5] = base + 0;
-    }
-
-
-    // Upload Data
-    GLuint vao, vbo, ebo;
-    ctx.glGenVertexArrays(1, &vao); ctx.glBindVertexArray(vao);
-    ctx.glGenBuffers(1, &vbo); ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-    ctx.glGenBuffers(1, &ebo); ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
-
-    // Attributes
-    constexpr int STRIDE = 8 * sizeof(float);
-    ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, STRIDE, (void*)0);                   ctx.glEnableVertexAttribArray(0);
-    ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, STRIDE, (void*)(3*sizeof(float)));   ctx.glEnableVertexAttribArray(1);
-    ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, STRIDE, (void*)(6*sizeof(float)));   ctx.glEnableVertexAttribArray(2);
-
-    // 4. 生成位置和大小
-    float rX = 0;
-    float rY = 0;
-    float rZ = -30;
-    float rS = 1;
-    
-    LOG_INFO("Generated Cube at (" + std::to_string(rX) + ", " + std::to_string(rY) + ", " + std::to_string(rZ) + ") Scale: " + std::to_string(rS));
-
-    // 5. 计算矩阵 (MVP = Projection * View * Model)
-    // Model: 先缩放，再平移
-    Mat4 model = Mat4::Translate(rX, rY, rZ) * Mat4::Scale(rS, rS, rS);
-    // View: 简单的 Identity (相机在原点，看向 -Z)
-    Mat4 view = Mat4::Identity();
-    float aspect = (float)windowWidth / (float)windowHeight;
-    Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f); // 60 deg FOV
-    // MVP = P * V * M (注意乘法顺序，通常是反向应用)
-    Mat4 mvp = proj * view * model;
-    // 6. Draw
-    ctx.glUseProgram(progID);
-    ctx.glUniform1i(uTex, 0);
-    ctx.glUniformMatrix4fv(uMVP, 1, false, mvp.m);
-
-    ctx.glDrawElements(GL_TRIANGLES, 36, 0, (void*)0); // 36 indices
-    
-    ctx.savePPM("result_random_cube.ppm");
-}

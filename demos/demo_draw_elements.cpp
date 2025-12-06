@@ -25,21 +25,15 @@ void vc_init(void) {
     g_uMVP = g_ctx->glGetUniformLocation(g_progID, "uMVP");
     g_uTex = g_ctx->glGetUniformLocation(g_progID, "uTex");
 
-    // Vertex Shader: 增加对 Color (索引1) 的处理，UV 移至索引 2
-    g_ctx->setVertexShader(g_progID, [&](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        Vec4 pos   = attribs[0]; // Loc 0: 位置
-        Vec4 color = attribs[1]; // Loc 1: 颜色 (新增)
-        Vec4 uv    = attribs[2]; // Loc 2: UV (原 Loc 1)
-
-        outCtx.varyings[0] = uv;    // 传递 UV
-        outCtx.varyings[1] = color; // 传递 颜色 (插值)
-
-        Mat4 mvp = Mat4::Identity();
-        if (auto* p = g_ctx->getCurrentProgram()) {
-             if (p->uniforms.count(g_uMVP)) std::memcpy(mvp.m, p->uniforms[g_uMVP].data.mat, 16*sizeof(float));
-        }
+    // Vertex Shader: Use optimized currMVP access
+    SoftRenderContext* ctx = g_ctx.get();
+    g_ctx->setVertexShader(g_progID, [ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
+        outCtx.varyings[0] = attribs[2]; // UV
+        outCtx.varyings[1] = attribs[1]; // Color
+        
+        Vec4 pos = attribs[0]; 
         pos.w = 1.0f;
-        return mvp * pos;
+        return ctx->currMVP * pos; // Direct, zero-overhead access
     });
 
     // Fragment Shader: 将插值后的颜色与纹理相乘
@@ -124,11 +118,14 @@ Olivec_Canvas vc_render(float dt) {
 
     Mat4 mvp = proj * view * model; // P * V * M
 
-    // Update MVP uniform
+    // Update the fast-path MVP
+    g_ctx->currMVP = mvp;
+
+    // Update MVP uniform (Optional)
     g_ctx->glUniformMatrix4fv(g_uMVP, 1, false, mvp.m);
 
-    // Draw the rectangle using glDrawElements
-    g_ctx->glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void*)0);
+    // Draw the cube
+    g_ctx->glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);
 
     // Return the rendered buffer
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);

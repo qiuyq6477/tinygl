@@ -1,37 +1,18 @@
-# Gemini Project Analysis: tinygl
+# Gemini Project Analysis: tinygl Refactor
 
 ## Project Overview
 
-This repository contains two distinct software rendering projects created for educational purposes.
+This project is a C++20 software rendering framework. It consists of a minimal application framework and a header-only software rasterizer library that emulates a subset of the OpenGL 1.x API.
 
-### 1. C-based Graphics Framework (`vc/` + `demos/`)
+*   **Architecture**: The project is structured into a `vc` framework, a `tinygl.h` rendering library, and a collection of `demos`.
+    *   **`vc/vc.cpp`**: A minimal, C++-based application framework that provides an SDL window, an event loop, and callback hooks (`vc_init`, `vc_input`, `vc_render`) that the demos must implement.
+    *   **`vc/tinygl.h`**: A header-only C++ software rasterizer that implements a subset of the OpenGL API. It is included by the demos to perform 3D rendering.
+    *   **`demos/`**: A collection of C++ demo applications that showcase the features of the `tinygl.h` library.
+*   **Technology**: C++20, SDL
 
-This is a minimal, portable framework for creating simple 2D and 3D graphics demos.
+## Build System
 
-*   **Architecture**: It follows an "stb-style" single-file library approach. Demo applications (e.g., `demos/triangle.c`) are self-contained C files that directly include the application framework (`#include "../vc/vc.c"`). The framework file `vc.c` then includes the actual rendering logic from `olive.c`.
-*   **Framework (`vc/vc.c`)**: Provides a cross-platform abstraction layer for windowing (SDL, terminal) and the main application loop. It expects the demo to provide a `vc_render` function.
-*   **Graphics Library (`vc/olive.c`)**: A dependency-free, pure C software rendering library. It handles 2D primitives and, most importantly, perspective-correct texture mapping for 3D triangles.
-*   **Technology**: C, SDL (optional)
-
-### 2. C++ Software Rasterizer (`main.cpp`)
-
-This is a more advanced, standalone software rasterizer that emulates a subset of the legacy OpenGL 1.x fixed-function pipeline, but with a modern twist of using programmable shaders.
-
-*   **Architecture**: A single, large C++ file (`main.cpp`) that implements a full 3D rendering pipeline from scratch. It is completely independent of the C framework.
-*   **Features**:
-    *   Programmable pipeline using C++ lambdas for vertex and fragment shaders.
-    *   Sutherland-Hodgman algorithm for 3D clipping against the view frustum.
-    *   Advanced texturing with automatic mipmap generation, multiple filter modes (including trilinear), and per-pixel Level of Detail (LOD) calculation.
-*   **Output**: Renders the final image to a `.ppm` file, it does not open a window.
-*   **Technology**: C++
-
-## Building and Running
-
-The primary build system is CMake, but it **only** builds the C-based demos. The C++ file `main.cpp` must be compiled manually.
-
-### Building the C Demos
-
-The `CMakeLists.txt` is configured to find all `.c` files in the `demos/` directory and build each one as a separate executable.
+The project uses CMake to discover and build all `.cpp` files in the `demos/` directory as separate executables.
 
 ```bash
 # 1. Create a build directory
@@ -43,26 +24,27 @@ cmake ..
 # 3. Build all demos
 make
 ```
+Executables for each demo will be located in the `build/` directory.
 
-After building, the executables will be located in the `build/` directory (e.g., `build/triangle`, `build/triangle3d`).
+## `tinygl.h` Feature Set
 
-### Compiling and Running the C++ Rasterizer
+The renderer has been significantly enhanced to support a wider range of OpenGL features, including:
+*   **Primitives**: `GL_TRIANGLES`, `GL_LINES`, `GL_POINTS`.
+*   **Vertex Data**: `GL_FLOAT` and normalized `GL_UNSIGNED_BYTE` attributes.
+*   **Index Data**: `GL_UNSIGNED_INT`, `GL_UNSIGNED_SHORT`, `GL_UNSIGNED_BYTE` for `glDrawElements`.
+*   **Textures**: `glTexImage2D` supports `GL_RGB` and `GL_RGBA` source data formats, and mipmap generation.
+*   **Matrix Uniforms**: `glUniformMatrix4fv` supports matrix transposition.
 
-The `main.cpp` file is not part of the CMake build. It can be compiled with a C++ compiler like `g++` or `clang++`.
+## Gemini's Work
 
-```bash
-# 1. Compile the file (using g++)
-g++ main.cpp -o softrender -std=c++11
-
-# 2. Run the executable
-./softrender
-
-# 3. Check the output
-# This will create an 'output.ppm' file in the root directory.
-# You can open it with an image viewer that supports the PPM format.
-```
-
-## Development Conventions
-
-*   **C Framework**: The C code is written in a highly portable, C89-style. The architecture is intentionally simple, relying on file inclusion rather than a complex build system linkage, which is a common pattern for small, easy-to-distribute C libraries.
-*   **C++ Rasterizer**: The C++ code is self-contained and demonstrates a full rendering pipeline. It makes use of C++11 features like lambdas for modern API design. The code is heavily commented to explain the concepts being implemented.
+This project was significantly refactored and enhanced by the Gemini assistant. The work included:
+1.  **Migration to C++**: The original C framework and demos were migrated to C++20.
+2.  **Library Refactoring**: The C++ rasterizer logic was extracted from a single `main.cpp` file into the header-only `tinygl.h` library.
+3.  **Feature Implementation**: Many previously unimplemented OpenGL API parameters were formally implemented, resolving warnings and adding significant new features (e.g., multiple primitive types, index buffer types, texture formats).
+4.  **New Demos**: Several new demos were created to test and showcase the new features, including `demo_cube`, `demo_draw_array`, `demo_draw_elements`, and `demo_primitives`.
+5.  **Bug Fixing & Performance**:
+    *   Fixed numerous runtime errors and build issues.
+    *   Implemented `glClearColor` to fix a screen clearing bug.
+    *   Added an FPS counter to the framework for performance monitoring.
+    *   Addressed a significant performance degradation issue by re-architecting the rendering pipeline to avoid memory allocations in the main loop.
+6.  **Documentation**: Updated the `README.md` and this document to reflect the current state of the project.

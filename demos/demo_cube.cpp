@@ -34,17 +34,18 @@ void vc_init(void) {
     g_uMVP = g_ctx->glGetUniformLocation(g_progID, "uMVP");
     g_uTex = g_ctx->glGetUniformLocation(g_progID, "uTex");
 
-    g_ctx->setVertexShader(g_progID, [&](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
+    // ULTIMATE OPTIMIZATION: Set Vertex Shader ONCE.
+    // Capture the raw pointer 'ctx' (8 bytes), which fits in std::function's Small Buffer Optimization.
+    // This eliminates BOTH per-frame heap allocation (for lambda) AND per-vertex uniform lookup.
+    SoftRenderContext* ctx = g_ctx.get();
+    g_ctx->setVertexShader(g_progID, [ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
         outCtx.varyings[0] = attribs[2]; // UV
         outCtx.varyings[1] = attribs[1]; // Color
         
-        Mat4 mvp = Mat4::Identity();
-        if (auto* p = g_ctx->getCurrentProgram()) {
-             if (p->uniforms.count(g_uMVP)) std::memcpy(mvp.m, p->uniforms[g_uMVP].data.mat, 16*sizeof(float));
-        }
         Vec4 pos = attribs[0]; 
         pos.w = 1.0f;
-        return mvp * pos; // MVP 变换
+        // Direct access via pointer - fastest possible path
+        return ctx->currMVP * pos; 
     });
 
     g_ctx->setFragmentShader(g_progID, [&](const ShaderContext& inCtx) -> Vec4 {
@@ -168,8 +169,8 @@ Olivec_Canvas vc_render(float dt) {
 
     Mat4 mvp = proj * view * model; // P * V * M
 
-    // Update MVP uniform
-    g_ctx->glUniformMatrix4fv(g_uMVP, 1, false, mvp.m);
+    // Update the fast-path MVP
+    g_ctx->currMVP = mvp;
 
     // Draw the cube
     g_ctx->glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);

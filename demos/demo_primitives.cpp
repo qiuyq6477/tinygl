@@ -16,15 +16,14 @@ void vc_init(void) {
     g_progID = g_ctx->glCreateProgram();
     g_uMVP = g_ctx->glGetUniformLocation(g_progID, "uMVP");
 
-    g_ctx->setVertexShader(g_progID, [&](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
+    // Vertex Shader: Use optimized currMVP access
+    SoftRenderContext* ctx = g_ctx.get();
+    g_ctx->setVertexShader(g_progID, [ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
         outCtx.varyings[0] = attribs[1]; // Color
-        Mat4 mvp = Mat4::Identity();
-        if (auto* p = g_ctx->getCurrentProgram()) {
-             if (p->uniforms.count(g_uMVP)) std::memcpy(mvp.m, p->uniforms[g_uMVP].data.mat, 16*sizeof(float));
-        }
-        Vec4 pos = attribs[0];
+        
+        Vec4 pos = attribs[0]; 
         pos.w = 1.0f;
-        return mvp * pos;
+        return ctx->currMVP * pos; 
     });
 
     g_ctx->setFragmentShader(g_progID, [&](const ShaderContext& inCtx) -> Vec4 {
@@ -70,6 +69,7 @@ void vc_init(void) {
     Mat4 view = Mat4::Translate(0.0f, 0.0f, -3.0f);
     Mat4 mvp = proj * view;
     g_ctx->glUniformMatrix4fv(g_uMVP, 1, false, mvp.m);
+    g_ctx->currMVP = mvp; // Update fast-path MVP
 }
 
 void vc_input(SDL_Event *event) {
