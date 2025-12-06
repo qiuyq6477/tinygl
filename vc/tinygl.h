@@ -20,6 +20,8 @@
 #include <iomanip>
 #include <random>
 
+
+
 // ==========================================
 // 1. 日志系统 (Logging System)
 // ==========================================
@@ -40,6 +42,13 @@ public:
 #define LOG_INFO(msg) Logger::log(INFO, __FUNCTION__, msg)
 #define LOG_WARN(msg) Logger::log(WARN, __FUNCTION__, msg)
 #define LOG_ERROR(msg) Logger::log(ERRR, __FUNCTION__, msg)
+
+// Buffer Type for glClear
+enum BufferType {
+    COLOR = 1 << 0,
+    DEPTH = 1 << 1,
+    STENCIL = 1 << 2, // Not implemented
+};
 
 // ==========================================
 // 2. 数学库
@@ -93,6 +102,40 @@ struct Mat4 {
         res.m[14] = (2.0f * far * near) / (near - far);
         return res;
     }
+
+    // 旋转矩阵 (绕 X 轴)
+    static Mat4 RotateX(float angleInDegrees) {
+        Mat4 res = Identity();
+        float rad = angleInDegrees * M_PI / 180.0f;
+        float c = std::cos(rad);
+        float s = std::sin(rad);
+        res.m[5] = c;  res.m[6] = s;
+        res.m[9] = -s; res.m[10] = c;
+        return res;
+    }
+
+    // 旋转矩阵 (绕 Y 轴)
+    static Mat4 RotateY(float angleInDegrees) {
+        Mat4 res = Identity();
+        float rad = angleInDegrees * M_PI / 180.0f;
+        float c = std::cos(rad);
+        float s = std::sin(rad);
+        res.m[0] = c;   res.m[2] = -s;
+        res.m[8] = s;   res.m[10] = c;
+        return res;
+    }
+
+    // 旋转矩阵 (绕 Z 轴)
+    static Mat4 RotateZ(float angleInDegrees) {
+        Mat4 res = Identity();
+        float rad = angleInDegrees * M_PI / 180.0f;
+        float c = std::cos(rad);
+        float s = std::sin(rad);
+        res.m[0] = c;  res.m[1] = s;
+        res.m[4] = -s; res.m[5] = c;
+        return res;
+    }
+
 
     // 矩阵乘法 (A * B)
     Mat4 operator*(const Mat4& r) const {
@@ -473,6 +516,19 @@ public:
         depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY);       
         LOG_INFO("Context Initialized (" + std::to_string(fbWidth) + "x" + std::to_string(fbHeight) + ")");
     }
+    
+    // Clear buffer function
+    void glClear(uint32_t buffersToClear) {
+        if (buffersToClear & BufferType::COLOR) {
+            std::fill(colorBuffer.begin(), colorBuffer.end(), COLOR_BLACK);
+        }
+        if (buffersToClear & BufferType::DEPTH) {
+            std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
+        }
+    }
+
+    // Get color buffer for external display
+    uint32_t* getColorBuffer() { return colorBuffer.data(); }
 
     // --- Accessors ---
     VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
@@ -1352,11 +1408,4 @@ void drawCubeSample() {
     ctx.glDrawElements(GL_TRIANGLES, 36, 0, (void*)0); // 36 indices
     
     ctx.savePPM("result_random_cube.ppm");
-}
-
-int main() {
-    glDrawArraySample();
-    glDrawElementsSample();
-    drawCubeSample();
-    return 0;
 }

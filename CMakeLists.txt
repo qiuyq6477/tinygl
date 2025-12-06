@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(tinygl CXX)
 
 # 设置 C 标准
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 默认使用 SDL 平台，可以通过命令行参数修改
