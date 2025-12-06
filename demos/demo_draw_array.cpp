@@ -18,6 +18,7 @@ float g_rotationAngle = 0.0f; // For animation
 void vc_init(void) {
     // 1. Initialize SoftRenderContext
     g_ctx = std::unique_ptr<SoftRenderContext>(new SoftRenderContext(DEMO_WIDTH, DEMO_HEIGHT));
+    g_ctx->glClearColor(0.1f, 0.1f, 0.1f, 1.0f); // Set clear color to a dark grey
 
     // 2. Create and configure Shader Program
     g_progID = g_ctx->glCreateProgram();
@@ -104,7 +105,7 @@ void vc_input(SDL_Event *event) {
 Olivec_Canvas vc_render(float dt) {
     if (!g_ctx) return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 
-    g_ctx->glClear(COLOR_BLACK | BufferType::DEPTH); // Clear color and depth buffer
+    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH); // Clear color and depth buffer
 
     g_rotationAngle += 45.0f * dt; // Rotate 45 degrees per second
 

@@ -27,6 +27,7 @@ struct Vertex {
 void vc_init(void) {
     // 1. Initialize SoftRenderContext
     g_ctx = std::unique_ptr<SoftRenderContext>(new SoftRenderContext(DEMO_WIDTH, DEMO_HEIGHT));
+    g_ctx->glClearColor(0.1f, 0.1f, 0.1f, 1.0f); // Set clear color to a dark grey
 
     // 2. Create and configure Shader Program
     g_progID = g_ctx->glCreateProgram();
@@ -151,7 +152,7 @@ Olivec_Canvas vc_render(float dt) {
         return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
     }
 
-    g_ctx->glClear(COLOR_BLACK | BufferType::DEPTH); // Clear color and depth buffer
+    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH); // Clear color and depth buffer
 
     g_rotationAngle += 45.0f * dt; // Rotate 45 degrees per second
 
@@ -171,7 +172,7 @@ Olivec_Canvas vc_render(float dt) {
     g_ctx->glUniformMatrix4fv(g_uMVP, 1, false, mvp.m);
 
     // Draw the cube
-    g_ctx->glDrawElements(GL_TRIANGLES, 36, 0, (void*)0);
+    g_ctx->glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);
 
     // Return the rendered buffer
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);

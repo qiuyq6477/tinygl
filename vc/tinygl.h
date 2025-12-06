@@ -136,6 +136,18 @@ struct Mat4 {
         return res;
     }
 
+    // 矩阵转置
+    static Mat4 Transpose(const Mat4& mat) {
+        Mat4 res;
+        for(int i = 0; i < 4; ++i) {
+            for(int j = 0; j < 4; ++j) {
+                res.m[j * 4 + i] = mat.m[i * 4 + j];
+            }
+        }
+        return res;
+    }
+
+
 
     // 矩阵乘法 (A * B)
     Mat4 operator*(const Mat4& r) const {
@@ -182,9 +194,14 @@ const GLenum GL_ELEMENT_ARRAY_BUFFER = 0x8893;
 const GLenum GL_STATIC_DRAW = 0x88E4;
 const GLenum GL_FLOAT = 0x1406;
 const GLenum GL_TRIANGLES = 0x0004;
+const GLenum GL_POINTS = 0x0000;
+const GLenum GL_LINES = 0x0001;
 const GLenum GL_TEXTURE_2D = 0x0DE1;
 const GLenum GL_RGBA = 0x1908;
+const GLenum GL_RGB = 0x1907;
 const GLenum GL_UNSIGNED_BYTE = 0x1401;
+const GLenum GL_UNSIGNED_SHORT = 0x1403;
+const GLenum GL_UNSIGNED_INT = 0x1405;
 
 // 纹理单元常量
 const GLenum GL_TEXTURE0 = 0x84C0;
@@ -333,7 +350,7 @@ struct TextureObject {
     // 获取单个像素 (Nearest)
     Vec4 getTexel(int level, int x, int y) const {
         // 安全检查
-        if(level < 0 || level >= levels.size()) return {0,0,0,1};
+        if(level < 0 || level >= static_cast<GLint>(levels.size())) return {0,0,0,1};
         int w = std::max(1, width >> level);
         int h = std::max(1, height >> level);
         
@@ -348,7 +365,7 @@ struct TextureObject {
 
     // 双线性插值采样 (Bilinear Interpolation)
     Vec4 sampleBilinear(float u, float v, int level) const {
-        if(level >= levels.size()) return {0,0,0,1};
+        if(level >= static_cast<GLint>(levels.size())) return {0,0,0,1};
         int w = std::max(1, width >> level);
         int h = std::max(1, height >> level);
 
@@ -398,7 +415,7 @@ struct TextureObject {
         
         // 2. Minification (缩小): LOD > 0
         // 限制 LOD 范围
-        float maxLevel = (float)levels.size() - 1;
+        float maxLevel = (float)static_cast<GLint>(levels.size()) - 1;
         lod = std::clamp(lod, 0.0f, maxLevel);
 
         // 根据 minFilter 选择策略
@@ -506,6 +523,7 @@ private:
     
     std::vector<uint32_t> colorBuffer;
     std::vector<float> depthBuffer;
+    Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
 public:
     SoftRenderContext(GLsizei width, GLsizei height) {
@@ -518,11 +536,21 @@ public:
         depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY);       
         LOG_INFO("Context Initialized (" + std::to_string(fbWidth) + "x" + std::to_string(fbHeight) + ")");
     }
+
+    // --- State Management ---
+    void glClearColor(float r, float g, float b, float a) {
+        m_clearColor = {r, g, b, a};
+    }
     
     // Clear buffer function
     void glClear(uint32_t buffersToClear) {
         if (buffersToClear & BufferType::COLOR) {
-            std::fill(colorBuffer.begin(), colorBuffer.end(), COLOR_BLACK);
+            uint8_t R = (uint8_t)(std::clamp(m_clearColor.x, 0.0f, 1.0f) * 255);
+            uint8_t G = (uint8_t)(std::clamp(m_clearColor.y, 0.0f, 1.0f) * 255);
+            uint8_t B = (uint8_t)(std::clamp(m_clearColor.z, 0.0f, 1.0f) * 255);
+            uint8_t A = (uint8_t)(std::clamp(m_clearColor.w, 0.0f, 1.0f) * 255);
+            uint32_t clearColorInt = (A << 24) | (B << 16) | (G << 8) | R;
+            std::fill(colorBuffer.begin(), colorBuffer.end(), clearColorInt);
         }
         if (buffersToClear & BufferType::DEPTH) {
             std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
@@ -638,18 +666,46 @@ public:
 
     void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei w, GLsizei h, GLint border, GLenum format, GLenum type, const void* p) {
         auto* tex = getTexture(m_activeTextureUnit); if(!tex) return;
+
+        // Phase 1: Basic Parameter Handling
+        if (target != GL_TEXTURE_2D) {
+            LOG_WARN("glTexImage2D: Only GL_TEXTURE_2D is supported for target.");
+            return;
+        }
+        if (border != 0) {
+            LOG_WARN("glTexImage2D: Border must be 0.");
+            return;
+        }
+        if (internalformat != GL_RGBA) {
+            LOG_WARN("glTexImage2D: Only GL_RGBA internalformat is fully supported for storage.");
+            // Continue with GL_RGBA storage regardless
+        }
+
         tex->width = w; 
         tex->height = h;
-        // 清空旧数据，初始化 Level 0
-        tex->levels.clear();
-        tex->levels.resize(1);
-        tex->levels[0].resize(w * h);
+
+        // Resize levels vector if necessary to accommodate this level
+        if (level >= static_cast<GLint>(tex->levels.size())) {
+            tex->levels.resize(level + 1);
+        }
+        // Initialize this specific mipmap level
+        tex->levels[level].resize(w * h);
         
-        if(p) memcpy(tex->levels[0].data(), p, w*h*4);
+        // Phase 2: Format and Type Conversion
+        if (p) {
+            if (!convertToInternalFormat(p, w, h, format, type, tex->levels[level])) {
+                LOG_ERROR("glTexImage2D: Failed to convert source pixel data.");
+                return;
+            }
+        }
         
-        // 自动生成 Mipmaps (模拟 glGenerateMipmap)
-        tex->generateMipmaps();
-        LOG_INFO("Loaded Texture " + std::to_string(w) + "x" + std::to_string(h) + " with Mipmaps.");
+        // Generate Mipmaps only for base level
+        if (level == 0) {
+            tex->generateMipmaps();
+            LOG_INFO("Loaded Texture " + std::to_string(w) + "x" + std::to_string(h) + " for level 0 with Mipmaps.");
+        } else {
+            LOG_INFO("Loaded Texture " + std::to_string(w) + "x" + std::to_string(h) + " for level " + std::to_string(level) + ".");
+        }
     }
 
     // 设置纹理参数
@@ -701,10 +757,20 @@ public:
             p->uniforms[loc].data.i = val;
         }
     }
-    void glUniformMatrix4fv(GLint loc, GLsizei /*count*/, GLboolean /*transpose*/, const GLfloat* value) {
+    void glUniformMatrix4fv(GLint loc, GLsizei count, GLboolean transpose, const GLfloat* value) {
         if (auto* p = getCurrentProgram()) {
+            if (count > 1) {
+                LOG_WARN("glUniformMatrix4fv with count > 1 is not fully supported. Only the first matrix will be set.");
+            }
             p->uniforms[loc].type = UniformValue::MAT4;
-            std::memcpy(p->uniforms[loc].data.mat, value, 16*sizeof(float));
+            if (transpose) {
+                Mat4 mat;
+                std::memcpy(mat.m, value, 16 * sizeof(float));
+                Mat4 transposedMat = Mat4::Transpose(mat);
+                std::memcpy(p->uniforms[loc].data.mat, transposedMat.m, 16 * sizeof(float));
+            } else {
+                std::memcpy(p->uniforms[loc].data.mat, value, 16 * sizeof(float));
+            }
         }
     }
 
@@ -796,6 +862,56 @@ public:
 
         return outputVerts;
     }
+
+    // Liang-Barsky Line Clipping against a single axis-aligned boundary
+    // Returns false if the line is completely outside.
+    // Modifies t0 and t1 to the new intersection points.
+    bool clipLineAxis(float p, float q, float& t0, float& t1) {
+        if (std::abs(p) < EPSILON) { // Parallel to the boundary
+            if (q < 0) return false; // Outside the boundary
+        } else {
+            float t = q / p;
+            if (p < 0) { // Potentially entering
+                if (t > t1) return false;
+                if (t > t0) t0 = t;
+            } else { // Potentially exiting
+                if (t < t0) return false;
+                if (t < t1) t1 = t;
+            }
+        }
+        return true;
+    }
+
+    // Clips a line against the canonical view volume. Returns the clipped vertices.
+    std::vector<VOut> clipLine(const VOut& v0, const VOut& v1) {
+        float t0 = 0.0f, t1 = 1.0f;
+        Vec4 d = v1.pos - v0.pos;
+
+        // Clip against 6 planes of the canonical view volume
+        if (!clipLineAxis( d.x + d.w, -(v0.pos.x + v0.pos.w), t0, t1)) return {}; // Left
+        if (!clipLineAxis(-d.x + d.w,  (v0.pos.x - v0.pos.w), t0, t1)) return {}; // Right
+        if (!clipLineAxis( d.y + d.w, -(v0.pos.y + v0.pos.w), t0, t1)) return {}; // Bottom
+        if (!clipLineAxis(-d.y + d.w,  (v0.pos.y - v0.pos.w), t0, t1)) return {}; // Top
+        if (!clipLineAxis( d.z + d.w, -(v0.pos.z + v0.pos.w), t0, t1)) return {}; // Near
+        if (!clipLineAxis(-d.z + d.w,  (v0.pos.z - v0.pos.w), t0, t1)) return {}; // Far
+
+        std::vector<VOut> clippedVerts;
+        if (t0 > 0.0f) {
+            clippedVerts.push_back(lerpVertex(v0, v1, t0));
+        } else {
+            clippedVerts.push_back(v0);
+        }
+
+        if (t1 < 1.0f) {
+            clippedVerts.push_back(lerpVertex(v0, v1, t1));
+        } else {
+            clippedVerts.push_back(v1);
+        }
+        
+        return clippedVerts;
+    }
+
+
 
     // 执行透视除法与视口变换 (Perspective Division & Viewport)
     // 将 Clip Space (x,y,z,w) -> Screen Space (sx, sy, sz, 1/w)
@@ -949,6 +1065,281 @@ public:
     }
 
     // --- Rasterizer ---
+    std::vector<uint32_t> readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
+        std::vector<uint32_t> int_indices;
+        int_indices.reserve(count);
+        size_t idxOffset = reinterpret_cast<size_t>(indices_ptr);
+        
+        VertexArrayObject& vao = getVAO();
+        if (vao.elementBufferID == 0) {
+            LOG_ERROR("No EBO bound to current VAO for glDrawElements");
+            return {};
+        }
+
+        switch (type) {
+            case GL_UNSIGNED_INT: {
+                for(int i=0; i<count; ++i) {
+                    uint32_t index;
+                    buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*sizeof(uint32_t), index);
+                    int_indices.push_back(index);
+                }
+                break;
+            }
+            case GL_UNSIGNED_SHORT: {
+                for(int i=0; i<count; ++i) {
+                    uint16_t index;
+                    buffers[vao.elementBufferID].readSafe<uint16_t>(idxOffset + i*sizeof(uint16_t), index);
+                    int_indices.push_back(static_cast<uint32_t>(index));
+                }
+                break;
+            }
+            case GL_UNSIGNED_BYTE: {
+                 for(int i=0; i<count; ++i) {
+                    uint8_t index;
+                    buffers[vao.elementBufferID].readSafe<uint8_t>(idxOffset + i*sizeof(uint8_t), index);
+                    int_indices.push_back(static_cast<uint32_t>(index));
+                }
+                break;
+            }
+            default:
+                LOG_ERROR("Unsupported index type in glDrawElements");
+                return {};
+        }
+        return int_indices;
+    }
+
+
+    void processLines(const std::vector<uint32_t>& indices, GLsizei count) {
+        ProgramObject* prog = getCurrentProgram();
+        VertexArrayObject& vao = getVAO();
+
+        for (GLsizei i = 0; i < count; i += 2) {
+            if (i + 1 >= count) break;
+
+            VOut v0, v1;
+            std::vector<VOut*> line_verts = {&v0, &v1};
+
+            // Step 1: Vertex Processing
+            for (int k = 0; k < 2; ++k) {
+                uint32_t vertexIdx = indices[i + k];
+                std::vector<Vec4> ins(MAX_ATTRIBS);
+                for(int a = 0; a < MAX_ATTRIBS; ++a) {
+                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+                }
+                
+                ShaderContext ctx;
+                line_verts[k]->pos = prog->vertexShader(ins, ctx);
+                line_verts[k]->ctx = ctx;
+            }
+
+            // Step 2: Line Clipping
+            std::vector<VOut> clipped = clipLine(v0, v1);
+
+            if (!clipped.empty()) {
+                // Step 3: Transform and Rasterize
+                transformToScreen(clipped[0]);
+                transformToScreen(clipped[1]);
+                rasterizeLine(clipped[0], clipped[1]);
+            }
+        }
+        LOG_INFO("Line processing finished.");
+    }
+
+    void processPoints(const std::vector<uint32_t>& indices, GLsizei count) {
+        ProgramObject* prog = getCurrentProgram();
+        VertexArrayObject& vao = getVAO();
+
+        for (GLsizei i = 0; i < count; ++i) {
+            VOut v;
+            
+            // Step 1: Vertex Processing
+            uint32_t vertexIdx = indices[i];
+            std::vector<Vec4> ins(MAX_ATTRIBS);
+            for(int a = 0; a < MAX_ATTRIBS; ++a) {
+                if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+            }
+            
+            ShaderContext ctx;
+            v.pos = prog->vertexShader(ins, ctx);
+            v.ctx = ctx;
+            
+            // Step 2: Trivial Point Clipping
+            if (v.pos.x >= -v.pos.w && v.pos.x <= v.pos.w &&
+                v.pos.y >= -v.pos.w && v.pos.y <= v.pos.w &&
+                v.pos.z >= -v.pos.w && v.pos.z <= v.pos.w)
+            {
+                // Step 3: Transform and Rasterize
+                transformToScreen(v);
+                rasterizePoint(v);
+            }
+        }
+        LOG_INFO("Point processing finished.");
+    }
+
+    void rasterizeLine(const VOut& v0, const VOut& v1) {
+        auto* prog = getCurrentProgram();
+        
+        int x0 = (int)v0.scn.x; int y0 = (int)v0.scn.y;
+        int x1 = (int)v1.scn.x; int y1 = (int)v1.scn.y;
+
+        int dx = std::abs(x1 - x0);
+        int dy = -std::abs(y1 - y0);
+        int sx = x0 < x1 ? 1 : -1;
+        int sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+
+        float total_dist = std::sqrt((float)dx*dx + (float)dy*dy);
+        if (total_dist < EPSILON) total_dist = 1.0f;
+
+        while (true) {
+            if (x0 >= 0 && x0 < fbWidth && y0 >= 0 && y0 < fbHeight) {
+                float dist_from_0 = std::sqrt(std::pow((float)x0 - v0.scn.x, 2) + std::pow((float)y0 - v0.scn.y, 2));
+                float t = dist_from_0 / total_dist;
+                t = std::clamp(t, 0.0f, 1.0f);
+
+                float zInv = (1.0f - t) * v0.scn.w + t * v1.scn.w;
+                if (zInv > 0) {
+                    float z = 1.0f / zInv;
+                    int pix = y0 * fbWidth + x0;
+                    if (z < depthBuffer[pix]) {
+                        depthBuffer[pix] = z;
+
+                        ShaderContext fsIn;
+                        fsIn.lod = 0; 
+                        for (int k = 0; k < MAX_VARYINGS; ++k) {
+                            Vec4 a = v0.ctx.varyings[k] * v0.scn.w * (1.0f - t) + v1.ctx.varyings[k] * v1.scn.w * t;
+                            fsIn.varyings[k] = a * z;
+                        }
+
+                        Vec4 c = prog->fragmentShader(fsIn);
+                        uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
+                        uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
+                        uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
+                        colorBuffer[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+                    }
+                }
+            }
+
+            if (x0 == x1 && y0 == y1) break;
+            int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
+    }
+
+    void rasterizePoint(const VOut& v) {
+        int x = (int)v.scn.x;
+        int y = (int)v.scn.y;
+
+        if (x < 0 || x >= fbWidth || y < 0 || y >= fbHeight) return;
+
+        int pix = y * fbWidth + x;
+        if (v.scn.z < depthBuffer[pix]) {
+            depthBuffer[pix] = v.scn.z;
+            
+            auto* prog = getCurrentProgram();
+            ShaderContext fsIn = v.ctx;
+            for(int k=0; k<MAX_VARYINGS; ++k) {
+                 fsIn.varyings[k] = v.ctx.varyings[k];
+            }
+            fsIn.lod = 0;
+
+            Vec4 c = prog->fragmentShader(fsIn);
+            uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
+            uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
+            uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
+            colorBuffer[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+        }
+    }
+
+    // Converts source pixel data to internal RGBA8888 format
+    bool convertToInternalFormat(const void* src_data, GLsizei src_width, GLsizei src_height,
+                                 GLenum src_format, GLenum src_type, std::vector<uint32_t>& dst_pixels)
+    {
+        dst_pixels.resize(src_width * src_height);
+        if (!src_data) return true; // Just resize, don't fill if no source data
+
+        const uint8_t* src_bytes = static_cast<const uint8_t*>(src_data);
+        size_t pixel_count = src_width * src_height;
+
+        if (src_type == GL_UNSIGNED_BYTE) {
+            if (src_format == GL_RGBA) {
+                // Direct copy for RGBA8888
+                std::memcpy(dst_pixels.data(), src_data, pixel_count * 4);
+                return true;
+            } else if (src_format == GL_RGB) {
+                // Convert RGB888 to RGBA8888
+                for (size_t i = 0; i < pixel_count; ++i) {
+                    uint8_t r = src_bytes[i * 3 + 0];
+                    uint8_t g = src_bytes[i * 3 + 1];
+                    uint8_t b = src_bytes[i * 3 + 2];
+                    dst_pixels[i] = (0xFF << 24) | (b << 16) | (g << 8) | r; // AABBGGRR
+                }
+                return true;
+            } else {
+                LOG_ERROR("Unsupported source format with GL_UNSIGNED_BYTE type.");
+                return false;
+            }
+        } else {
+            LOG_ERROR("Unsupported source type for pixel conversion.");
+            return false;
+        }
+    }
+
+    
+    void processTriangles(const std::vector<uint32_t>& indices, GLsizei count) {
+        ProgramObject* prog = getCurrentProgram(); // Already checked in glDrawElements
+        VertexArrayObject& vao = getVAO();
+
+        for(GLsizei i = 0; i < count; i += 3) {
+            if (i + 2 >= count) break;
+
+            std::vector<VOut> triangle(3);
+            
+            // Step 1: Vertex Processing
+            for (int k = 0; k < 3; ++k) {
+                uint32_t vertexIdx = indices[i + k];
+                std::vector<Vec4> ins(MAX_ATTRIBS);
+                for(int a = 0; a < MAX_ATTRIBS; ++a) {
+                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+                }
+                
+                ShaderContext ctx;
+                // 注意：VS 输出的是 Clip Space Position (未除 w)
+                triangle[k].pos = prog->vertexShader(ins, ctx);
+                triangle[k].ctx = ctx;
+            }
+
+            // Step 2: Clipping (裁剪)
+            // 将三角形依次通过 6 个平面的裁剪
+            // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
+            // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
+            std::vector<VOut> polygon = triangle;
+            
+            // 依次针对 6 个平面裁剪
+            for (int p = 0; p < 6; ++p) {
+                polygon = clipAgainstPlane(polygon, p);
+                if (polygon.empty()) break; // 如果完全被裁掉了，提前结束
+            }
+            
+            if (polygon.empty()) continue;
+
+            // Step 3: Perspective Division & Viewport (坐标变换)
+            // 对裁剪剩下的多边形顶点进行变换
+            for (auto& v : polygon) {
+                transformToScreen(v);
+            }
+
+            // Step 4: Triangulation & Rasterization (扇形剖分与光栅化)
+            // 裁剪后的多边形可能是 3, 4, 5... 个顶点 (凸多边形)
+            // 我们将其拆解为 (v0, v1, v2), (v0, v2, v3)...
+            for (size_t k = 1; k < polygon.size() - 1; ++k) {
+                rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
+            }
+        }
+        LOG_INFO("Triangle processing finished.");
+    }
+
     Vec4 fetchAttribute(const VertexAttribState& attr, int idx) {
         if (!attr.enabled) return Vec4(0,0,0,1);
         auto it = buffers.find(attr.bindingBufferID);
@@ -993,6 +1384,7 @@ public:
     void glDrawArrays(GLenum /*mode*/, GLint first, GLsizei count) {
         auto* prog = getCurrentProgram();
         if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
+        VertexArrayObject& vao = getVAO();
         
         // 遍历所有三角形 (每次处理3个顶点，线性读取)
         for(int i=0; i<count; i+=3) {
@@ -1007,7 +1399,6 @@ public:
                 int vertexIdx = first + i + k;
                 
                 std::vector<Vec4> ins(MAX_ATTRIBS);
-                VertexArrayObject& vao = getVAO();
                 for(int a=0; a<MAX_ATTRIBS; a++) {
                     if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
                 }
@@ -1036,67 +1427,26 @@ public:
     }
 
     void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        LOG_INFO("DrawElements Count: " + std::to_string(count));
-        
         ProgramObject* prog = getCurrentProgram();
         if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
-        VertexArrayObject& vao = getVAO();
-        if (vao.elementBufferID == 0) return;
-
-        // 1. 读取索引
-        std::vector<uint32_t> idxCache(count);
-        size_t idxOffset = reinterpret_cast<size_t>(indices);
-        for(int i=0; i<count; ++i) {
-            buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*4, idxCache[i]);
-        }
-
-        // 遍历所有三角形 (每次处理3个顶点)
-        for(int i=0; i<count; i+=3) {
-            std::vector<VOut> triangle(3);
-            
-            // Step 1: Vertex Processing (运行顶点着色器)
-            for (int k=0; k<3; ++k) {
-                uint32_t vertexIdx = idxCache[i+k];
-                std::vector<Vec4> ins(MAX_ATTRIBS);
-                for(int a=0; a<MAX_ATTRIBS; a++) {
-                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
-                }
-                
-                ShaderContext ctx;
-                // 注意：VS 输出的是 Clip Space Position (未除 w)
-                triangle[k].pos = prog->vertexShader(ins, ctx);
-                triangle[k].ctx = ctx;
-            }
-
-            // Step 2: Clipping (裁剪)
-            // 将三角形依次通过 6 个平面的裁剪
-            // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
-            // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
-            std::vector<VOut> polygon = triangle;
-            
-            // 依次针对 6 个平面裁剪
-            for (int p = 0; p < 6; ++p) {
-                polygon = clipAgainstPlane(polygon, p);
-                if (polygon.empty()) break; // 如果完全被裁掉了，提前结束
-            }
-            
-            if (polygon.empty()) continue;
-
-            // Step 3: Perspective Division & Viewport (坐标变换)
-            // 对裁剪剩下的多边形顶点进行变换
-            for (auto& v : polygon) {
-                transformToScreen(v);
-            }
-
-            // Step 4: Triangulation & Rasterization (扇形剖分与光栅化)
-            // 裁剪后的多边形可能是 3, 4, 5... 个顶点 (凸多边形)
-            // 我们将其拆解为 (v0, v1, v2), (v0, v2, v3)...
-            for (size_t k = 1; k < polygon.size() - 1; ++k) {
-                rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
-            }
-        }
         
-        LOG_INFO("Draw Finished.");
+        std::vector<uint32_t> idxCache = readIndicesAsInts(count, type, indices);
+        if (idxCache.empty()) return;
+
+        switch (mode) {
+            case GL_TRIANGLES:
+                processTriangles(idxCache, count);
+                break;
+            case GL_POINTS:
+                processPoints(idxCache, count);
+                break;
+            case GL_LINES:
+                processLines(idxCache, count);
+                break;
+            default:
+                LOG_WARN("Unsupported primitive mode in glDrawElements.");
+                break;
+        }
     }
 
     void savePPM(const char* filename) {
