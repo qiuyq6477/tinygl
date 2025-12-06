@@ -16,6 +16,14 @@ GLuint g_tex;
 float g_rotationAngle = 0.0f; // For animating the cube
 
 
+// Define a vertex structure for clarity
+struct Vertex {
+    float pos[3];
+    uint8_t color[3];
+    uint8_t padding; // Align to 4 bytes
+    float uv[2];
+};
+
 void vc_init(void) {
     // 1. Initialize SoftRenderContext
     g_ctx = std::unique_ptr<SoftRenderContext>(new SoftRenderContext(DEMO_WIDTH, DEMO_HEIGHT));
@@ -55,58 +63,50 @@ void vc_init(void) {
     for(int i=0; i<256*256; i++) 
         pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; // White / Black
     g_ctx->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    // Set texture parameters
     g_ctx->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     g_ctx->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     
-    // 4. Build Cube Data (24 vertices, standard UV mapping)
-    float cubeVertices[] = {
-        //   x,     y,    z,       r, g, b,       u, v
-        // 1. Front Face (Z = 1)
-        -1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   1.0f, 1.0f,
-        -1.0f,  1.0f,  1.0f,    1.0f, 0.0f, 0.0f,   0.0f, 1.0f,
-
-        // 2. Back Face (Z = -1)
-         1.0f, -1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   0.0f, 0.0f,
-        -1.0f, -1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   1.0f, 0.0f,
-        -1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   1.0f, 1.0f,
-         1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 0.0f,   0.0f, 1.0f,
-
-        // 3. Left Face (X = -1)
-        -1.0f, -1.0f, -1.0f,    0.0f, 0.0f, 1.0f,   0.0f, 0.0f,
-        -1.0f, -1.0f,  1.0f,    0.0f, 0.0f, 1.0f,   1.0f, 0.0f,
-        -1.0f,  1.0f,  1.0f,    0.0f, 0.0f, 1.0f,   1.0f, 1.0f,
-        -1.0f,  1.0f, -1.0f,    0.0f, 0.0f, 1.0f,   0.0f, 1.0f,
-
-        // 4. Right Face (X = 1)
-         1.0f, -1.0f,  1.0f,    1.0f, 1.0f, 0.0f,   0.0f, 0.0f,
-         1.0f, -1.0f, -1.0f,    1.0f, 1.0f, 0.0f,   1.0f, 0.0f,
-         1.0f,  1.0f, -1.0f,    1.0f, 1.0f, 0.0f,   1.0f, 1.0f,
-         1.0f,  1.0f,  1.0f,    1.0f, 1.0f, 0.0f,   0.0f, 1.0f,
-
-        // 5. Top Face (Y = 1)
-        -1.0f,  1.0f,  1.0f,    0.0f, 1.0f, 1.0f,   0.0f, 0.0f,
-         1.0f,  1.0f,  1.0f,    0.0f, 1.0f, 1.0f,   1.0f, 0.0f,
-         1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 1.0f,   1.0f, 1.0f,
-        -1.0f,  1.0f, -1.0f,    0.0f, 1.0f, 1.0f,   0.0f, 1.0f,
-
-        // 6. Bottom Face (Y = -1)
-        -1.0f, -1.0f, -1.0f,    1.0f, 0.0f, 1.0f,   0.0f, 0.0f,
-         1.0f, -1.0f, -1.0f,    1.0f, 0.0f, 1.0f,   1.0f, 0.0f,
-         1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 1.0f,   1.0f, 1.0f,
-        -1.0f, -1.0f,  1.0f,    1.0f, 0.0f, 1.0f,   0.0f, 1.0f
+    // 4. Build Cube Data with uint8_t for colors
+    Vertex vertices[] = {
+        //   x,     y,    z,        r,  g,  b,      uv
+        // 1. Front Face
+        {{-1.0f, -1.0f,  1.0f}, {255, 0, 0}, 0, {0.0f, 0.0f}},
+        {{ 1.0f, -1.0f,  1.0f}, {255, 0, 0}, 0, {1.0f, 0.0f}},
+        {{ 1.0f,  1.0f,  1.0f}, {255, 0, 0}, 0, {1.0f, 1.0f}},
+        {{-1.0f,  1.0f,  1.0f}, {255, 0, 0}, 0, {0.0f, 1.0f}},
+        // 2. Back Face
+        {{ 1.0f, -1.0f, -1.0f}, {0, 255, 0}, 0, {0.0f, 0.0f}},
+        {{-1.0f, -1.0f, -1.0f}, {0, 255, 0}, 0, {1.0f, 0.0f}},
+        {{-1.0f,  1.0f, -1.0f}, {0, 255, 0}, 0, {1.0f, 1.0f}},
+        {{ 1.0f,  1.0f, -1.0f}, {0, 255, 0}, 0, {0.0f, 1.0f}},
+        // 3. Left Face
+        {{-1.0f, -1.0f, -1.0f}, {0, 0, 255}, 0, {0.0f, 0.0f}},
+        {{-1.0f, -1.0f,  1.0f}, {0, 0, 255}, 0, {1.0f, 0.0f}},
+        {{-1.0f,  1.0f,  1.0f}, {0, 0, 255}, 0, {1.0f, 1.0f}},
+        {{-1.0f,  1.0f, -1.0f}, {0, 0, 255}, 0, {0.0f, 1.0f}},
+        // 4. Right Face
+        {{ 1.0f, -1.0f,  1.0f}, {255, 255, 0}, 0, {0.0f, 0.0f}},
+        {{ 1.0f, -1.0f, -1.0f}, {255, 255, 0}, 0, {1.0f, 0.0f}},
+        {{ 1.0f,  1.0f, -1.0f}, {255, 255, 0}, 0, {1.0f, 1.0f}},
+        {{ 1.0f,  1.0f,  1.0f}, {255, 255, 0}, 0, {0.0f, 1.0f}},
+        // 5. Top Face
+        {{-1.0f,  1.0f,  1.0f}, {0, 255, 255}, 0, {0.0f, 0.0f}},
+        {{ 1.0f,  1.0f,  1.0f}, {0, 255, 255}, 0, {1.0f, 0.0f}},
+        {{ 1.0f,  1.0f, -1.0f}, {0, 255, 255}, 0, {1.0f, 1.0f}},
+        {{-1.0f,  1.0f, -1.0f}, {0, 255, 255}, 0, {0.0f, 1.0f}},
+        // 6. Bottom Face
+        {{-1.0f, -1.0f, -1.0f}, {255, 0, 255}, 0, {0.0f, 0.0f}},
+        {{ 1.0f, -1.0f, -1.0f}, {255, 0, 255}, 0, {1.0f, 0.0f}},
+        {{ 1.0f, -1.0f,  1.0f}, {255, 0, 255}, 0, {1.0f, 1.0f}},
+        {{-1.0f, -1.0f,  1.0f}, {255, 0, 255}, 0, {0.0f, 1.0f}}
     };
 
     uint32_t cubeIndices[36];
     for(int i=0; i<6; i++) {
         uint32_t base = i * 4;
-        // Tri 1
         cubeIndices[i*6+0] = base + 0;
         cubeIndices[i*6+1] = base + 1;
         cubeIndices[i*6+2] = base + 2;
-        // Tri 2
         cubeIndices[i*6+3] = base + 2;
         cubeIndices[i*6+4] = base + 3;
         cubeIndices[i*6+5] = base + 0;
@@ -115,15 +115,21 @@ void vc_init(void) {
     // Upload Data
     g_ctx->glGenVertexArrays(1, &g_vao); g_ctx->glBindVertexArray(g_vao);
     g_ctx->glGenBuffers(1, &g_vbo); g_ctx->glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
-    g_ctx->glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+    g_ctx->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     g_ctx->glGenBuffers(1, &g_ebo); g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo);
     g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
 
     // Attributes
-    constexpr int STRIDE = 8 * sizeof(float);
-    g_ctx->glVertexAttribPointer(0, 3, GL_FLOAT, false, STRIDE, (void*)0);                   g_ctx->glEnableVertexAttribArray(0);
-    g_ctx->glVertexAttribPointer(1, 3, GL_FLOAT, false, STRIDE, (void*)(3*sizeof(float)));   g_ctx->glEnableVertexAttribArray(1);
-    g_ctx->glVertexAttribPointer(2, 2, GL_FLOAT, false, STRIDE, (void*)(6*sizeof(float)));   g_ctx->glEnableVertexAttribArray(2);
+    GLsizei stride = sizeof(Vertex);
+    // Position attribute (3 floats)
+    g_ctx->glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)offsetof(Vertex, pos));
+    g_ctx->glEnableVertexAttribArray(0);
+    // Color attribute (3 uint8_t), normalized
+    g_ctx->glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, true, stride, (void*)offsetof(Vertex, color));
+    g_ctx->glEnableVertexAttribArray(1);
+    // UV attribute (2 floats)
+    g_ctx->glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)offsetof(Vertex, uv));
+    g_ctx->glEnableVertexAttribArray(2);
 
     g_ctx->glUseProgram(g_progID);
     g_ctx->glUniform1i(g_uTex, 0);

@@ -238,6 +238,7 @@ constexpr uint32_t COLOR_GREY   = 0xFFAAAAAA;
 // Buffer
 struct BufferObject {
     std::vector<uint8_t> data;
+    GLenum usage = GL_STATIC_DRAW; // Default usage
     
     template <typename T>
     bool readSafe(size_t offset, T& outValue) const {
@@ -442,6 +443,7 @@ struct VertexAttribState {
     GLuint bindingBufferID = 0;
     GLint size = 3;
     GLenum type = GL_FLOAT;
+    GLboolean normalized = false; // Add this line
     GLsizei stride = 0;
     size_t pointerOffset = 0;
 };
@@ -574,6 +576,7 @@ public:
         }
         buffers[id].data.resize(size);
         if (data) std::memcpy(buffers[id].data.data(), data, size);
+        buffers[id].usage = usage;
         LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
     }
 
@@ -598,6 +601,7 @@ public:
         attr.bindingBufferID = m_boundArrayBuffer;
         attr.size = size;
         attr.type = type;
+        attr.normalized = norm; // Store the normalized flag
         attr.stride = stride;
         attr.pointerOffset = reinterpret_cast<size_t>(pointer);
         LOG_INFO("Attrib " + std::to_string(index) + " bound to VBO " + std::to_string(m_boundArrayBuffer));
@@ -632,7 +636,7 @@ public:
         }
     }
 
-    void glTexImage2D(GLenum t, GLint l, GLint i, GLsizei w, GLsizei h, GLint b, GLenum f, GLenum ty, const void* p) {
+    void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei w, GLsizei h, GLint border, GLenum format, GLenum type, const void* p) {
         auto* tex = getTexture(m_activeTextureUnit); if(!tex) return;
         tex->width = w; 
         tex->height = h;
@@ -697,7 +701,7 @@ public:
             p->uniforms[loc].data.i = val;
         }
     }
-    void glUniformMatrix4fv(GLint loc, GLsizei count, GLboolean transpose, const GLfloat* value) {
+    void glUniformMatrix4fv(GLint loc, GLsizei /*count*/, GLboolean /*transpose*/, const GLfloat* value) {
         if (auto* p = getCurrentProgram()) {
             p->uniforms[loc].type = UniformValue::MAT4;
             std::memcpy(p->uniforms[loc].data.mat, value, 16*sizeof(float));
@@ -950,18 +954,43 @@ public:
         auto it = buffers.find(attr.bindingBufferID);
         if (it == buffers.end()) return Vec4(0,0,0,1);
         
-        size_t stride = attr.stride ? attr.stride : attr.size * sizeof(float);
+        size_t stride = attr.stride ? attr.stride : attr.size * sizeof(float); // Default stride for floats
         size_t offset = attr.pointerOffset + idx * stride;
         
         float raw[4] = {0,0,0,1};
-        for(int i=0; i<attr.size; ++i) {
-            it->second.readSafe<float>(offset + i*sizeof(float), raw[i]);
+
+        switch (attr.type) {
+            case GL_FLOAT: {
+                for(int i=0; i<attr.size; ++i) {
+                    it->second.readSafe<float>(offset + i*sizeof(float), raw[i]);
+                }
+                break;
+            }
+            case GL_UNSIGNED_BYTE: {
+                stride = attr.stride ? attr.stride : attr.size * sizeof(uint8_t);
+                offset = attr.pointerOffset + idx * stride;
+                uint8_t ubyte_raw[4] = {0,0,0,255};
+                for(int i=0; i<attr.size; ++i) {
+                    it->second.readSafe<uint8_t>(offset + i*sizeof(uint8_t), ubyte_raw[i]);
+                }
+                
+                if (attr.normalized) {
+                    for(int i=0; i<4; ++i) raw[i] = ubyte_raw[i] / 255.0f;
+                } else {
+                    for(int i=0; i<4; ++i) raw[i] = (float)ubyte_raw[i];
+                }
+                break;
+            }
+            default:
+                LOG_WARN("Unsupported vertex attribute type.");
+                break;
         }
+        
         return Vec4(raw[0], raw[1], raw[2], raw[3]);
     }
 
     // glDrawArrays
-    void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    void glDrawArrays(GLenum /*mode*/, GLint first, GLsizei count) {
         auto* prog = getCurrentProgram();
         if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
         
