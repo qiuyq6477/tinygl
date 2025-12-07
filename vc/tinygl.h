@@ -431,6 +431,59 @@ struct TextureObject {
         return lerp(lerp(c00, c10, s), lerp(c01, c11, s), t);
     }
 
+    // 在 TextureObject 结构体中
+    // 假设我们知道 demo_cube 的纹理是 256x256，且 Wrap 模式是 REPEAT
+    // 快速整数采样 (不处理 LOD，仅 Base Level)
+    Vec4 sampleFast(float u, float v) const {
+        // 假设 width 和 height 都是 2 的幂次 (例如 256)
+        // 并且 wrap 模式是 GL_REPEAT
+        
+        // 1. 归一化坐标转纹理空间坐标 (定点数优化思路)
+        // 比如 256.0f * u
+        float fu = u * width;
+        float fv = v * height;
+        
+        // 2. 转换为整数坐标
+        int iu = (int)fu;
+        int iv = (int)fv;
+        
+        // 3. 使用位运算处理 Wrap (GL_REPEAT)
+        // 256 - 1 = 255 (0xFF)
+        // 这一步代替了耗时的 val - floor(val)
+        int x = iu & (width - 1); 
+        int y = iv & (height - 1);
+        
+        // 4. 获取像素 (Nearest Neighbor)
+        // 这里的 levels[0] 访问比 sampleBilinear 快得多
+        uint32_t p = levels[0][y * width + x];
+        
+        // 5. 解包颜色 (0-255 -> 0.0-1.0)
+        // 这一步也可以通过预计算查找表进一步加速，但目前这样够用了
+        const float k = 1.0f / 255.0f;
+        return Vec4((p&0xFF)*k, ((p>>8)&0xFF)*k, ((p>>16)&0xFF)*k, 1.0f);
+    }
+
+    // 前提：纹理尺寸必须是 2 的幂 (256, 512...) 且 Wrap 模式为 REPEAT
+    uint32_t sampleNearestFast(float u, float v) const {
+        // 1. 利用位运算取模 (替代 slow floor)
+        // 假设 width 和 height 是 256 (掩码为 255)
+        uint32_t maskX = width - 1;
+        uint32_t maskY = height - 1;
+
+        // 2. 快速浮点转整数 (截断)
+        // 注意：这里假设 UV 已经是正数。如果 UV 为负，位运算掩码依然有效(对于2的补码)
+        int iu = (int)(u * width);
+        int iv = (int)(v * height);
+
+        // 3. 位运算处理 Wrap
+        int x = iu & maskX;
+        int y = iv & maskY;
+
+        // 4. 直接返回原始像素数据 (Level 0)
+        // 避免了将 0-255 转为 0.0-1.0 的 float 转换开销
+        return levels[0][y * width + x];
+    }
+    
     // 主采样函数 (根据 LOD 选择 Filter)
     Vec4 sample(float u, float v, float lod = 0.0f) const {
         if (levels.empty()) return {1, 0, 1, 1};
@@ -552,6 +605,8 @@ private:
     GLsizei fbHeight = 600;
     
     std::vector<uint32_t> colorBuffer;
+    uint32_t* m_colorBufferPtr = nullptr; // Pointer to the active color buffer (internal or external)
+
     std::vector<float> depthBuffer;
     std::vector<uint32_t> m_indexCache;
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
@@ -567,9 +622,21 @@ public:
 
         vaos[0] = VertexArrayObject{}; 
         colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
+        m_colorBufferPtr = colorBuffer.data();               // Default to internal buffer
+
         // 【Fix 1】: Depth 初始化为极大值，确保 z=1.0 的物体能通过测试
         depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY);       
         LOG_INFO("Context Initialized (" + std::to_string(fbWidth) + "x" + std::to_string(fbHeight) + ")");
+    }
+
+    // Set an external buffer for rendering (e.g., SDL texture memory)
+    // Pass nullptr to revert to the internal buffer.
+    void setExternalBuffer(uint32_t* ptr) {
+        if (ptr) {
+            m_colorBufferPtr = ptr;
+        } else {
+            m_colorBufferPtr = colorBuffer.data();
+        }
     }
 
     // --- State Management ---
@@ -585,7 +652,8 @@ public:
             uint8_t B = (uint8_t)(std::clamp(m_clearColor.z, 0.0f, 1.0f) * 255);
             uint8_t A = (uint8_t)(std::clamp(m_clearColor.w, 0.0f, 1.0f) * 255);
             uint32_t clearColorInt = (A << 24) | (B << 16) | (G << 8) | R;
-            std::fill(colorBuffer.begin(), colorBuffer.end(), clearColorInt);
+            // Use std::fill_n on the pointer
+            std::fill_n(m_colorBufferPtr, fbWidth * fbHeight, clearColorInt);
         }
         if (buffersToClear & BufferType::DEPTH) {
             std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
@@ -593,7 +661,7 @@ public:
     }
 
     // Get color buffer for external display
-    uint32_t* getColorBuffer() { return colorBuffer.data(); }
+    uint32_t* getColorBuffer() { return m_colorBufferPtr; }
 
     // --- Accessors ---
     VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
@@ -977,125 +1045,152 @@ public:
     void rasterizeTriangle(const VOut& v0, const VOut& v1, const VOut& v2) {
         auto* prog = getCurrentProgram();
         
-        // Bounding Box
+        // 1. 包围盒计算 (Bounding Box)
         int minX = std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
         int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
         int minY = std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
         int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
 
-        // Edge Function (Y-Down 修正版)
-        auto edge = [](const Vec4& a, const Vec4& b, const Vec4& p) {
-            return (b.y - a.y) * (p.x - a.x) - (b.x - a.x) * (p.y - a.y);
-        };
-
-        // Pre-compute area (Doubled Area)
-        float area = edge(v0.scn, v1.scn, v2.scn);
+        // 2. 面积计算与背面剔除 (Area & Backface Culling)
+        // 注意：这里使用的是屏幕空间坐标 (x, y)
+        float area = (v1.scn.y - v0.scn.y) * (v2.scn.x - v0.scn.x) - 
+                    (v1.scn.x - v0.scn.x) * (v2.scn.y - v0.scn.y);
         
-        // Backface Culling (CCW)
-        if (area <= 0) return;
+        // 如果面积 <= 0，说明是背面或退化三角形，直接剔除
+        if (area <= 0) return; 
         float invArea = 1.0f / area;
 
-        // [新增] 1. 预计算 1/w, U/w, V/w 的屏幕空间梯度
-        // 假设 UV 存储在 varyings[0] (x=u, y=v)
-        // 这里的 varyings 已经是经过 Vertex Shader 的，但还没有除以 w
-        // 注意：我们的 v.ctx.varyings 存储的是原始属性（未除w），v.scn.w 存储的是 1/w
+        // ==========================================
+        // [优化核心]：增量式光栅化设置 (Incremental Setup)
+        // ==========================================
         
-        // 属性 0: 1/w
-        float w0 = v0.scn.w, w1 = v1.scn.w, w2 = v2.scn.w;
-        Gradients gradW = calcGradients(v0, v1, v2, invArea, w0, w1, w2);
+        // 定义 Edge 函数辅助 Lambda (仅用于初始化起点)
+        auto edgeFunc = [](const Vec4& a, const Vec4& b, float px, float py) {
+            return (b.y - a.y) * (px - a.x) - (b.x - a.x) * (py - a.y);
+        };
 
-        // 属性 1: U/w (假设 U 在 varyings[0].x)
-        float u0 = v0.ctx.varyings[0].x * w0;
-        float u1 = v1.ctx.varyings[0].x * w1;
-        float u2 = v2.ctx.varyings[0].x * w2;
-        Gradients gradU_w = calcGradients(v0, v1, v2, invArea, u0, u1, u2);
-
-        // 属性 2: V/w (假设 V 在 varyings[0].y)
-        float v_0 = v0.ctx.varyings[0].y * w0; // 变量名 v_0 避免冲突
-        float v_1 = v1.ctx.varyings[0].y * w1;
-        float v_2 = v2.ctx.varyings[0].y * w2;
-        Gradients gradV_w = calcGradients(v0, v1, v2, invArea, v_0, v_1, v_2);
+        // 计算步进系数 (Stepping Coefficients)
+        // A 代表向右走一步 (x+1) 权重的增量: dEdge/dx = y_b - y_a
+        // B 代表向下走一步 (y+1) 权重的增量: dEdge/dy = x_a - x_b
         
-        // 纹理尺寸 (用于 scaling)
-        // 注意：这里需要知道当前绑定的纹理尺寸，稍微有点耦合，
-        // 或者在 Shader 中传 LOD，这里只传导数。为简化，假设 TextureUnit 0
-        float texW = 256.0f, texH = 256.0f;
-        if (auto* t = getTexture(0)) { texW = t->width; texH = t->height; }
+        // Edge 0: v1 -> v2 (控制 v0 的权重)
+        float A0 = v2.scn.y - v1.scn.y; 
+        float B0 = v1.scn.x - v2.scn.x;
+        
+        // Edge 1: v2 -> v0 (控制 v1 的权重)
+        float A1 = v0.scn.y - v2.scn.y; 
+        float B1 = v2.scn.x - v0.scn.x;
+        
+        // Edge 2: v0 -> v1 (控制 v2 的权重)
+        float A2 = v1.scn.y - v0.scn.y; 
+        float B2 = v0.scn.x - v1.scn.x;
 
+        // 采样中心偏移 (Pixel Center Offset)
+        float startX = minX + 0.5f;
+        float startY = minY + 0.5f;
+
+        // 计算起始行 (minY, minX) 的初始权重
+        float w0_row = edgeFunc(v1.scn, v2.scn, startX, startY);
+        float w1_row = edgeFunc(v2.scn, v0.scn, startX, startY);
+        float w2_row = edgeFunc(v0.scn, v1.scn, startX, startY);
+
+        // ==========================================
+        // 光栅化循环 (Rasterization Loop)
+        // ==========================================
+        
         for (int y = minY; y <= maxY; ++y) {
+            // 初始化当前扫描线的权重
+            float w0 = w0_row;
+            float w1 = w1_row;
+            float w2 = w2_row;
+
             for (int x = minX; x <= maxX; ++x) {
-                Vec4 p((float)x + 0.5f, (float)y + 0.5f, 0, 0);
-                
-                float w0 = edge(v1.scn, v2.scn, p);
-                float w1 = edge(v2.scn, v0.scn, p);
-                float w2 = edge(v0.scn, v1.scn, p);
-
-                // Inside Test
+                // Inside Test: 检查所有权重是否 >= 0
+                // 使用位运算优化符号检查 (或者简单的 if)
                 if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-                    w0 *= invArea; w1 *= invArea; w2 *= invArea;
                     
-                    // Perspective Correct Depth
-                    float zInv = w0 * v0.scn.w + w1 * v1.scn.w + w2 * v2.scn.w;
-                    float z = 1.0f / zInv;
+                    // 1. 计算重心坐标 (Barycentric Coordinates)
+                    float alpha = w0 * invArea;
+                    float beta  = w1 * invArea;
+                    float gamma = w2 * invArea;
 
-                    // Depth Test
-                    int pix = y * fbWidth + x;
-                    if (z < depthBuffer[pix]) {
-                        depthBuffer[pix] = z;
-                        
-                        // [新增] 2. 逐像素计算 LOD
-                        // 恢复当前的 g = 1/w
-                        float g = w0 * w0 + w1 * w1 + w2 * w2; // 当前像素的 1/w
-                        float g2 = g * g;
+                    // 2. 透视校正深度插值 (Perspective Correct Depth)
+                    // v.scn.w 存储的是 1/w_clip
+                    float zInv = alpha * v0.scn.w + beta * v1.scn.w + gamma * v2.scn.w;
+                    
+                    // 3. 深度测试 (Early Depth Test)
+                    // 只有当 zInv > 0 时才有效 (虽已由 Clip 保证，但安全第一)
+                    if (zInv > 0) {
+                        float z = 1.0f / zInv;
+                        int pix = y * fbWidth + x;
 
-                        // 利用商法则计算 du/dx, du/dy
-                        // d(f/g)/dx = (f'g - fg') / g^2
-                        // f = U/w, g = 1/w
-                        // f' = gradU_w.dfdx (常数)
-                        // g' = gradW.dfdx (常数)
-                        
-                        // 当前像素的 f = U/w
-                        float f_u = w0 * u0 + w1 * u1 + w2 * u2;
-                        float f_v = w0 * v_0 + w1 * v_1 + w2 * v_2;
+                        if (z < depthBuffer[pix]) {
+                            depthBuffer[pix] = z;
 
-                        float dudx = (gradU_w.dfdx * g - f_u * gradW.dfdx) / g2;
-                        float dudy = (gradU_w.dfdy * g - f_u * gradW.dfdy) / g2;
-                        float dvdx = (gradV_w.dfdx * g - f_v * gradW.dfdx) / g2;
-                        float dvdy = (gradV_w.dfdy * g - f_v * gradW.dfdy) / g2;
+                            // 4. 属性插值 (Attribute Interpolation)
+                            ShaderContext fsIn;
+                            fsIn.lod = 0.0f; // [优化] 强制关闭每像素 LOD 计算，极大提升性能
 
-                        // 计算 rho (纹理空间距离)
-                        float deltaX = std::sqrt(dudx*dudx * texW*texW + dvdx*dvdx * texH*texH);
-                        float deltaY = std::sqrt(dudy*dudy * texW*texW + dvdy*dvdy * texH*texH);
-                        float rho = std::max(deltaX, deltaY);
-                        
-                        // 计算 LOD
-                        float lod = std::log2(rho);
-                        
-                        // 填入 Context
-                        ShaderContext fsIn;
-                        fsIn.lod = lod;
+                            // 展开循环以利用 CPU 流水线 (编译器通常会自动展开)
+                            // for (int k = 0; k < MAX_VARYINGS; ++k) {
+                            //     // 插值公式: Interpolated = (Attr0*w0 + Attr1*w1 + Attr2*w2) / zInv
+                            //     // 预先乘好 1/w 部分: var * scn.w
+                            //     fsIn.varyings[k] = (v0.ctx.varyings[k] * v0.scn.w * alpha + 
+                            //                         v1.ctx.varyings[k] * v1.scn.w * beta + 
+                            //                         v2.ctx.varyings[k] * v2.scn.w * gamma) * z;
+                            // }
+                            // 预计算这三个顶点的 varyings 指针，避免 vector 索引开销
+                            const Vec4* var0Ptr = v0.ctx.varyings;
+                            const Vec4* var1Ptr = v1.ctx.varyings;
+                            const Vec4* var2Ptr = v2.ctx.varyings;
 
-                        // Attribute Interpolation
-                        for (int k = 0; k < MAX_VARYINGS; ++k) {
-                            // Perspective Correct Interpolation Formula:
-                            // Attr = (Attr0/w0 * b0 + Attr1/w1 * b1 + Attr2/w2 * b2) / (1/w_interpolated)
-                            Vec4 a = v0.ctx.varyings[k] * v0.scn.w * w0 + 
-                                     v1.ctx.varyings[k] * v1.scn.w * w1 + 
-                                     v2.ctx.varyings[k] * v2.scn.w * w2;
-                            fsIn.varyings[k] = a * z;
+                            // 预计算权重因子
+                            float w_alpha = v0.scn.w * alpha * z;
+                            float w_beta  = v1.scn.w * beta * z;
+                            float w_gamma = v2.scn.w * gamma * z;
+
+                            // 手动展开 MAX_VARYINGS 循环 (假设 MAX_VARYINGS = 8)
+                            // 并且手动展开 Vec4 的 x,y,z,w 计算，避免创建 Vec4 临时对象
+                            // 实际上，为了通用性，我们保留 k 循环，但展开内部的 Vec4 运算
+                            for (int k = 0; k < MAX_VARYINGS; ++k) {
+                                // 直接操作 float，不创建 Vec4 对象
+                                float x = var0Ptr[k].x * w_alpha + var1Ptr[k].x * w_beta + var2Ptr[k].x * w_gamma;
+                                float y = var0Ptr[k].y * w_alpha + var1Ptr[k].y * w_beta + var2Ptr[k].y * w_gamma;
+                                float z = var0Ptr[k].z * w_alpha + var1Ptr[k].z * w_beta + var2Ptr[k].z * w_gamma;
+                                float w = var0Ptr[k].w * w_alpha + var1Ptr[k].w * w_beta + var2Ptr[k].w * w_gamma;
+                                
+                                // 仅在赋值时构造一次
+                                fsIn.varyings[k].x = x;
+                                fsIn.varyings[k].y = y;
+                                fsIn.varyings[k].z = z;
+                                fsIn.varyings[k].w = w;
+                            }
+
+                            // 5. 执行 Fragment Shader
+                            // (此时建议 fs 内部已经是优化过的 Lambda，不含哈希查找)
+                            Vec4 c = prog->fragmentShader(fsIn);
+                            
+                            // 6. 颜色写入 (Color Write)
+                            // 使用 min 避免 clamp 下溢出的分支，转为整数
+                            uint32_t R = (uint32_t)(std::min(c.x, 1.0f) * 255.0f);
+                            uint32_t G = (uint32_t)(std::min(c.y, 1.0f) * 255.0f);
+                            uint32_t B = (uint32_t)(std::min(c.z, 1.0f) * 255.0f);
+                            
+                            m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
                         }
-
-                        // Fragment Shader
-                        Vec4 c = prog->fragmentShader(fsIn);
-                        
-                        // Output
-                        uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
-                        uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
-                        uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
-                        colorBuffer[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
                     }
                 }
+
+                // [增量] X 轴推进一步 (Move Right)
+                w0 += A0;
+                w1 += A1;
+                w2 += A2;
             }
+
+            // [增量] Y 轴推进一步 (Move Down)
+            w0_row += B0;
+            w1_row += B1;
+            w2_row += B2;
         }
     }
 
@@ -1248,7 +1343,7 @@ public:
                         uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
                         uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
                         uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
-                        colorBuffer[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+                        m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
                     }
                 }
             }
@@ -1281,7 +1376,7 @@ public:
             uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
             uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
             uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
-            colorBuffer[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+            m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
         }
     }
 

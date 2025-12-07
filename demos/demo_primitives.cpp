@@ -76,18 +76,31 @@ void vc_input(SDL_Event *event) {
     (void)event;
 }
 
-Olivec_Canvas vc_render(float dt) {
-    (void)dt;
-    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH);
-    
-    // Draw Lines
-    g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo_lines);
-    g_ctx->glDrawElements(GL_LINES, 8, GL_UNSIGNED_SHORT, (void*)0);
+Olivec_Canvas vc_render(float dt, void* pixels) {
+    if (!g_ctx) return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 
-    // Draw Points
-    g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo_points);
-    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint16_t) * 4, (uint16_t[]){0,1,2,3}, GL_STATIC_DRAW); // Re-buffer data for clarity
-    g_ctx->glDrawElements(GL_POINTS, 4, GL_UNSIGNED_SHORT, (void*)0);
+    g_ctx->setExternalBuffer((uint32_t*)pixels);
+    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH);
+
+    Mat4 view = Mat4::Identity();
+    float aspect = (float)DEMO_WIDTH / (float)DEMO_HEIGHT;
+    Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f);
+
+    // 1. Draw Points (Left)
+    Mat4 modelPoints = Mat4::Translate(-2.0f, 0, -3.0f);
+    g_ctx->currMVP = proj * view * modelPoints;
+    // Points logic: just vertices
+    g_ctx->glDrawArrays(GL_POINTS, 0, 3);
+
+    // 2. Draw Lines (Center)
+    Mat4 modelLines = Mat4::Translate(0, 0, -3.0f);
+    g_ctx->currMVP = proj * view * modelLines;
+    g_ctx->glDrawArrays(GL_LINES, 0, 4); // 2 lines, 4 vertices
+
+    // 3. Draw Triangles (Right)
+    Mat4 modelTris = Mat4::Translate(2.0f, 0, -3.0f);
+    g_ctx->currMVP = proj * view * modelTris;
+    g_ctx->glDrawArrays(GL_TRIANGLES, 0, 3);
 
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 }

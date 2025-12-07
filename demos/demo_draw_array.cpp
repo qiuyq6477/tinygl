@@ -96,33 +96,27 @@ void vc_input(SDL_Event *event) {
     (void)event; // No specific input handling for this demo
 }
 
-Olivec_Canvas vc_render(float dt) {
-    if (!g_ctx) return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
+Olivec_Canvas vc_render(float dt, void* pixels) {
+    if (!g_ctx) {
+        return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
+    }
 
-    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH); // Clear color and depth buffer
+    g_ctx->setExternalBuffer((uint32_t*)pixels);
+    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH);
 
-    g_rotationAngle += 45.0f * dt; // Rotate 45 degrees per second
-
-    // Calculate MVP matrix
-    // Model: Apply rotation and translation to the quad
-    Mat4 model = Mat4::Translate(0, 0, -2.0f); // Move quad back to be visible
-    model = model * Mat4::RotateY(g_rotationAngle); // Rotate around Y-axis
-    
-    Mat4 view = Mat4::Identity(); // Simple Identity View
+    // No animation for this static demo, but we could rotate view
+    Mat4 model = Mat4::Translate(0, 0, -3.0f); 
+    Mat4 view = Mat4::Identity();
     float aspect = (float)DEMO_WIDTH / (float)DEMO_HEIGHT;
-    Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f); // 90 deg FOV
+    Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f);
 
-    Mat4 mvp = proj * view * model; // P * V * M
+    g_ctx->currMVP = proj * view * model;
 
-    // Update the fast-path MVP
-    g_ctx->currMVP = mvp;
+    // Draw the triangle using glDrawArrays
+    // Mode: GL_TRIANGLES
+    // First: 0 (start from first vertex)
+    // Count: 3 (draw 3 vertices)
+    g_ctx->glDrawArrays(GL_TRIANGLES, 0, 3);
 
-    // Update MVP uniform (Optional)
-    g_ctx->glUniformMatrix4fv(g_uMVP, 1, false, mvp.m);
-
-    // Draw triangle using glDrawArrays (6 vertices)
-    g_ctx->glDrawArrays(GL_TRIANGLES, 0, 6); // 6 vertices total (2 triangles)
-
-    // Return the rendered buffer
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 }

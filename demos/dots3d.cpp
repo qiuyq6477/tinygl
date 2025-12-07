@@ -17,17 +17,16 @@ float cosf(float x);
 #define Z_START 0.25
 #define ABOBA_PADDING 50
 
-static uint32_t pixels[WIDTH*HEIGHT];
 static float angle = 0;
 
 void vc_init(void) {}
 void vc_input(SDL_Event *event) { (void)event; }
 
-Olivec_Canvas vc_render(float dt)
+Olivec_Canvas vc_render(float dt, void* pixels)
 {
     angle += 0.25*PI*dt;
 
-    Olivec_Canvas oc = olivec_canvas(pixels, WIDTH, HEIGHT, WIDTH);
+    Olivec_Canvas oc = olivec_canvas((uint32_t*)pixels, WIDTH, HEIGHT, WIDTH);
 
     olivec_fill(oc, BACKGROUND_COLOR);
     for (int ix = 0; ix < GRID_COUNT; ++ix) {

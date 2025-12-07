@@ -37,7 +37,7 @@
 extern "C" {
     void vc_init(void);
     void vc_input(SDL_Event *event);
-    Olivec_Canvas vc_render(float dt);
+    Olivec_Canvas vc_render(float dt, void* pixels);
 }
 
 #ifndef VC_PLATFORM
@@ -56,16 +56,22 @@ extern "C" {
 #define return_defer(value) do { result = (value); goto defer; } while (0)
 
 static SDL_Texture *vc_sdl_texture = NULL;
+static uint32_t *vc_colorbuffer = NULL; // CPU-side pixel buffer
 static size_t vc_sdl_actual_width = 0;
 static size_t vc_sdl_actual_height = 0;
 
 static bool vc_sdl_resize_texture(SDL_Renderer *renderer, size_t new_width, size_t new_height)
 {
     if (vc_sdl_texture != NULL) SDL_DestroyTexture(vc_sdl_texture);
+    if (vc_colorbuffer != NULL) free(vc_colorbuffer); // Free previous buffer
+
     vc_sdl_actual_width = new_width;
     vc_sdl_actual_height = new_height;
+    
     vc_sdl_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, vc_sdl_actual_width, vc_sdl_actual_height);
-    if (vc_sdl_texture == NULL) return false;
+    vc_colorbuffer = (uint32_t*)malloc(sizeof(uint32_t) * vc_sdl_actual_width * vc_sdl_actual_height); // Allocate new buffer
+
+    if (vc_sdl_texture == NULL || vc_colorbuffer == NULL) return false;
     return true;
 }
 
@@ -83,85 +89,102 @@ int main(void)
         if (window == NULL) return_defer(1);
 
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-                if (renderer == NULL) return_defer(1);
-        
-                vc_init();
+        if (renderer == NULL) return_defer(1);
+
+        vc_init();
+
+        Uint32 prev = SDL_GetTicks();
+        bool pause = false;
+
+        float fps = 0.0f;
+        const int FRAME_TIME_COUNT = 60;
+        float frame_times[FRAME_TIME_COUNT] = {0};
+        int frame_time_idx = 0;
+
+        const Uint32 TARGET_FRAME_TIME = 1000 / 60;
+
+        for (;;) {
+            Uint32 frame_start = SDL_GetTicks();
+
+            // Compute Delta Time
+            Uint32 curr = frame_start;
+            float dt = (curr - prev)/1000.f;
+            prev = curr;
+
+            // Calculate FPS (moving average)
+            frame_times[frame_time_idx] = dt;
+            frame_time_idx = (frame_time_idx + 1) % FRAME_TIME_COUNT;
+            float total_time = 0;
+            for(int i=0; i<FRAME_TIME_COUNT; ++i) total_time += frame_times[i];
+            if (total_time > 0) {
+                fps = FRAME_TIME_COUNT / total_time;
+            }
+
+            // Flush the events
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                vc_input(&event);
+                switch (event.type) {
+                case SDL_QUIT: {
+                    return_defer(0);
+                } break;
+                case SDL_KEYDOWN: {
+                    if (event.key.keysym.sym == SDLK_SPACE) pause = !pause;
+                } break;
+                }
+            }
+
+            if (!pause) {
+                // Resize logic (Initial or dynamic)
+                // Note: We need a valid buffer to pass to vc_render. 
+                // If vc_sdl_actual_width is 0, we can't render.
+                // Assuming first frame render call might want to set size, but it needs a buffer?
+                // Chicken and egg problem if the demo determines size.
+                // Solution: If buffer is null, allocate a default or small one, or rely on resizing after first frame (which returns size).
+                // But vc_render now takes a buffer.
+                // Let's assume an initial size or let the demo handle null pointer if it just returns size?
+                // Actually, existing demos return a dummy canvas if pixels is null, but they might crash if we pass null and they try to use it.
+                // Let's ensure we have *some* buffer.
+                if (vc_sdl_actual_width == 0) {
+                    if (!vc_sdl_resize_texture(renderer, 800, 600)) return_defer(1); // Default start
+                    SDL_SetWindowSize(window, 800, 600);
+                }
+
+                // Render into CPU colorbuffer
+                Olivec_Canvas oc_src = vc_render(dt, vc_colorbuffer);
+
+                // Overlay FPS counter
+                char fps_text[32];
+                snprintf(fps_text, sizeof(fps_text), "FPS: %.2f", fps);
+                olivec_text(oc_src, fps_text, 10, 10, olivec_default_font, 2, 0xFF00FF00); // Green text
+
+                // Upload CPU buffer to GPU Texture
+                SDL_UpdateTexture(
+                    vc_sdl_texture,
+                    NULL,
+                    vc_colorbuffer,
+                    (int)(vc_sdl_actual_width * sizeof(uint32_t))
+                );
                 
-                        Uint32 prev = SDL_GetTicks();
-                        bool pause = false;
-                
-                        float fps = 0.0f;
-                        const int FRAME_TIME_COUNT = 60;
-                        float frame_times[FRAME_TIME_COUNT] = {0};
-                        int frame_time_idx = 0;
-                
-                        for (;;) {
-                            // Compute Delta Time
-                            Uint32 curr = SDL_GetTicks();
-                            float dt = (curr - prev)/1000.f;
-                            prev = curr;
-                
-                            // Calculate FPS (moving average)
-                            frame_times[frame_time_idx] = dt;
-                            frame_time_idx = (frame_time_idx + 1) % FRAME_TIME_COUNT;
-                            float total_time = 0;
-                            for(int i=0; i<FRAME_TIME_COUNT; ++i) total_time += frame_times[i];
-                            if (total_time > 0) {
-                                fps = FRAME_TIME_COUNT / total_time;
-                            }
-                
-                            // Flush the events
-                            SDL_Event event;
-                            while (SDL_PollEvent(&event)) {
-                                vc_input(&event);
-                                switch (event.type) {
-                                case SDL_QUIT: {
-                                    return_defer(0);
-                                } break;
-                                case SDL_KEYDOWN: {
-                                    if (event.key.keysym.sym == SDLK_SPACE) pause = !pause;
-                                } break;
-                                }
-                            }
-                
-                            if (!pause) {
-                                // Render the texture
-                                Olivec_Canvas oc_src = vc_render(dt);
-                
-                                // Overlay FPS counter
-                                char fps_text[32];
-                                snprintf(fps_text, sizeof(fps_text), "FPS: %.2f", fps);
-                                olivec_text(oc_src, fps_text, 10, 10, olivec_default_font, 2, 0xFF00FF00); // Green text
-                
-                                if (oc_src.width != vc_sdl_actual_width || oc_src.height != vc_sdl_actual_height) {
-                                    if (!vc_sdl_resize_texture(renderer, oc_src.width, oc_src.height)) return_defer(1);
-                                    SDL_SetWindowSize(window, vc_sdl_actual_width, vc_sdl_actual_height);
-                                }
-                                
-                                // Ensure texture is created and has valid dimensions
-                                if (vc_sdl_texture == NULL || vc_sdl_actual_width == 0 || vc_sdl_actual_height == 0) {
-                                    continue;  // Skip this frame if texture is not ready
-                                }
-                                
-                                SDL_Rect window_rect = {0, 0, (int)vc_sdl_actual_width, (int)vc_sdl_actual_height};
-                                void *pixels_dst;
-                                int pitch;
-                                if (SDL_LockTexture(vc_sdl_texture, &window_rect, &pixels_dst, &pitch) < 0) return_defer(1);
-                                for (size_t y = 0; y < vc_sdl_actual_height; ++y) {
-                                    // TODO: it would be cool if Olivec_Canvas supported pitch in bytes instead of pixels
-                                    // It would be more flexible and we could draw on the locked texture memory directly
-                                    memcpy((char*)pixels_dst + y*pitch, oc_src.pixels + y*vc_sdl_actual_width, vc_sdl_actual_width*sizeof(uint32_t));
-                                }
-                                SDL_UnlockTexture(vc_sdl_texture);
-                            }
+                // Check if resize is needed for next frame
+                if (oc_src.width != vc_sdl_actual_width || oc_src.height != vc_sdl_actual_height) {
+                     if (!vc_sdl_resize_texture(renderer, oc_src.width, oc_src.height)) return_defer(1);
+                     SDL_SetWindowSize(window, vc_sdl_actual_width, vc_sdl_actual_height);
+                }
+            }
             // Display the texture
-            if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) < 0) return_defer(1);
-            if (SDL_RenderClear(renderer) < 0) return_defer(1);
+            // if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) < 0) return_defer(1);
+            // if (SDL_RenderClear(renderer) < 0) return_defer(1);
             if (vc_sdl_texture != NULL && vc_sdl_actual_width > 0 && vc_sdl_actual_height > 0) {
                 SDL_Rect window_rect = {0, 0, (int)vc_sdl_actual_width, (int)vc_sdl_actual_height};
                 if (SDL_RenderCopy(renderer, vc_sdl_texture, &window_rect, &window_rect) < 0) return_defer(1);
             }
             SDL_RenderPresent(renderer);
+
+            // Uint32 frame_time = SDL_GetTicks() - frame_start;
+            // if (frame_time < TARGET_FRAME_TIME) {
+            //     SDL_Delay(TARGET_FRAME_TIME - frame_time);
+            // }
         }
     }
 
@@ -174,6 +197,7 @@ defer:
         fprintf(stderr, "SDL ERROR: %s\n", SDL_GetError());
     }
     if (vc_sdl_texture) SDL_DestroyTexture(vc_sdl_texture);
+    if (vc_colorbuffer) free(vc_colorbuffer);
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
     SDL_Quit();

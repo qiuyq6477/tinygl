@@ -6,7 +6,6 @@
 #define CIRCLE_RADIUS 100
 #define CIRCLE_COLOR 0x99AA2020
 
-static uint32_t pixels[WIDTH*HEIGHT];
 static float triangle_angle = 0;
 static float circle_x = WIDTH/2;
 static float circle_y = HEIGHT/2;
@@ -41,9 +40,9 @@ void vc_input(SDL_Event *event)
     (void) event;
 }
 
-Olivec_Canvas vc_render(float dt)
+Olivec_Canvas vc_render(float dt, void* pixels)
 {
-    Olivec_Canvas oc = olivec_canvas(pixels, WIDTH, HEIGHT, WIDTH);
+    Olivec_Canvas oc = olivec_canvas((uint32_t*)pixels, WIDTH, HEIGHT, WIDTH);
 
     olivec_fill(oc, BACKGROUND_COLOR);
 

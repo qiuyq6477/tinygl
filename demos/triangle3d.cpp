@@ -3,7 +3,6 @@
 #define WIDTH 960
 #define HEIGHT 720
 
-static uint32_t pixels1[WIDTH*HEIGHT];
 static float zbuffer1[WIDTH*HEIGHT];
 static uint32_t pixels2[WIDTH*HEIGHT];
 static float zbuffer2[WIDTH*HEIGHT];
@@ -53,11 +52,11 @@ float cosf(float);
 void vc_init(void) {}
 void vc_input(SDL_Event *event) {(void)event;}
 
-Olivec_Canvas vc_render(float dt)
+Olivec_Canvas vc_render(float dt, void* pixels)
 {
     global_time += dt;
 
-    Olivec_Canvas oc1 = olivec_canvas(pixels1, WIDTH, HEIGHT, WIDTH);
+    Olivec_Canvas oc1 = olivec_canvas((uint32_t*)pixels, WIDTH, HEIGHT, WIDTH);
     olivec_fill(oc1, 0xFF181818);
     Olivec_Canvas zb1 = olivec_canvas((uint32_t*)zbuffer1, WIDTH, HEIGHT, WIDTH);
     olivec_fill(zb1, 0);

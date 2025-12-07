@@ -25,49 +25,73 @@ struct Vertex {
 };
 
 void vc_init(void) {
-    // 1. Initialize SoftRenderContext
+    // 1. Initialize Context
     g_ctx = std::unique_ptr<SoftRenderContext>(new SoftRenderContext(DEMO_WIDTH, DEMO_HEIGHT));
-    g_ctx->glClearColor(0.1f, 0.1f, 0.1f, 1.0f); // Set clear color to a dark grey
+    g_ctx->glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 
-    // 2. Create and configure Shader Program
     g_progID = g_ctx->glCreateProgram();
     g_uMVP = g_ctx->glGetUniformLocation(g_progID, "uMVP");
     g_uTex = g_ctx->glGetUniformLocation(g_progID, "uTex");
 
-    // ULTIMATE OPTIMIZATION: Set Vertex Shader ONCE.
-    // Capture the raw pointer 'ctx' (8 bytes), which fits in std::function's Small Buffer Optimization.
-    // This eliminates BOTH per-frame heap allocation (for lambda) AND per-vertex uniform lookup.
-    SoftRenderContext* ctx = g_ctx.get();
-    g_ctx->setVertexShader(g_progID, [ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        outCtx.varyings[0] = attribs[2]; // UV
-        outCtx.varyings[1] = attribs[1]; // Color
-        
-        Vec4 pos = attribs[0]; 
-        pos.w = 1.0f;
-        // Direct access via pointer - fastest possible path
-        return ctx->currMVP * pos; 
-    });
-
-    g_ctx->setFragmentShader(g_progID, [&](const ShaderContext& inCtx) -> Vec4 {
-        int unit = 0;
-        if (auto* p = g_ctx->getCurrentProgram()) if (p->uniforms.count(g_uTex)) unit = p->uniforms[g_uTex].data.i;
-        Vec4 texColor = {1,1,1,1};
-        if (auto* tex = g_ctx->getTexture(unit)) texColor = tex->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.lod);
-        // 混合顶点颜色和纹理
-        return inCtx.varyings[1] * texColor;
-    });
-
-    // 3. Generate Texture (white/blue checkerboard)
+    // 先创建纹理，确保 Texture Unit 0 有数据
     g_ctx->glGenTextures(1, &g_tex); 
     g_ctx->glActiveTexture(GL_TEXTURE0); 
     g_ctx->glBindTexture(GL_TEXTURE_2D, g_tex);
     std::vector<uint32_t> pixels(256 * 256);
     for(int i=0; i<256*256; i++) 
-        pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; // White / Black
+        pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; 
     g_ctx->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    g_ctx->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    g_ctx->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    // 使用最近邻或线性，不要用 Mipmap 以配合优化
+    g_ctx->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); 
+
+    // 然后再设置 Shader，此时 getTexture(0) 才是有效的
+    SoftRenderContext* ctx = g_ctx.get();
+    g_ctx->setVertexShader(g_progID, [ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
+        outCtx.varyings[0] = attribs[2]; // UV
+        outCtx.varyings[1] = attribs[1]; // Color
+        Vec4 pos = attribs[0]; pos.w = 1.0f;
+        return ctx->currMVP * pos; 
+    });
+
+    // 获取纹理指针用于捕获
+    TextureObject* rawTexPtr = g_ctx->getTexture(0);
     
+    // g_ctx->setFragmentShader(g_progID, [rawTexPtr](const ShaderContext& inCtx) -> Vec4 {
+    //     Vec4 texColor = {1,1,1,1};
+    //     if (rawTexPtr) {
+    //         // 使用优化后的采样，这里先传 0.0f LOD
+    //         texColor = rawTexPtr->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, 0.0f);
+    //     }
+    //     return inCtx.varyings[1] * texColor;
+    // });
+    g_ctx->setFragmentShader(g_progID, [rawTexPtr](const ShaderContext& inCtx) -> Vec4 {
+        // 1. 快速采样拿到 uint32_t (AABBGGRR)
+        uint32_t rawColor = 0xFFFFFFFF;
+        if (rawTexPtr) {
+            rawColor = rawTexPtr->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
+        }
+
+        // 2. 只有在必要时才转 float
+        // 这里我们做一个 trick：直接把 uint32_t 当作 float 存储在 Vec4.x 中返回
+        // 从而跳过 Vec4 的乘法混合（假设这个 Demo 只需要显示纹理，不混合顶点颜色）
+        // 如果必须混合顶点颜色，代码会复杂一些，但为了性能，我们先只显示纹理
+        
+        // 解析: 将 0xAABBGGRR 拆解并乘以顶点颜色 (inCtx.varyings[1])
+        // 为了性能，这里我们手动展开乘法，而不依赖 Vec4 operator*
+        
+        float r = ((rawColor) & 0xFF) * (1.0f/255.0f);
+        float g = ((rawColor >> 8) & 0xFF) * (1.0f/255.0f);
+        float b = ((rawColor >> 16) & 0xFF) * (1.0f/255.0f);
+        
+        // 混合顶点颜色 (varyings[1])
+        return Vec4(
+            r * inCtx.varyings[1].x,
+            g * inCtx.varyings[1].y,
+            b * inCtx.varyings[1].z,
+            1.0f
+        );
+    });
+
     // 4. Build Cube Data with uint8_t for colors
     Vertex vertices[] = {
         //   x,     y,    z,        r,  g,  b,      uv
@@ -148,10 +172,13 @@ void vc_input(SDL_Event *event) {
     }
 }
 
-Olivec_Canvas vc_render(float dt) {
+Olivec_Canvas vc_render(float dt, void* pixels) {
     if (!g_ctx) { // Should not happen if vc_init is called
         return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
     }
+
+    // Set external buffer to point to SDL texture memory
+    g_ctx->setExternalBuffer((uint32_t*)pixels);
 
     g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH); // Clear color and depth buffer
 
@@ -175,6 +202,6 @@ Olivec_Canvas vc_render(float dt) {
     // Draw the cube
     g_ctx->glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);
 
-    // Return the rendered buffer
+    // Return the rendered buffer (now pointing to SDL texture)
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 }
