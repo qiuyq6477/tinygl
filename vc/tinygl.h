@@ -1040,9 +1040,212 @@ public:
         return {dfdx, dfdy};
     }
 
+    // 纯粹的光栅化三角形逻辑 (Rasterize Triangle) - Scanline Implementation
+    /*
+    * 顶点排序：首先根据 Y 坐标对三个顶点进行排序（Top, Mid, Bottom）。
+       * 梯度计算：基于平面方程预计算 Z (深度) 和所有 Varyings (属性) 随 X 和 Y 的变化率 (d/dx, d/dy)，避免了逐像素的重心坐标计算。
+       * 边缘遍历：利用 Bresenham 思想或斜率步进，计算每一行扫描线的左右边界 (cx_left, cx_right)。
+       * 扫描线填充：
+           * 将三角形分为上半部分（Top-Mid）和下半部分（Mid-Bottom）分别循环。
+           * 在每行扫描线起始处，利用梯度公式计算初始属性值。
+           * 行内循环利用增量更新 (val += dVal/dX) 快速插值属性，极大提升了内层循环效率。
+       * 透视校正：保留了基于 1/w 的透视校正插值逻辑，确保纹理和颜色在 3D 空间中的正确性。
+       * 逻辑优化：移除了每像素的 LOD 计算（强制 LOD=0），进一步优化性能。
+     */
+    void rasterizeTriangleScanline(const VOut& v0_in, const VOut& v1_in, const VOut& v2_in) {
+        // 1. Backface Culling & Area Calculation (Use original winding)
+        float area = (v1_in.scn.x - v0_in.scn.x) * (v2_in.scn.y - v0_in.scn.y) - 
+                     (v1_in.scn.y - v0_in.scn.y) * (v2_in.scn.x - v0_in.scn.x);
+        
+        // 【Fix】: Invert culling logic.
+        // In screen space (Y-down), standard CCW winding produces a NEGATIVE determinant/area.
+        // So Front Faces have area < 0. We cull if area >= 0.
+        if (area >= 0) return;
+        float invArea = 1.0f / area;
+
+        // 2. Gradient Calculation (Plane Equations)
+        // dVal/dX = [ (val1-val0)*(y2-y0) - (val2-val0)*(y1-y0) ] / Area
+        // dVal/dY = [ (val2-val0)*(x1-x0) - (val1-val0)*(x2-x0) ] / Area
+        auto calcGrad = [&](float val0, float val1, float val2) -> std::pair<float, float> {
+             float t0 = val1 - val0;
+             float t1 = val2 - val0;
+             float ddx = (t0 * (v2_in.scn.y - v0_in.scn.y) - t1 * (v1_in.scn.y - v0_in.scn.y)) * invArea;
+             float ddy = (t1 * (v1_in.scn.x - v0_in.scn.x) - t0 * (v2_in.scn.x - v0_in.scn.x)) * invArea;
+             return {ddx, ddy};
+        };
+
+        // Gradients for Z (1/w)
+        auto [dzdx, dzdy] = calcGrad(v0_in.scn.w, v1_in.scn.w, v2_in.scn.w);
+
+        // Gradients for Varyings (Pre-multiplied by 1/w)
+        struct VaryingGrad { float dx[4], dy[4]; };
+        VaryingGrad dv[MAX_VARYINGS];
+
+        for(int i=0; i<MAX_VARYINGS; ++i) {
+             Vec4 va0 = v0_in.ctx.varyings[i] * v0_in.scn.w;
+             Vec4 va1 = v1_in.ctx.varyings[i] * v1_in.scn.w;
+             Vec4 va2 = v2_in.ctx.varyings[i] * v2_in.scn.w;
+             
+             auto gX = calcGrad(va0.x, va1.x, va2.x); dv[i].dx[0] = gX.first; dv[i].dy[0] = gX.second;
+             auto gY = calcGrad(va0.y, va1.y, va2.y); dv[i].dx[1] = gY.first; dv[i].dy[1] = gY.second;
+             auto gZ = calcGrad(va0.z, va1.z, va2.z); dv[i].dx[2] = gZ.first; dv[i].dy[2] = gZ.second;
+             auto gW = calcGrad(va0.w, va1.w, va2.w); dv[i].dx[3] = gW.first; dv[i].dy[3] = gW.second;
+        }
+
+        // 3. Vertex Sorting (Top to Bottom)
+        const VOut* p[3] = { &v0_in, &v1_in, &v2_in };
+        if (p[0]->scn.y > p[1]->scn.y) std::swap(p[0], p[1]);
+        if (p[0]->scn.y > p[2]->scn.y) std::swap(p[0], p[2]);
+        if (p[1]->scn.y > p[2]->scn.y) std::swap(p[1], p[2]);
+
+        const VOut& vTop = *p[0];
+        const VOut& vMid = *p[1];
+        const VOut& vBot = *p[2];
+
+        // 4. Setup Edges
+        int yStart = (int)std::ceil(vTop.scn.y - 0.5f);
+        int yMid   = (int)std::ceil(vMid.scn.y - 0.5f);
+        int yEnd   = (int)std::ceil(vBot.scn.y - 0.5f);
+
+        if (yStart >= yEnd) return; // Zero height
+
+        // Calculate Edge Slopes (dX/dY)
+        // Guard against div by zero? (yDiff is at least something if yStart < yEnd, but logic below handles blocks)
+        float dyLong = vBot.scn.y - vTop.scn.y;
+        float dyTop  = vMid.scn.y - vTop.scn.y;
+        float dyBot  = vBot.scn.y - vMid.scn.y;
+
+        float dxLong = (vBot.scn.x - vTop.scn.x) / (std::abs(dyLong) < EPSILON ? 1.0f : dyLong);
+        float dxTop  = (vMid.scn.x - vTop.scn.x) / (std::abs(dyTop) < EPSILON ? 1.0f : dyTop);
+        float dxBot  = (vBot.scn.x - vMid.scn.x) / (std::abs(dyBot) < EPSILON ? 1.0f : dyBot);
+
+        // Determine Left/Right
+        // Cross product logic to see if Mid is to the left of Long Edge
+        // (vBot.x - vTop.x)*(vMid.y - vTop.y) - (vBot.y - vTop.y)*(vMid.x - vTop.x)
+        // Note: Y is down in Screen Space? Code says v.scn.y = (1.0 - y)*H. So Y=0 is Top.
+        // Let's rely on X comparison at Mid Y.
+        float xLongAtMid = vTop.scn.x + dxLong * dyTop;
+        bool midIsLeft = vMid.scn.x < xLongAtMid;
+
+        // Current X trackers
+        float cx_left, cx_right;
+        float dLeft, dRight;
+
+        // Initialize X at yStart
+        float dyStart = (yStart + 0.5f) - vTop.scn.y;
+        
+        // We handle two phases: Top Half (yStart -> yMid) and Bottom Half (yMid -> yEnd)
+        auto* prog = getCurrentProgram();
+
+        // ---------------------------------------------------------
+        // Loop Helper (Macro or Lambda to avoid code duplication)
+        // ---------------------------------------------------------
+        auto processScanline = [&](int y, int xL, int xR) {
+            if (y >= fbHeight || y < 0) return;
+            int xs = std::max(0, xL);
+            int xe = std::min(fbWidth, xR);
+            if (xs >= xe) return;
+
+            // Row Start Params
+            float dy = (y + 0.5f) - v0_in.scn.y; // Relative to v0 for gradient calc
+            float dx_start = (xs + 0.5f) - v0_in.scn.x;
+
+            // Initialize running values at start of span
+            float zInv = v0_in.scn.w + dx_start * dzdx + dy * dzdy;
+            Vec4 runVar[MAX_VARYINGS];
+            for(int i=0; i<MAX_VARYINGS; ++i) {
+                // Pre-calc va0
+                Vec4 va0 = v0_in.ctx.varyings[i] * v0_in.scn.w;
+                runVar[i].x = va0.x + dx_start * dv[i].dx[0] + dy * dv[i].dy[0];
+                runVar[i].y = va0.y + dx_start * dv[i].dx[1] + dy * dv[i].dy[1];
+                runVar[i].z = va0.z + dx_start * dv[i].dx[2] + dy * dv[i].dy[2];
+                runVar[i].w = va0.w + dx_start * dv[i].dx[3] + dy * dv[i].dy[3];
+            }
+
+            int pixOffset = y * fbWidth + xs;
+            ShaderContext fsIn;
+            fsIn.lod = 0;
+
+            for (int x = xs; x < xe; ++x) {
+                if (zInv > 0) {
+                    float z = 1.0f / zInv;
+                    if (z < depthBuffer[pixOffset]) {
+                        depthBuffer[pixOffset] = z;
+
+                        // Recover Attributes
+                        for(int k=0; k<MAX_VARYINGS; ++k) {
+                            fsIn.varyings[k].x = runVar[k].x * z;
+                            fsIn.varyings[k].y = runVar[k].y * z;
+                            fsIn.varyings[k].z = runVar[k].z * z;
+                            fsIn.varyings[k].w = runVar[k].w * z;
+                        }
+
+                        // Shading
+                        Vec4 c = prog->fragmentShader(fsIn);
+                        uint32_t R = (uint32_t)(std::min(c.x, 1.0f) * 255.0f);
+                        uint32_t G = (uint32_t)(std::min(c.y, 1.0f) * 255.0f);
+                        uint32_t B = (uint32_t)(std::min(c.z, 1.0f) * 255.0f);
+                        m_colorBufferPtr[pixOffset] = (255 << 24) | (B << 16) | (G << 8) | R;
+                    }
+                }
+                
+                // Increment X
+                zInv += dzdx;
+                for(int k=0; k<MAX_VARYINGS; ++k) {
+                    runVar[k].x += dv[k].dx[0];
+                    runVar[k].y += dv[k].dx[1];
+                    runVar[k].z += dv[k].dx[2];
+                    runVar[k].w += dv[k].dx[3];
+                }
+                pixOffset++;
+            }
+        };
+
+        // --- Phase 1: Top Half ---
+        if (midIsLeft) {
+            dLeft = dxTop; dRight = dxLong;
+            cx_left = vTop.scn.x + dLeft * dyStart;
+            cx_right = vTop.scn.x + dRight * dyStart;
+        } else {
+            dLeft = dxLong; dRight = dxTop;
+            cx_left = vTop.scn.x + dLeft * dyStart;
+            cx_right = vTop.scn.x + dRight * dyStart;
+        }
+
+        for (int y = yStart; y < yMid; ++y) {
+            processScanline(y, (int)std::ceil(cx_left - 0.5f), (int)std::ceil(cx_right - 0.5f));
+            cx_left += dLeft;
+            cx_right += dRight;
+        }
+
+        // --- Phase 2: Bottom Half ---
+        // Need to realign the short edge to start from Mid
+        float dyMid = (yMid + 0.5f) - vMid.scn.y;
+        
+        // If midIsLeft, Left edge switches from Top->Mid to Mid->Bot
+        // Right edge continues Top->Bot
+        if (midIsLeft) {
+            dLeft = dxBot; 
+            // Reset left X to Mid
+            cx_left = vMid.scn.x + dLeft * dyMid;
+            // Right X continues, but to be safe/precise we could leave it
+            // or re-calculate from top? Incrementing is usually fine.
+        } else {
+            dRight = dxBot;
+            // Reset right X to Mid
+            cx_right = vMid.scn.x + dRight * dyMid;
+        }
+
+        for (int y = yMid; y < yEnd; ++y) {
+             processScanline(y, (int)std::ceil(cx_left - 0.5f), (int)std::ceil(cx_right - 0.5f));
+             cx_left += dLeft;
+             cx_right += dRight;
+        }
+    }
+
     // 纯粹的光栅化三角形逻辑 (Rasterize Triangle)
     // 输入已经是 Screen Space 的三个顶点
-    void rasterizeTriangle(const VOut& v0, const VOut& v1, const VOut& v2) {
+    void rasterizeTriangleEdgeFunction(const VOut& v0, const VOut& v1, const VOut& v2) {
         auto* prog = getCurrentProgram();
         
         // 1. 包围盒计算 (Bounding Box)
@@ -1193,6 +1396,12 @@ public:
             w2_row += B2;
         }
     }
+
+    void rasterizeTriangle(const VOut& v0, const VOut& v1, const VOut& v2) {
+        // [Optimized] Delegated to Scanline implementation
+        rasterizeTriangleScanline(v0, v1, v2);
+    }
+
 
     // --- Rasterizer ---
     const std::vector<uint32_t>& readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
