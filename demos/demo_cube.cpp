@@ -1,207 +1,221 @@
-#include "../vc/tinygl.h" // Includes all tinygl declarations and implementations
-#include "../vc/vc.cpp"     // Includes the vc framework and main loop
+#include "../vc/tinygl.h" 
+#include "../vc/vc.cpp"
 
-// Define the dimensions for this demo
 #define DEMO_WIDTH 800
 #define DEMO_HEIGHT 600
 
-// Global variables for the tinygl context and scene state
 std::unique_ptr<SoftRenderContext> g_ctx;
-GLuint g_progID;
-GLint g_uMVP;
-GLint g_uTex;
 GLuint g_vao, g_vbo, g_ebo;
 GLuint g_tex;
+float g_rotationAngle = 0.0f;
+static uint32_t g_cubeIndices[36]; 
+// ==========================================
+// 定义 Shader 结构体 (Template Architecture)
+// ==========================================
+struct CubeShader {
+    // Uniforms
+    TextureObject* texture = nullptr;
+    SimdMat4 mvp; // 使用 SIMD 矩阵加速
 
-float g_rotationAngle = 0.0f; // For animating the cube
+    // Vertex Shader (返回 Clip Space Pos)
+    // 编译器会自动内联
+    // inline Vec4 vertex(const std::vector<Vec4>& attribs, ShaderContext& outCtx) {
+    //     // attribs[0]: Pos, attribs[1]: Color, attribs[2]: UV
+    //     outCtx.varyings[0] = attribs[2]; // UV
+    //     outCtx.varyings[1] = attribs[1]; // Color
 
+    //     // SIMD 矩阵乘法
+    //     // 假设 attribs[0] 是 {x, y, z, 1}
+    //     float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, 1.0f};
+    //     Simd4f pos = Simd4f::load(posArr);
+        
+    //     Simd4f res = mvp.transformPoint(pos);
+        
+    //     float outArr[4];
+    //     res.store(outArr);
+    //     return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+    // }
+    // [修改] 接收数组指针，而不是 vector
+    // 为了安全，可以是 const Vec4*，我们在调用时传数组首地址
+    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+        // 直接通过数组索引访问，无边界检查开销
+        outCtx.varyings[0] = attribs[2]; // UV
+        outCtx.varyings[1] = attribs[1]; // Color
 
-// Define a vertex structure for clarity
+        // SIMD 矩阵变换
+        // 假设 attribs[0] 是 {x, y, z, 1}
+        float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, 1.0f};
+        Simd4f pos = Simd4f::load(posArr);
+        Simd4f res = mvp.transformPoint(pos);
+        
+        float outArr[4];
+        res.store(outArr);
+        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+    }
+
+    // Fragment Shader (返回 0xAABBGGRR)
+    inline uint32_t fragment(const ShaderContext& inCtx) {
+        // 1. 极速纹理采样 (Nearest)
+        uint32_t texColor = 0xFFFFFFFF;
+        if (texture) {
+            texColor = texture->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
+        }
+
+        // 2. 混合顶点颜色 (简单乘法)
+        // 解析 Texture Color
+        uint32_t r = texColor & 0xFF;
+        uint32_t g = (texColor >> 8) & 0xFF;
+        uint32_t b = (texColor >> 16) & 0xFF;
+
+        // 混合 Varying Color (假设 varyings[1] 是 normalized 0.0-1.0)
+        // 避免 float->vec4->float 的来回转换，直接算
+        float vr = inCtx.varyings[1].x;
+        float vg = inCtx.varyings[1].y;
+        float vb = inCtx.varyings[1].z;
+
+        uint32_t fr = (uint32_t)(r * vr);
+        uint32_t fg = (uint32_t)(g * vg);
+        uint32_t fb = (uint32_t)(b * vb);
+
+        return (255 << 24) | (fb << 16) | (fg << 8) | fr;
+    }
+};
+
 struct Vertex {
     float pos[3];
     uint8_t color[3];
-    uint8_t padding; // Align to 4 bytes
+    uint8_t padding; 
     float uv[2];
 };
 
 void vc_init(void) {
-    // 1. Initialize Context
     g_ctx = std::unique_ptr<SoftRenderContext>(new SoftRenderContext(DEMO_WIDTH, DEMO_HEIGHT));
-    g_ctx->glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-
-    g_progID = g_ctx->glCreateProgram();
-    g_uMVP = g_ctx->glGetUniformLocation(g_progID, "uMVP");
-    g_uTex = g_ctx->glGetUniformLocation(g_progID, "uTex");
-
-    // 先创建纹理，确保 Texture Unit 0 有数据
+    
+    // 1. 创建纹理
     g_ctx->glGenTextures(1, &g_tex); 
     g_ctx->glActiveTexture(GL_TEXTURE0); 
     g_ctx->glBindTexture(GL_TEXTURE_2D, g_tex);
     std::vector<uint32_t> pixels(256 * 256);
-    for(int i=0; i<256*256; i++) 
-        pixels[i] = (((i%256/32)+(i/256/32))%2) ? COLOR_WHITE : 0xFF000000; 
+    for(int i=0; i<256*256; i++) {
+        int x = i % 256;
+        int y = i / 256;
+        // 生成棋盘格：白色(0xFFFFFFFF) 和 黑色(0xFF000000，注意 Alpha 必须是 FF)
+        bool isWhite = ((x / 32) + (y / 32)) % 2 != 0;
+        pixels[i] = isWhite ? 0xFFFFFFFF : 0xFF000000; // Alpha=255
+    }
     g_ctx->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    // 使用最近邻或线性，不要用 Mipmap 以配合优化
-    g_ctx->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); 
 
-    // 然后再设置 Shader，此时 getTexture(0) 才是有效的
-    SoftRenderContext* ctx = g_ctx.get();
-    g_ctx->setVertexShader(g_progID, [ctx](const std::vector<Vec4>& attribs, ShaderContext& outCtx) -> Vec4 {
-        outCtx.varyings[0] = attribs[2]; // UV
-        outCtx.varyings[1] = attribs[1]; // Color
-        Vec4 pos = attribs[0]; pos.w = 1.0f;
-        return ctx->currMVP * pos; 
-    });
-
-    // 获取纹理指针用于捕获
-    TextureObject* rawTexPtr = g_ctx->getTexture(0);
-    
-    // g_ctx->setFragmentShader(g_progID, [rawTexPtr](const ShaderContext& inCtx) -> Vec4 {
-    //     Vec4 texColor = {1,1,1,1};
-    //     if (rawTexPtr) {
-    //         // 使用优化后的采样，这里先传 0.0f LOD
-    //         texColor = rawTexPtr->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, 0.0f);
-    //     }
-    //     return inCtx.varyings[1] * texColor;
-    // });
-    g_ctx->setFragmentShader(g_progID, [rawTexPtr](const ShaderContext& inCtx) -> Vec4 {
-        // 1. 快速采样拿到 uint32_t (AABBGGRR)
-        uint32_t rawColor = 0xFFFFFFFF;
-        if (rawTexPtr) {
-            rawColor = rawTexPtr->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
-        }
-
-        // 2. 只有在必要时才转 float
-        // 这里我们做一个 trick：直接把 uint32_t 当作 float 存储在 Vec4.x 中返回
-        // 从而跳过 Vec4 的乘法混合（假设这个 Demo 只需要显示纹理，不混合顶点颜色）
-        // 如果必须混合顶点颜色，代码会复杂一些，但为了性能，我们先只显示纹理
-        
-        // 解析: 将 0xAABBGGRR 拆解并乘以顶点颜色 (inCtx.varyings[1])
-        // 为了性能，这里我们手动展开乘法，而不依赖 Vec4 operator*
-        
-        float r = ((rawColor) & 0xFF) * (1.0f/255.0f);
-        float g = ((rawColor >> 8) & 0xFF) * (1.0f/255.0f);
-        float b = ((rawColor >> 16) & 0xFF) * (1.0f/255.0f);
-        
-        // 混合顶点颜色 (varyings[1])
-        return Vec4(
-            r * inCtx.varyings[1].x,
-            g * inCtx.varyings[1].y,
-            b * inCtx.varyings[1].z,
-            1.0f
-        );
-    });
-
-    // 4. Build Cube Data with uint8_t for colors
+    // 2. 上传顶点数据 (保持不变)
     Vertex vertices[] = {
-        //   x,     y,    z,        r,  g,  b,      uv
-        // 1. Front Face
-        {{-1.0f, -1.0f,  1.0f}, {255, 0, 0}, 0, {0.0f, 0.0f}},
-        {{ 1.0f, -1.0f,  1.0f}, {255, 0, 0}, 0, {1.0f, 0.0f}},
-        {{ 1.0f,  1.0f,  1.0f}, {255, 0, 0}, 0, {1.0f, 1.0f}},
-        {{-1.0f,  1.0f,  1.0f}, {255, 0, 0}, 0, {0.0f, 1.0f}},
-        // 2. Back Face
-        {{ 1.0f, -1.0f, -1.0f}, {0, 255, 0}, 0, {0.0f, 0.0f}},
-        {{-1.0f, -1.0f, -1.0f}, {0, 255, 0}, 0, {1.0f, 0.0f}},
-        {{-1.0f,  1.0f, -1.0f}, {0, 255, 0}, 0, {1.0f, 1.0f}},
-        {{ 1.0f,  1.0f, -1.0f}, {0, 255, 0}, 0, {0.0f, 1.0f}},
-        // 3. Left Face
-        {{-1.0f, -1.0f, -1.0f}, {0, 0, 255}, 0, {0.0f, 0.0f}},
-        {{-1.0f, -1.0f,  1.0f}, {0, 0, 255}, 0, {1.0f, 0.0f}},
-        {{-1.0f,  1.0f,  1.0f}, {0, 0, 255}, 0, {1.0f, 1.0f}},
-        {{-1.0f,  1.0f, -1.0f}, {0, 0, 255}, 0, {0.0f, 1.0f}},
-        // 4. Right Face
-        {{ 1.0f, -1.0f,  1.0f}, {255, 255, 0}, 0, {0.0f, 0.0f}},
-        {{ 1.0f, -1.0f, -1.0f}, {255, 255, 0}, 0, {1.0f, 0.0f}},
-        {{ 1.0f,  1.0f, -1.0f}, {255, 255, 0}, 0, {1.0f, 1.0f}},
-        {{ 1.0f,  1.0f,  1.0f}, {255, 255, 0}, 0, {0.0f, 1.0f}},
-        // 5. Top Face
-        {{-1.0f,  1.0f,  1.0f}, {0, 255, 255}, 0, {0.0f, 0.0f}},
-        {{ 1.0f,  1.0f,  1.0f}, {0, 255, 255}, 0, {1.0f, 0.0f}},
-        {{ 1.0f,  1.0f, -1.0f}, {0, 255, 255}, 0, {1.0f, 1.0f}},
-        {{-1.0f,  1.0f, -1.0f}, {0, 255, 255}, 0, {0.0f, 1.0f}},
-        // 6. Bottom Face
-        {{-1.0f, -1.0f, -1.0f}, {255, 0, 255}, 0, {0.0f, 0.0f}},
-        {{ 1.0f, -1.0f, -1.0f}, {255, 0, 255}, 0, {1.0f, 0.0f}},
-        {{ 1.0f, -1.0f,  1.0f}, {255, 0, 255}, 0, {1.0f, 1.0f}},
-        {{-1.0f, -1.0f,  1.0f}, {255, 0, 255}, 0, {0.0f, 1.0f}}
+        // Front
+        {{-1,-1, 1}, {255,0,0}, 0, {0,0}}, {{ 1,-1, 1}, {255,0,0}, 0, {1,0}},
+        {{ 1, 1, 1}, {255,0,0}, 0, {1,1}}, {{-1, 1, 1}, {255,0,0}, 0, {0,1}},
+        // Back
+        {{ 1,-1,-1}, {0,255,0}, 0, {0,0}}, {{-1,-1,-1}, {0,255,0}, 0, {1,0}},
+        {{-1, 1,-1}, {0,255,0}, 0, {1,1}}, {{ 1, 1,-1}, {0,255,0}, 0, {0,1}},
+        // Left
+        {{-1,-1,-1}, {0,0,255}, 0, {0,0}}, {{-1,-1, 1}, {0,0,255}, 0, {1,0}},
+        {{-1, 1, 1}, {0,0,255}, 0, {1,1}}, {{-1, 1,-1}, {0,0,255}, 0, {0,1}},
+        // Right
+        {{ 1,-1, 1}, {255,255,0}, 0, {0,0}}, {{ 1,-1,-1}, {255,255,0}, 0, {1,0}},
+        {{ 1, 1,-1}, {255,255,0}, 0, {1,1}}, {{ 1, 1, 1}, {255,255,0}, 0, {0,1}},
+        // Top
+        {{-1, 1, 1}, {0,255,255}, 0, {0,0}}, {{ 1, 1, 1}, {0,255,255}, 0, {1,0}},
+        {{ 1, 1,-1}, {0,255,255}, 0, {1,1}}, {{-1, 1,-1}, {0,255,255}, 0, {0,1}},
+        // Bottom
+        {{-1,-1,-1}, {255,0,255}, 0, {0,0}}, {{ 1,-1,-1}, {255,0,255}, 0, {1,0}},
+        {{ 1,-1, 1}, {255,0,255}, 0, {1,1}}, {{-1,-1, 1}, {255,0,255}, 0, {0,1}}
     };
 
-    uint32_t cubeIndices[36];
+    uint32_t *indices = g_cubeIndices;
     for(int i=0; i<6; i++) {
-        uint32_t base = i * 4;
-        cubeIndices[i*6+0] = base + 0;
-        cubeIndices[i*6+1] = base + 1;
-        cubeIndices[i*6+2] = base + 2;
-        cubeIndices[i*6+3] = base + 2;
-        cubeIndices[i*6+4] = base + 3;
-        cubeIndices[i*6+5] = base + 0;
+        uint32_t base = i*4;
+        indices[i*6+0]=base; indices[i*6+1]=base+1; indices[i*6+2]=base+2;
+        indices[i*6+3]=base+2; indices[i*6+4]=base+3; indices[i*6+5]=base;
     }
 
-    // Upload Data
-    g_ctx->glGenVertexArrays(1, &g_vao); g_ctx->glBindVertexArray(g_vao);
-    g_ctx->glGenBuffers(1, &g_vbo); g_ctx->glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
+    g_ctx->glGenVertexArrays(1, &g_vao); 
+    g_ctx->glBindVertexArray(g_vao);
+    g_ctx->glGenBuffers(1, &g_vbo); 
+    g_ctx->glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
     g_ctx->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    g_ctx->glGenBuffers(1, &g_ebo); g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo);
-    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
+    g_ctx->glGenBuffers(1, &g_ebo); 
+    g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo);
+    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    // Attributes
     GLsizei stride = sizeof(Vertex);
-    // Position attribute (3 floats)
     g_ctx->glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)offsetof(Vertex, pos));
     g_ctx->glEnableVertexAttribArray(0);
-    // Color attribute (3 uint8_t), normalized
     g_ctx->glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, true, stride, (void*)offsetof(Vertex, color));
     g_ctx->glEnableVertexAttribArray(1);
-    // UV attribute (2 floats)
     g_ctx->glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)offsetof(Vertex, uv));
     g_ctx->glEnableVertexAttribArray(2);
-
-    g_ctx->glUseProgram(g_progID);
-    g_ctx->glUniform1i(g_uTex, 0);
-
-    // Initial MVP is set in render loop for animation
 }
 
 void vc_input(SDL_Event *event) {
-    // Basic input: space to reset rotation (optional)
-    if (event->type == SDL_KEYDOWN) {
-        if (event->key.keysym.sym == SDLK_SPACE) {
-            g_rotationAngle = 0.0f;
-        }
-    }
+    if (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_SPACE) g_rotationAngle = 0.0f;
 }
 
-Olivec_Canvas vc_render(float dt, void* pixels) {
-    if (!g_ctx) { // Should not happen if vc_init is called
-        return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
-    }
+// Olivec_Canvas vc_render(float dt, void* pixels) {
+//     if (!g_ctx) return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
+//     g_ctx->setExternalBuffer((uint32_t*)pixels);
+//     g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH);
 
-    // Set external buffer to point to SDL texture memory
-    g_ctx->setExternalBuffer((uint32_t*)pixels);
+//     g_rotationAngle += 45.0f * dt;
 
-    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH); // Clear color and depth buffer
-
-    g_rotationAngle += 45.0f * dt; // Rotate 45 degrees per second
-
-    // Calculate MVP matrix
-    // Model: Apply rotation based on g_rotationAngle and translation
-    Mat4 model = Mat4::Translate(0, 0, -3.0f); // Translate back to be visible
-    model = model * Mat4::RotateY(g_rotationAngle); // Rotate around Y-axis
-    model = model * Mat4::RotateX(g_rotationAngle * 0.5f); // Rotate around X-axis
+//     // 1. 实例化 Shader (在栈上，极快)
+//     CubeShader shader;
     
-    Mat4 view = Mat4::Identity(); // Simple Identity View
-    float aspect = (float)DEMO_WIDTH / (float)DEMO_HEIGHT;
-    Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f); // 90 deg FOV
+//     // 2. 设置 Uniforms
+//     // 直接获取纹理对象指针
+//     shader.texture = g_ctx->getTexture(g_tex); 
 
-    Mat4 mvp = proj * view * model; // P * V * M
+//     // 计算 MVP 并加载到 SIMD 寄存器
+//     Mat4 model = Mat4::Translate(0, 0, -3.0f) * Mat4::RotateY(g_rotationAngle) * Mat4::RotateX(g_rotationAngle * 0.5f);
+//     Mat4 proj = Mat4::Perspective(90.0f, (float)DEMO_WIDTH/DEMO_HEIGHT, 0.1f, 100.0f);
+//     Mat4 mvp = proj * Mat4::Identity() * model;
+    
+//     shader.mvp.load(mvp); // Load once per frame
 
-    // Update the fast-path MVP
-    g_ctx->currMVP = mvp;
+//     // 3. 调用模板化的绘制函数
+//     // 手动构建索引 vector (为了适配新的接口，虽然有点多余但为了复用逻辑)
+//     // 注意：这里为了性能，实际 tinygl 应该提供直接传指针的重载，但我们先凑合用 vector
+//     // 更好的做法是让 drawElementsTemplate 接收 raw pointer
+//     std::vector<uint32_t> idxCache(36);
+//     // 这里其实很慢，生产环境应该把 indices 缓存在 context 里
+//     // 暂时先重新生成一下作为演示，或者我们在 vc_init 里把 indices 存个全局
+//     // 为了简单，我们这里重新填一遍，实际项目请优化
+//     for(int i=0; i<6; i++) {
+//          uint32_t base = i*4;
+//          idxCache[i*6+0]=base; idxCache[i*6+1]=base+1; idxCache[i*6+2]=base+2;
+//          idxCache[i*6+3]=base+2; idxCache[i*6+4]=base+3; idxCache[i*6+5]=base;
+//     }
+    
+//     g_ctx->drawElementsTemplate(shader, 36, GL_UNSIGNED_INT, g_cubeIndices);
 
-    // Draw the cube
-    g_ctx->glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);
+//     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
+// }
+Olivec_Canvas vc_render(float dt, void* pixels) {
+    if (!g_ctx) return olivec_canvas(nullptr, DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
+    g_ctx->setExternalBuffer((uint32_t*)pixels);
+    g_ctx->glClear(BufferType::COLOR | BufferType::DEPTH);
 
-    // Return the rendered buffer (now pointing to SDL texture)
+    g_rotationAngle += 45.0f * dt;
+
+    // 1. 实例化 Shader
+    CubeShader shader;
+    shader.texture = g_ctx->getTextureObject(g_tex); 
+
+    // 2. 计算 MVP
+    Mat4 model = Mat4::Translate(0, 0, -3.0f) * Mat4::RotateY(g_rotationAngle) * Mat4::RotateX(g_rotationAngle * 0.5f);
+    Mat4 proj = Mat4::Perspective(90.0f, (float)DEMO_WIDTH/DEMO_HEIGHT, 0.1f, 100.0f);
+    Mat4 mvp = proj * Mat4::Identity() * model;
+    shader.mvp.load(mvp);
+
+    // 3. [修改] 使用统一的 drawElements 接口
+    // 参数：Shader对象, 模式, 数量, 类型, 索引指针
+    // 此时 g_ctx 会根据 mode=GL_TRIANGLES 自动路由逻辑
+    g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, g_cubeIndices);
+
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 }

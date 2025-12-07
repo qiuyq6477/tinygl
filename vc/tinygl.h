@@ -19,8 +19,7 @@
 #include <memory>
 #include <iomanip>
 #include <random>
-
-
+#include <arm_neon.h>
 
 // ==========================================
 // 0. 基础容器 (Basic Containers)
@@ -206,6 +205,98 @@ struct Mat4 {
             m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14]*v.w,
             m[3]*v.x + m[7]*v.y + m[11]*v.z + m[15]*v.w
         );
+    }
+};
+
+// ==========================================
+// macOS ARM NEON SIMD 包装类
+// ==========================================
+// 简单的跨平台预留，目前专为 macOS/ARM 优化
+
+// 定义强制内联宏
+#if defined(__GNUC__) || defined(__clang__)
+    #define SIMD_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+    #define SIMD_INLINE __forceinline
+#else
+    #define SIMD_INLINE inline
+#endif
+struct alignas(16) Simd4f {
+    float32x4_t v;
+
+    // 默认构造
+    SIMD_INLINE Simd4f() : v(vdupq_n_f32(0.0f)) {}
+    
+    // 广播构造
+    SIMD_INLINE explicit Simd4f(float val) : v(vdupq_n_f32(val)) {}
+    
+    // 从 float32x4_t 构造
+    SIMD_INLINE Simd4f(float32x4_t _v) : v(_v) {}
+
+    // 加载
+    SIMD_INLINE static Simd4f load(const float* ptr) {
+        return Simd4f(vld1q_f32(ptr));
+    }
+    
+    // 存储
+    SIMD_INLINE void store(float* ptr) const {
+        vst1q_f32(ptr, v);
+    }
+
+    // 基础运算
+    SIMD_INLINE Simd4f operator+(const Simd4f& other) const { return Simd4f(vaddq_f32(v, other.v)); }
+    SIMD_INLINE Simd4f operator-(const Simd4f& other) const { return Simd4f(vsubq_f32(v, other.v)); }
+    SIMD_INLINE Simd4f operator*(const Simd4f& other) const { return Simd4f(vmulq_f32(v, other.v)); }
+    
+    // 乘加 fused multiply-add: res = this + a * b
+    SIMD_INLINE Simd4f madd(const Simd4f& a, const Simd4f& b) const {
+        return Simd4f(vfmaq_f32(v, a.v, b.v)); 
+    }
+    // 辅助：从 Vec4 加载
+    SIMD_INLINE static Simd4f load(const Vec4& v) {
+        // 假设 Vec4 布局是 x,y,z,w 连续 float
+        return Simd4f(vld1q_f32(&v.x));
+    }
+
+    // 辅助：存储到 Vec4
+    SIMD_INLINE void store(Vec4& v) const {
+        vst1q_f32(&v.x, this->v);
+    }
+};
+
+// 辅助：SIMD 矩阵列式存储，用于加速 Vertex Shader
+struct SimdMat4 {
+    Simd4f cols[4]; // 矩阵的 4 列
+
+    void load(const Mat4& m) {
+        // Mat4 是行主序还是列主序？假设 m.m 是平铺数组
+        // 这里我们需要每一列加载到一个寄存器
+        // m[0], m[1], m[2], m[3] -> col0 (如果是列主序)
+        // 你的 Mat4 实现看起来是标准的，我们按列加载
+        cols[0] = Simd4f::load(&m.m[0]);
+        cols[1] = Simd4f::load(&m.m[4]);
+        cols[2] = Simd4f::load(&m.m[8]);
+        cols[3] = Simd4f::load(&m.m[12]);
+    }
+
+    // 变换顶点 (假设 w=1.0)
+    inline Simd4f transformPoint(const Simd4f& p) const {
+        // 获取 x, y, z 分量并广播
+        // NEON 取 lane 比较繁琐，这里用下标访问模拟广播，编译器会优化为 dup
+        // 更好的方式是用 vdupq_laneq_f32，但为了简单：
+        float buf[4]; p.store(buf);
+        
+        Simd4f x(buf[0]);
+        Simd4f y(buf[1]);
+        Simd4f z(buf[2]);
+        
+        // res = col0 * x + col1 * y + col2 * z + col3
+        // 使用 FMA 优化: col3 + col0*x + col1*y + col2*z
+        Simd4f res = cols[3];
+        res = res.madd(cols[0], x);
+        res = res.madd(cols[1], y);
+        res = res.madd(cols[2], z);
+        return res;
     }
 };
 
@@ -557,6 +648,10 @@ struct VertexArrayObject {
 struct ShaderContext { 
     Vec4 varyings[MAX_VARYINGS]; 
     float lod = 0.0f; // [新增]
+    // [新增] 构造函数强制清零，防止 NaN 传染
+    ShaderContext() {
+        std::memset(varyings, 0, sizeof(varyings));
+    }
 };
 
 // VOut: 顶点着色器的输出，也是裁剪阶段的输入
@@ -671,11 +766,6 @@ public:
         auto it = programs.find(m_currentProgram);
         return (it != programs.end()) ? &it->second : nullptr;
     }
-
-    ProgramObject* getProgramByID(GLuint id) {
-        auto it = programs.find(id);
-        return (it != programs.end()) ? &it->second : nullptr;
-    }
     
     TextureObject* getTexture(GLuint unit) {
         if (unit >= 32) return nullptr;
@@ -683,6 +773,17 @@ public:
         if (id == 0) return nullptr;
         auto it = textures.find(id);
         return (it != textures.end()) ? &it->second : nullptr;
+    }
+    
+    // 直接通过 ID 获取纹理对象 (绕过 Texture Unit 绑定状态)
+    // 这种方式更适合我们现在的 Template Shader 架构
+    TextureObject* getTextureObject(GLuint id) {
+        if (id == 0) return nullptr;
+        auto it = textures.find(id);
+        if (it != textures.end()) {
+            return &it->second;
+        }
+        return nullptr;
     }
 
     // --- Buffers ---
@@ -822,58 +923,6 @@ public:
             case GL_TEXTURE_WRAP_T: tex->wrapT = (GLenum)param; break;
             case GL_TEXTURE_MIN_FILTER: tex->minFilter = (GLenum)param; break;
             case GL_TEXTURE_MAG_FILTER: tex->magFilter = (GLenum)param; break;
-        }
-    }
-
-    // --- Program ---
-    GLuint glCreateProgram() {
-        GLuint id = m_nextID++;
-        programs[id].id = id;
-        LOG_INFO("CreateProgram ID: " + std::to_string(id));
-        return id;
-    }
-    void glUseProgram(GLuint prog) {
-        if (prog != 0 && programs.find(prog) == programs.end()) {
-            LOG_ERROR("Invalid Program ID");
-            return;
-        }
-        m_currentProgram = prog;
-        LOG_INFO("UseProgram: " + std::to_string(prog));
-    }
-
-    void setVertexShader(GLuint progID, std::function<Vec4(const std::vector<Vec4>&, ShaderContext&)> shader) {
-        if (auto* p = getProgramByID(progID)) p->vertexShader = shader;
-    }
-    void setFragmentShader(GLuint progID, std::function<Vec4(const ShaderContext&)> shader) {
-        if (auto* p = getProgramByID(progID)) p->fragmentShader = shader;
-    }
-
-    GLint glGetUniformLocation(GLuint prog, const char* name) {
-        programs[prog].uniformLocs[name]; // create entry
-        GLint loc = (GLint)std::hash<std::string>{}(name) & 0x7FFFFFFF;
-        return loc;
-    }
-
-    void glUniform1i(GLint loc, int val) {
-        if (auto* p = getCurrentProgram()) {
-            p->uniforms[loc].type = UniformValue::INT;
-            p->uniforms[loc].data.i = val;
-        }
-    }
-    void glUniformMatrix4fv(GLint loc, GLsizei count, GLboolean transpose, const GLfloat* value) {
-        if (auto* p = getCurrentProgram()) {
-            if (count > 1) {
-                LOG_WARN("glUniformMatrix4fv with count > 1 is not fully supported. Only the first matrix will be set.");
-            }
-            p->uniforms[loc].type = UniformValue::MAT4;
-            if (transpose) {
-                Mat4 mat;
-                std::memcpy(mat.m, value, 16 * sizeof(float));
-                Mat4 transposedMat = Mat4::Transpose(mat);
-                std::memcpy(p->uniforms[loc].data.mat, transposedMat.m, 16 * sizeof(float));
-            } else {
-                std::memcpy(p->uniforms[loc].data.mat, value, 16 * sizeof(float));
-            }
         }
     }
 
@@ -1043,14 +1092,14 @@ public:
     // 纯粹的光栅化三角形逻辑 (Rasterize Triangle) - Scanline Implementation
     /*
     * 顶点排序：首先根据 Y 坐标对三个顶点进行排序（Top, Mid, Bottom）。
-       * 梯度计算：基于平面方程预计算 Z (深度) 和所有 Varyings (属性) 随 X 和 Y 的变化率 (d/dx, d/dy)，避免了逐像素的重心坐标计算。
-       * 边缘遍历：利用 Bresenham 思想或斜率步进，计算每一行扫描线的左右边界 (cx_left, cx_right)。
-       * 扫描线填充：
-           * 将三角形分为上半部分（Top-Mid）和下半部分（Mid-Bottom）分别循环。
-           * 在每行扫描线起始处，利用梯度公式计算初始属性值。
-           * 行内循环利用增量更新 (val += dVal/dX) 快速插值属性，极大提升了内层循环效率。
-       * 透视校正：保留了基于 1/w 的透视校正插值逻辑，确保纹理和颜色在 3D 空间中的正确性。
-       * 逻辑优化：移除了每像素的 LOD 计算（强制 LOD=0），进一步优化性能。
+    * 梯度计算：基于平面方程预计算 Z (深度) 和所有 Varyings (属性) 随 X 和 Y 的变化率 (d/dx, d/dy)，避免了逐像素的重心坐标计算。
+    * 边缘遍历：利用 Bresenham 思想或斜率步进，计算每一行扫描线的左右边界 (cx_left, cx_right)。
+    * 扫描线填充：
+        * 将三角形分为上半部分（Top-Mid）和下半部分（Mid-Bottom）分别循环。
+        * 在每行扫描线起始处，利用梯度公式计算初始属性值。
+        * 行内循环利用增量更新 (val += dVal/dX) 快速插值属性，极大提升了内层循环效率。
+    * 透视校正：保留了基于 1/w 的透视校正插值逻辑，确保纹理和颜色在 3D 空间中的正确性。
+    * 逻辑优化：移除了每像素的 LOD 计算（强制 LOD=0），进一步优化性能。
      */
     void rasterizeTriangleScanline(const VOut& v0_in, const VOut& v1_in, const VOut& v2_in) {
         // 1. Backface Culling & Area Calculation (Use original winding)
@@ -1397,11 +1446,196 @@ public:
         }
     }
 
-    void rasterizeTriangle(const VOut& v0, const VOut& v1, const VOut& v2) {
-        // [Optimized] Delegated to Scanline implementation
-        rasterizeTriangleScanline(v0, v1, v2);
+// [重构] 极致性能的通用光栅化函数
+    template <typename ShaderT>
+    void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
+        // 1. 包围盒计算 (Bounding Box)
+        int minX = std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
+        int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
+        int minY = std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
+        int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
+
+        // 2. 面积计算 (Backface Culling)
+        float area = (v1.scn.y - v0.scn.y) * (v2.scn.x - v0.scn.x) - 
+                     (v1.scn.x - v0.scn.x) * (v2.scn.y - v0.scn.y);
+        
+        // 面积 <= 0 剔除 (假设 CCW)
+        if (area <= 0) return;
+        float invArea = 1.0f / area;
+
+        // 3. 增量系数 Setup
+        // Edge 0: v1 -> v2
+        float A0 = v2.scn.y - v1.scn.y; float B0 = v1.scn.x - v2.scn.x;
+        // Edge 1: v2 -> v0
+        float A1 = v0.scn.y - v2.scn.y; float B1 = v2.scn.x - v0.scn.x;
+        // Edge 2: v0 -> v1
+        float A2 = v1.scn.y - v0.scn.y; float B2 = v0.scn.x - v1.scn.x;
+
+        // 4. [关键优化] 预计算透视修正后的 Varyings
+        // 原理：在三角形 Setup 阶段，先计算好 (Attr * 1/w_clip)
+        // 这样在像素循环中，只需要做线性组合，不需要做额外的乘法
+        // 我们利用 SIMD 寄存器数组在栈上存储这些预处理数据
+        Simd4f preVar0[MAX_VARYINGS];
+        Simd4f preVar1[MAX_VARYINGS];
+        Simd4f preVar2[MAX_VARYINGS];
+
+        // 广播 1/w_clip 到 SIMD 寄存器
+        Simd4f w0_vec(v0.scn.w);
+        Simd4f w1_vec(v1.scn.w);
+        Simd4f w2_vec(v2.scn.w);
+
+        // 循环展开预处理所有 Varyings
+        for (int k = 0; k < MAX_VARYINGS; ++k) {
+            preVar0[k] = Simd4f::load(v0.ctx.varyings[k]) * w0_vec;
+            preVar1[k] = Simd4f::load(v1.ctx.varyings[k]) * w1_vec;
+            preVar2[k] = Simd4f::load(v2.ctx.varyings[k]) * w2_vec;
+        }
+
+        // 5. 初始权重计算 (Pixel Center)
+        float startX = minX + 0.5f;
+        float startY = minY + 0.5f;
+        auto edgeFunc = [](float ax, float ay, float bx, float by, float px, float py) {
+            return (by - ay) * (px - ax) - (bx - ax) * (py - ay);
+        };
+        float w0_row = edgeFunc(v1.scn.x, v1.scn.y, v2.scn.x, v2.scn.y, startX, startY);
+        float w1_row = edgeFunc(v2.scn.x, v2.scn.y, v0.scn.x, v0.scn.y, startX, startY);
+        float w2_row = edgeFunc(v0.scn.x, v0.scn.y, v1.scn.x, v1.scn.y, startX, startY);
+
+        // 6. 像素遍历循环
+        for (int y = minY; y <= maxY; ++y) {
+            float w0 = w0_row; float w1 = w1_row; float w2 = w2_row;
+            
+            // 直接计算指针偏移，避免乘法
+            uint32_t pixelOffset = y * fbWidth + minX;
+            uint32_t* pColor = m_colorBufferPtr + pixelOffset;
+            float* pDepth = depthBuffer.data() + pixelOffset;
+            // [优化] 将 fsIn 提到循环外，避免每次循环都构造 memset
+            ShaderContext fsIn; 
+            fsIn.lod = 0; 
+            for (int x = minX; x <= maxX; ++x) {
+                // 位运算优化符号检查: (w0 | w1 | w2) >= 0
+                // 注意：需要确保 float 的符号位逻辑，这里用 union cast 或简单的 if
+                // 现代编译器对 if (f>=0) 优化得很好，我们保持可读性
+                if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+                    float alpha = w0 * invArea;
+                    float beta  = w1 * invArea;
+                    float gamma = w2 * invArea;
+
+                    // 透视校正深度 1/w_view
+                    float zInv = alpha * v0.scn.w + beta * v1.scn.w + gamma * v2.scn.w;
+                    
+                    // 深度测试
+                    if (zInv > 1e-6f) { // 避免除以0
+                        float z = 1.0f / zInv;
+                        if (z < *pDepth) {
+                            *pDepth = z;
+                            
+                            // 广播 z 到 SIMD 寄存器，用于最后的透视恢复
+                            Simd4f z_vec(z);
+                            Simd4f alpha_vec(alpha);
+                            Simd4f beta_vec(beta);
+                            Simd4f gamma_vec(gamma);
+
+                            // [通用型 SIMD 插值]
+                            // 无论 Shader 用了几个 Varying，我们都利用 SIMD 一次处理 4 个分量
+                            // 编译器会自动展开这个循环 (Loop Unrolling)
+                            for (int k = 0; k < MAX_VARYINGS; ++k) {
+                                // Interpolated = (PreVar0 * alpha + PreVar1 * beta + PreVar2 * gamma) * z
+                                // 使用 FMA (Fused Multiply-Add) 指令加速
+                                Simd4f res = preVar0[k] * alpha_vec;
+                                res = res.madd(preVar1[k], beta_vec);
+                                res = res.madd(preVar2[k], gamma_vec);
+                                res = res * z_vec;
+                                
+                                // 存储回 ShaderContext
+                                res.store(fsIn.varyings[k]);
+                            }
+
+                            // 内联调用 Fragment Shader
+                            *pColor = shader.fragment(fsIn);
+                            LOG_INFO("ssfsf");
+                        }
+                    }
+                }
+                
+                // X轴增量
+                w0 += A0; w1 += A1; w2 += A2;
+                pColor++; pDepth++;
+            }
+            // Y轴增量
+            w0_row += B0; w1_row += B1; w2_row += B2;
+        }
     }
 
+    // [重构] 零堆分配的 DrawElements
+    // 直接接收原始指针和 GLenum 类型，模拟真实驱动行为
+    template <typename ShaderT>
+    void drawElementsTemplate(ShaderT& shader, GLsizei count, GLenum type, const void* indices) {
+        if (!indices) return;
+        VertexArrayObject& vao = getVAO();
+        
+        // 辅助 Lambda：处理不同类型的索引读取
+        // 编译器会将其内联，虽然 switch 在循环里，但分支预测器通常能处理这种固定模式
+        // 极致优化可以把 type 作为模板参数，但这里为了接口通用性保留 switch
+        auto getIndex = [&](size_t i) -> uint32_t {
+            const uint8_t* ptr = (const uint8_t*)indices;
+            if (type == GL_UNSIGNED_INT) return ((const uint32_t*)ptr)[i];
+            if (type == GL_UNSIGNED_SHORT) return ((const uint16_t*)ptr)[i];
+            if (type == GL_UNSIGNED_BYTE) return ((const uint8_t*)ptr)[i];
+            return 0;
+        };
+
+        // 遍历图元
+        for (GLsizei i = 0; i < count; i += 3) {
+            if (i + 2 >= count) break;
+            
+            StaticVector<VOut, 16> triangle;
+            
+            // 顶点处理循环
+            for (int k = 0; k < 3; ++k) {
+                uint32_t idx = getIndex(i + k);
+                
+                // [优化] 栈上分配属性数组，避免 std::vector
+                // 假设 Shader 只需要前几个属性，但为了通用，我们准备 MAX_ATTRIBS
+                // 注意：这里是一个权衡。如果 MAX_ATTRIBS 很大 (16)，拷贝开销可能存在。
+                // 更好的做法是传指针。但鉴于 Mat4 变换才是大头，这里的拷贝可接受。
+                Vec4 attribs[MAX_ATTRIBS];
+                
+                // 收集属性
+                // 这里我们稍微展开一下，只处理启用的属性
+                for (int a = 0; a < MAX_ATTRIBS; ++a) {
+                    if (vao.attributes[a].enabled) {
+                        attribs[a] = fetchAttribute(vao.attributes[a], idx);
+                    }
+                }
+
+                ShaderContext ctx;
+                VOut v;
+                // 调用 Shader Vertex (传递栈数组指针，避免 vector 构造)
+                // 注意：需要修改 Shader 的 vertex 签名接收 (const Vec4* attribs)
+                v.pos = shader.vertex(attribs, ctx); 
+                v.ctx = ctx;
+                triangle.push_back(v);
+            }
+
+            // 裁剪 (Clipping)
+            StaticVector<VOut, 16> polygon = triangle;
+            // 依次通过 6 个视锥体平面
+            for (int p = 0; p < 6; ++p) {
+                polygon = clipAgainstPlane(polygon, p);
+                if (polygon.empty()) break;
+            }
+            if (polygon.empty()) continue;
+
+            // 透视除法与视口变换
+            for (auto& v : polygon) transformToScreen(v);
+
+            // 三角形化并光栅化
+            for (size_t k = 1; k < polygon.size() - 1; ++k) {
+                rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
+            }
+        }
+    }
 
     // --- Rasterizer ---
     const std::vector<uint32_t>& readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
@@ -1624,59 +1858,59 @@ public:
     }
 
     
-    void processTriangles(const std::vector<uint32_t>& indices, GLsizei count) {
-        ProgramObject* prog = getCurrentProgram(); // Already checked in glDrawElements
-        VertexArrayObject& vao = getVAO();
+    // void processTriangles(const std::vector<uint32_t>& indices, GLsizei count) {
+    //     ProgramObject* prog = getCurrentProgram(); // Already checked in glDrawElements
+    //     VertexArrayObject& vao = getVAO();
 
-        for(GLsizei i = 0; i < count; i += 3) {
-            if (i + 2 >= count) break;
+    //     for(GLsizei i = 0; i < count; i += 3) {
+    //         if (i + 2 >= count) break;
 
-            StaticVector<VOut, 16> triangle;
+    //         StaticVector<VOut, 16> triangle;
             
-            // Step 1: Vertex Processing
-            for (int k = 0; k < 3; ++k) {
-                uint32_t vertexIdx = indices[i + k];
-                std::vector<Vec4> ins(MAX_ATTRIBS);
-                for(int a = 0; a < MAX_ATTRIBS; ++a) {
-                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
-                }
+    //         // Step 1: Vertex Processing
+    //         for (int k = 0; k < 3; ++k) {
+    //             uint32_t vertexIdx = indices[i + k];
+    //             std::vector<Vec4> ins(MAX_ATTRIBS);
+    //             for(int a = 0; a < MAX_ATTRIBS; ++a) {
+    //                 if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+    //             }
                 
-                ShaderContext ctx;
-                VOut v;
-                // 注意：VS 输出的是 Clip Space Position (未除 w)
-                v.pos = prog->vertexShader(ins, ctx);
-                v.ctx = ctx;
-                triangle.push_back(v);
-            }
+    //             ShaderContext ctx;
+    //             VOut v;
+    //             // 注意：VS 输出的是 Clip Space Position (未除 w)
+    //             v.pos = prog->vertexShader(ins, ctx);
+    //             v.ctx = ctx;
+    //             triangle.push_back(v);
+    //         }
 
-            // Step 2: Clipping (裁剪)
-            // 将三角形依次通过 6 个平面的裁剪
-            // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
-            // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
-            StaticVector<VOut, 16> polygon = triangle;
+    //         // Step 2: Clipping (裁剪)
+    //         // 将三角形依次通过 6 个平面的裁剪
+    //         // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
+    //         // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
+    //         StaticVector<VOut, 16> polygon = triangle;
             
-            // 依次针对 6 个平面裁剪
-            for (int p = 0; p < 6; ++p) {
-                polygon = clipAgainstPlane(polygon, p);
-                if (polygon.empty()) break; // 如果完全被裁掉了，提前结束
-            }
+    //         // 依次针对 6 个平面裁剪
+    //         for (int p = 0; p < 6; ++p) {
+    //             polygon = clipAgainstPlane(polygon, p);
+    //             if (polygon.empty()) break; // 如果完全被裁掉了，提前结束
+    //         }
             
-            if (polygon.empty()) continue;
+    //         if (polygon.empty()) continue;
 
-            // Step 3: Perspective Division & Viewport (坐标变换)
-            // 对裁剪剩下的多边形顶点进行变换
-            for (auto& v : polygon) {
-                transformToScreen(v);
-            }
+    //         // Step 3: Perspective Division & Viewport (坐标变换)
+    //         // 对裁剪剩下的多边形顶点进行变换
+    //         for (auto& v : polygon) {
+    //             transformToScreen(v);
+    //         }
 
-            // Step 4: Triangulation & Rasterization (扇形剖分与光栅化)
-            // 裁剪后的多边形可能是 3, 4, 5... 个顶点 (凸多边形)
-            // 我们将其拆解为 (v0, v1, v2), (v0, v2, v3)...
-            for (size_t k = 1; k < polygon.size() - 1; ++k) {
-                rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
-            }
-        }
-    }
+    //         // Step 4: Triangulation & Rasterization (扇形剖分与光栅化)
+    //         // 裁剪后的多边形可能是 3, 4, 5... 个顶点 (凸多边形)
+    //         // 我们将其拆解为 (v0, v1, v2), (v0, v2, v3)...
+    //         for (size_t k = 1; k < polygon.size() - 1; ++k) {
+    //             rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
+    //         }
+    //     }
+    // }
 
     Vec4 fetchAttribute(const VertexAttribState& attr, int idx) {
         if (!attr.enabled) return Vec4(0,0,0,1);
@@ -1719,74 +1953,174 @@ public:
     }
 
     // glDrawArrays
-    void glDrawArrays(GLenum /*mode*/, GLint first, GLsizei count) {
-        auto* prog = getCurrentProgram();
-        if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
-        VertexArrayObject& vao = getVAO();
+    // void glDrawArrays(GLenum /*mode*/, GLint first, GLsizei count) {
+    //     auto* prog = getCurrentProgram();
+    //     if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
+    //     VertexArrayObject& vao = getVAO();
         
-        // 遍历所有三角形 (每次处理3个顶点，线性读取)
-        for(int i=0; i<count; i+=3) {
-            // 如果剩余顶点不足一个三角形则退出
-            if (i + 2 >= count) break;
+    //     // 遍历所有三角形 (每次处理3个顶点，线性读取)
+    //     for(int i=0; i<count; i+=3) {
+    //         // 如果剩余顶点不足一个三角形则退出
+    //         if (i + 2 >= count) break;
 
-            StaticVector<VOut, 16> triangle;
+    //         StaticVector<VOut, 16> triangle;
             
-            // Step 1: Vertex Processing
-            for (int k=0; k<3; ++k) {
-                // 直接使用线性索引 (first + i + k)
-                int vertexIdx = first + i + k;
+    //         // Step 1: Vertex Processing
+    //         for (int k=0; k<3; ++k) {
+    //             // 直接使用线性索引 (first + i + k)
+    //             int vertexIdx = first + i + k;
                 
-                std::vector<Vec4> ins(MAX_ATTRIBS);
-                for(int a=0; a<MAX_ATTRIBS; a++) {
-                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+    //             std::vector<Vec4> ins(MAX_ATTRIBS);
+    //             for(int a=0; a<MAX_ATTRIBS; a++) {
+    //                 if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+    //             }
+                
+    //             ShaderContext ctx;
+    //             VOut v;
+    //             v.pos = prog->vertexShader(ins, ctx);
+    //             v.ctx = ctx;
+    //             triangle.push_back(v);
+    //         }
+
+    //         // Step 2: Clipping (复制自 glDrawElements)
+    //         StaticVector<VOut, 16> polygon = triangle;
+    //         for (int p = 0; p < 6; ++p) {
+    //             polygon = clipAgainstPlane(polygon, p);
+    //             if (polygon.empty()) break;
+    //         }
+    //         if (polygon.empty()) continue;
+
+    //         // Step 3: Transform (复制自 glDrawElements)
+    //         for (auto& v : polygon) transformToScreen(v);
+
+    //         // Step 4: Rasterization (复制自 glDrawElements)
+    //         for (size_t k = 1; k < polygon.size() - 1; ++k) {
+    //             rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
+    //         }
+    //     }
+    // }
+    // =========================================================
+    // [新增] 私有辅助函数：处理单个三角形的管线流程
+    // 目的：复用 Arrays 和 Elements 的后续逻辑，减少代码重复
+    // 强制内联以避免函数调用开销
+    // =========================================================
+    template <typename ShaderT>
+    inline void processTriangleVertices(ShaderT& shader, uint32_t idx0, uint32_t idx1, uint32_t idx2) {
+        VertexArrayObject& vao = getVAO();
+        uint32_t indices[3] = {idx0, idx1, idx2};
+        StaticVector<VOut, 16> triangle;
+
+        // 1. Vertex Shader Stage (零堆内存分配)
+        for (int k = 0; k < 3; ++k) {
+            uint32_t idx = indices[k];
+            
+            // 栈上分配属性数组 (SoA -> AoS for Shader)
+            Vec4 attribs[MAX_ATTRIBS];
+            
+            // 收集属性 (手动循环展开或编译器自动优化)
+            // 注意：为了极致性能，这里只应该读取 shader 实际需要的属性
+            // 但通用管线必须遍历 enabled 的属性
+            for (int a = 0; a < MAX_ATTRIBS; ++a) {
+                if (vao.attributes[a].enabled) {
+                    attribs[a] = fetchAttribute(vao.attributes[a], idx);
                 }
-                
-                ShaderContext ctx;
-                VOut v;
-                v.pos = prog->vertexShader(ins, ctx);
-                v.ctx = ctx;
-                triangle.push_back(v);
             }
 
-            // Step 2: Clipping (复制自 glDrawElements)
-            StaticVector<VOut, 16> polygon = triangle;
-            for (int p = 0; p < 6; ++p) {
-                polygon = clipAgainstPlane(polygon, p);
-                if (polygon.empty()) break;
-            }
-            if (polygon.empty()) continue;
+            ShaderContext ctx;
+            // 调用 Shader (传入数组指针)
+            VOut v;
+            v.pos = shader.vertex(attribs, ctx);
+            v.ctx = ctx;
+            triangle.push_back(v);
+        }
 
-            // Step 3: Transform (复制自 glDrawElements)
-            for (auto& v : polygon) transformToScreen(v);
+        // 2. Clipping Stage (保持不变)
+        StaticVector<VOut, 16> polygon = triangle;
+        for (int p = 0; p < 6; ++p) {
+            polygon = clipAgainstPlane(polygon, p);
+            if (polygon.empty()) break;
+        }
+        if (polygon.empty()) return;
 
-            // Step 4: Rasterization (复制自 glDrawElements)
-            for (size_t k = 1; k < polygon.size() - 1; ++k) {
-                rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
-            }
+        // 3. Perspective Division & Viewport Transform
+        for (auto& v : polygon) transformToScreen(v);
+
+        // 4. Rasterization Stage
+        // 三角形化处理裁剪后的多边形 (Triangle Fan)
+        for (size_t k = 1; k < polygon.size() - 1; ++k) {
+            rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
         }
     }
 
-    void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        ProgramObject* prog = getCurrentProgram();
-        if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
-        
-        const std::vector<uint32_t>& idxCache = readIndicesAsInts(count, type, indices);
-        if (idxCache.empty()) return;
+    template <typename ShaderT>
+    void glDrawArrays(ShaderT& shader, GLenum mode, GLint first, GLsizei count) {
+        if (mode == GL_TRIANGLES) {
+            // 每次处理 3 个顶点
+            for (GLint i = first; i < first + count; i += 3) {
+                // 边界检查：确保有足够的顶点组成一个三角形
+                if (i + 2 >= first + count) break;
 
-        switch (mode) {
-            case GL_TRIANGLES:
-                processTriangles(idxCache, count);
-                break;
-            case GL_POINTS:
-                processPoints(idxCache, count);
-                break;
-            case GL_LINES:
-                processLines(idxCache, count);
-                break;
-            default:
-                LOG_WARN("Unsupported primitive mode in glDrawElements.");
-                break;
+                // 构造三角形的三个顶点索引
+                // DrawArrays 的索引就是线性的 i, i+1, i+2
+                processTriangleVertices(shader, i, i + 1, i + 2);
+            }
         }
+        else if (mode == GL_POINTS) {
+            // TODO: 实现 Points
+        }
+        else if (mode == GL_LINES) {
+            // TODO: 实现 Lines
+        }
+    }
+
+    // void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+    //     ProgramObject* prog = getCurrentProgram();
+    //     if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
+        
+    //     const std::vector<uint32_t>& idxCache = readIndicesAsInts(count, type, indices);
+    //     if (idxCache.empty()) return;
+
+    //     switch (mode) {
+    //         case GL_TRIANGLES:
+    //             processTriangles(idxCache, count);
+    //             break;
+    //         case GL_POINTS:
+    //             processPoints(idxCache, count);
+    //             break;
+    //         case GL_LINES:
+    //             processLines(idxCache, count);
+    //             break;
+    //         default:
+    //             LOG_WARN("Unsupported primitive mode in glDrawElements.");
+    //             break;
+    //     }
+    // }
+    template <typename ShaderT>
+    void glDrawElements(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        if (!indices) return;
+
+        // 辅助 Lambda：内联索引读取
+        auto getIndex = [&](size_t i) -> uint32_t {
+            const uint8_t* ptr = (const uint8_t*)indices;
+            if (type == GL_UNSIGNED_INT) return ((const uint32_t*)ptr)[i];
+            if (type == GL_UNSIGNED_SHORT) return ((const uint16_t*)ptr)[i];
+            if (type == GL_UNSIGNED_BYTE) return ((const uint8_t*)ptr)[i];
+            return 0;
+        };
+
+        if (mode == GL_TRIANGLES) {
+            for (GLsizei i = 0; i < count; i += 3) {
+                if (i + 2 >= count) break;
+                
+                // 从索引缓冲区读取实际的顶点索引
+                uint32_t idx0 = getIndex(i);
+                uint32_t idx1 = getIndex(i + 1);
+                uint32_t idx2 = getIndex(i + 2);
+
+                processTriangleVertices(shader, idx0, idx1, idx2);
+            }
+        }
+        // ... 其他模式 ...
     }
 
     void savePPM(const char* filename) {
