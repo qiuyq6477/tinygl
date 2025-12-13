@@ -1325,7 +1325,6 @@ public:
 
                             // 内联调用 Fragment Shader
                             *pColor = shader.fragment(fsIn);
-                            LOG_INFO("ssfsf");
                         }
                     }
                 }
@@ -1904,17 +1903,49 @@ public:
 
     template <typename ShaderT>
     void glDrawElementsInstanced(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) {
-        if (!indices || instanceCount == 0) return;
+        if (count == 0 || instanceCount == 0) return;
+        
+        // 1. 确定索引数据的基地址
+        const uint8_t* indexDataPtr = nullptr;
+        VertexArrayObject& vao = getVAO();
+        if (vao.elementBufferID != 0) {
+            // --- EBO 模式 ---
+            // 此时 indices 参数被视为 Buffer 内的字节偏移量 (Byte Offset)
+            auto it = buffers.find(vao.elementBufferID);
+            if (it != buffers.end()) {
+                const auto& buffer = it->second;
+                size_t offset = reinterpret_cast<size_t>(indices);
+                
+                // 简单的边界检查 (可选)
+                if (offset < buffer.data.size()) {
+                    indexDataPtr = buffer.data.data() + offset;
+                } else {
+                    LOG_ERROR("glDrawElements: Index offset out of EBO bounds.");
+                    return;
+                }
+            } else {
+                LOG_ERROR("glDrawElements: Bound EBO ID not found in buffers.");
+                return;
+            }
+        } else {
+            // --- 用户指针模式 ---
+            // 此时 indices 参数被视为 CPU 内存地址
+            indexDataPtr = static_cast<const uint8_t*>(indices);
+        }
+        // 如果最终没有获得有效指针（例如无 EBO 且 indices 为空），则退出
+        if (!indexDataPtr) return;
 
+        // 2. 索引读取辅助 Lambda
+        // 此时我们只需要基于 indexDataPtr 进行偏移读取，无需再关心是 EBO 还是指针
         // 辅助 Lambda：内联索引读取
         auto getIndex = [&](size_t i) -> uint32_t {
-            const uint8_t* ptr = (const uint8_t*)indices;
-            if (type == GL_UNSIGNED_INT) return ((const uint32_t*)ptr)[i];
-            if (type == GL_UNSIGNED_SHORT) return ((const uint16_t*)ptr)[i];
-            if (type == GL_UNSIGNED_BYTE) return ((const uint8_t*)ptr)[i];
+            if (type == GL_UNSIGNED_INT) return ((const uint32_t*)indexDataPtr)[i];
+            if (type == GL_UNSIGNED_SHORT) return ((const uint16_t*)indexDataPtr)[i];
+            if (type == GL_UNSIGNED_BYTE) return ((const uint8_t*)indexDataPtr)[i];
             return 0;
         };
 
+        // 3. 绘制循环
         if (mode == GL_TRIANGLES) {
             // 外层循环：遍历实例
             for (GLsizei inst = 0; inst < instanceCount; ++inst) {
