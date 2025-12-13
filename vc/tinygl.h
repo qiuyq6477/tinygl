@@ -679,6 +679,11 @@ struct Gradients {
     float dfdx, dfdy;
 };
 
+struct Viewport {
+    GLint x, y;
+    GLsizei w, h;
+};
+
 // ==========================================
 // 4. 上下文核心 (Context)
 // ==========================================
@@ -706,6 +711,7 @@ private:
     std::vector<uint32_t> m_indexCache;
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
+    Viewport m_viewport;
 public:
     // Fast-access storage for MVP matrix to allow shaders to read it directly via pointer
     // avoiding both hash lookups and heap allocations for lambda captures.
@@ -714,7 +720,9 @@ public:
     SoftRenderContext(GLsizei width, GLsizei height) {
         fbWidth = width;
         fbHeight = height;
-
+        // Viewport 初始化
+        m_viewport = {0, 0, fbWidth, fbHeight};
+        
         vaos[0] = VertexArrayObject{}; 
         colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
         m_colorBufferPtr = colorBuffer.data();               // Default to internal buffer
@@ -732,6 +740,13 @@ public:
         } else {
             m_colorBufferPtr = colorBuffer.data();
         }
+    }
+
+    void glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {
+        m_viewport.x = x;
+        m_viewport.y = y;
+        m_viewport.w = w;
+        m_viewport.h = h;
     }
 
     // --- State Management ---
@@ -1073,9 +1088,10 @@ public:
         float rhw = 1.0f / w;
 
         // Viewport Mapping: [-1, 1] -> [0, Width/Height]
-        // 注意 Y 轴翻转: (1.0 - y)
-        v.scn.x = (v.pos.x * rhw + 1.0f) * 0.5f * fbWidth;
-        v.scn.y = (1.0f - v.pos.y * rhw) * 0.5f * fbHeight;
+        // X 轴: (ndc + 1) * 0.5 * w + x
+        // Y 轴: y + (1 - ndc) * 0.5 * h  (注意：这里假设屏幕原点在左上角)
+        v.scn.x = m_viewport.x + (v.pos.x * rhw + 1.0f) * 0.5f * m_viewport.w;
+        v.scn.y = m_viewport.y + (1.0f - v.pos.y * rhw) * 0.5f * m_viewport.h;
         v.scn.z = v.pos.z * rhw;
         v.scn.w = rhw; // 存储 1/w 用于透视插值
     }
@@ -1190,9 +1206,16 @@ public:
         // Loop Helper (Macro or Lambda to avoid code duplication)
         // ---------------------------------------------------------
         auto processScanline = [&](int y, int xL, int xR) {
-            if (y >= fbHeight || y < 0) return;
-            int xs = std::max(0, xL);
-            int xe = std::min(fbWidth, xR);
+            // Viewport & Boundary Clipping
+            int vy0 = std::max(0, m_viewport.y);
+            int vy1 = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+            if (y < vy0 || y >= vy1) return;
+
+            int vx0 = std::max(0, m_viewport.x);
+            int vx1 = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+
+            int xs = std::max(vx0, xL);
+            int xe = std::min(vx1, xR);
             if (xs >= xe) return;
 
             // Row Start Params
@@ -1296,12 +1319,16 @@ public:
     // 输入已经是 Screen Space 的三个顶点
     void rasterizeTriangleEdgeFunction(const VOut& v0, const VOut& v1, const VOut& v2) {
         auto* prog = getCurrentProgram();
-        
         // 1. 包围盒计算 (Bounding Box)
-        int minX = std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
-        int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
-        int minY = std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
-        int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
+        int limitMinX = std::max(0, m_viewport.x);
+        int limitMaxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+        int limitMinY = std::max(0, m_viewport.y);
+        int limitMaxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+
+        int minX = std::max(limitMinX, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
+        int maxX = std::min(limitMaxX - 1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
+        int minY = std::max(limitMinY, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
+        int maxY = std::min(limitMaxY - 1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
 
         // 2. 面积计算与背面剔除 (Area & Backface Culling)
         // 注意：这里使用的是屏幕空间坐标 (x, y)
@@ -1450,10 +1477,15 @@ public:
     template <typename ShaderT>
     void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
         // 1. 包围盒计算 (Bounding Box)
-        int minX = std::max(0, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
-        int maxX = std::min(fbWidth-1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
-        int minY = std::max(0, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
-        int maxY = std::min(fbHeight-1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
+        int limitMinX = std::max(0, m_viewport.x);
+        int limitMaxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+        int limitMinY = std::max(0, m_viewport.y);
+        int limitMaxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+
+        int minX = std::max(limitMinX, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
+        int maxX = std::min(limitMaxX - 1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
+        int minY = std::max(limitMinY, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
+        int maxY = std::min(limitMaxY - 1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
 
         // 2. 面积计算 (Backface Culling)
         float area = (v1.scn.y - v0.scn.y) * (v2.scn.x - v0.scn.x) - 
@@ -1762,8 +1794,14 @@ public:
         float total_dist = std::sqrt((float)dx*dx + (float)dy*dy);
         if (total_dist < EPSILON) total_dist = 1.0f;
 
+        // Viewport & Buffer Clipping Bounds
+        int vx0 = std::max(0, m_viewport.x);
+        int vx1 = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+        int vy0 = std::max(0, m_viewport.y);
+        int vy1 = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+
         while (true) {
-            if (x0 >= 0 && x0 < fbWidth && y0 >= 0 && y0 < fbHeight) {
+            if (x0 >= vx0 && x0 < vx1 && y0 >= vy0 && y0 < vy1) {
                 float dist_from_0 = std::sqrt(std::pow((float)x0 - v0.scn.x, 2) + std::pow((float)y0 - v0.scn.y, 2));
                 float t = dist_from_0 / total_dist;
                 t = std::clamp(t, 0.0f, 1.0f);
@@ -1802,7 +1840,12 @@ public:
         int x = (int)v.scn.x;
         int y = (int)v.scn.y;
 
-        if (x < 0 || x >= fbWidth || y < 0 || y >= fbHeight) return;
+        int vx0 = std::max(0, m_viewport.x);
+        int vx1 = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+        int vy0 = std::max(0, m_viewport.y);
+        int vy1 = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+
+        if (x < vx0 || x >= vx1 || y < vy0 || y >= vy1) return;
 
         int pix = y * fbWidth + x;
         if (v.scn.z < depthBuffer[pix]) {
