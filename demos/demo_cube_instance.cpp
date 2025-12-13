@@ -181,7 +181,7 @@ void vc_init(void) {
     g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo);
 }
 
-void vc_input(SDL_Event *event) {
+void vc_input(SDL_Event *) {
 }
 
 // 简单的相机参数
@@ -202,9 +202,9 @@ Olivec_Canvas vc_render(float dt, void* pixels) {
 
     // 4. 计算 View Projection 矩阵
     // 简单的环绕相机
-    float radius = 10.0f;
-    float camX = sin(totalTime * 0.5f) * radius;
-    float camZ = cos(totalTime * 0.5f) * radius;
+    // float radius = 10.0f;
+    // float camX = sin(totalTime * 0.5f) * radius;
+    // float camZ = cos(totalTime * 0.5f) * radius;
     
     // View Matrix (LookAt 0,0,0)
     // 这里简单模拟一个 LookAt，实际应使用完整的 LookAt 函数

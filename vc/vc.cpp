@@ -101,7 +101,7 @@ int main(void)
         float frame_times[FRAME_TIME_COUNT] = {0};
         int frame_time_idx = 0;
 
-        const Uint32 TARGET_FRAME_TIME = 1000 / 60;
+        // const Uint32 TARGET_FRAME_TIME = 1000 / 60;
 
         for (;;) {
             Uint32 frame_start = SDL_GetTicks();
