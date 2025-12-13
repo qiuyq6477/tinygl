@@ -634,9 +634,14 @@ struct VertexAttribState {
     GLuint bindingBufferID = 0;
     GLint size = 3;
     GLenum type = GL_FLOAT;
-    GLboolean normalized = false; // Add this line
+    GLboolean normalized = false;
     GLsizei stride = 0;
     size_t pointerOffset = 0;
+    // [新增] 实例除数
+    // 0 = 每顶点更新 (默认)
+    // 1 = 每 1 个实例更新一次
+    // N = 每 N 个实例更新一次
+    GLuint divisor = 0; 
 };
 
 struct VertexArrayObject {
@@ -856,6 +861,12 @@ public:
 
     void glEnableVertexAttribArray(GLuint index) {
         if (index < MAX_ATTRIBS) getVAO().attributes[index].enabled = true;
+    }
+
+    void glVertexAttribDivisor(GLuint index, GLuint divisor) {
+        if (index < MAX_ATTRIBS) {
+            getVAO().attributes[index].divisor = divisor;
+        }
     }
 
     // --- Textures (FIXED) ---
@@ -1602,7 +1613,7 @@ public:
     // [重构] 零堆分配的 DrawElements
     // 直接接收原始指针和 GLenum 类型，模拟真实驱动行为
     template <typename ShaderT>
-    void drawElementsTemplate(ShaderT& shader, GLsizei count, GLenum type, const void* indices) {
+    void drawElementsTemplate(ShaderT& shader, GLsizei count, GLenum type, const void* indices, GLsizei primcount = 1) {
         if (!indices) return;
         VertexArrayObject& vao = getVAO();
         
@@ -1616,55 +1627,58 @@ public:
             if (type == GL_UNSIGNED_BYTE) return ((const uint8_t*)ptr)[i];
             return 0;
         };
-
-        // 遍历图元
-        for (GLsizei i = 0; i < count; i += 3) {
-            if (i + 2 >= count) break;
-            
-            StaticVector<VOut, 16> triangle;
-            
-            // 顶点处理循环
-            for (int k = 0; k < 3; ++k) {
-                uint32_t idx = getIndex(i + k);
+        for (GLsizei instanceID = 0; instanceID < primcount; ++instanceID) {
+            // 设置实例 ID (如果 Shader 需要)
+            // shader.setInstanceID(instanceID);
+            // 遍历图元
+            for (GLsizei i = 0; i < count; i += 3) {
+                if (i + 2 >= count) break;
                 
-                // [优化] 栈上分配属性数组，避免 std::vector
-                // 假设 Shader 只需要前几个属性，但为了通用，我们准备 MAX_ATTRIBS
-                // 注意：这里是一个权衡。如果 MAX_ATTRIBS 很大 (16)，拷贝开销可能存在。
-                // 更好的做法是传指针。但鉴于 Mat4 变换才是大头，这里的拷贝可接受。
-                Vec4 attribs[MAX_ATTRIBS];
+                StaticVector<VOut, 16> triangle;
                 
-                // 收集属性
-                // 这里我们稍微展开一下，只处理启用的属性
-                for (int a = 0; a < MAX_ATTRIBS; ++a) {
-                    if (vao.attributes[a].enabled) {
-                        attribs[a] = fetchAttribute(vao.attributes[a], idx);
+                // 顶点处理循环
+                for (int k = 0; k < 3; ++k) {
+                    uint32_t idx = getIndex(i + k);
+                    
+                    // [优化] 栈上分配属性数组，避免 std::vector
+                    // 假设 Shader 只需要前几个属性，但为了通用，我们准备 MAX_ATTRIBS
+                    // 注意：这里是一个权衡。如果 MAX_ATTRIBS 很大 (16)，拷贝开销可能存在。
+                    // 更好的做法是传指针。但鉴于 Mat4 变换才是大头，这里的拷贝可接受。
+                    Vec4 attribs[MAX_ATTRIBS];
+                    
+                    // 收集属性
+                    // 这里我们稍微展开一下，只处理启用的属性
+                    for (int a = 0; a < MAX_ATTRIBS; ++a) {
+                        if (vao.attributes[a].enabled) {
+                            attribs[a] = fetchAttribute(vao.attributes[a], idx, instanceID);
+                        }
                     }
+
+                    ShaderContext ctx;
+                    VOut v;
+                    // 调用 Shader Vertex (传递栈数组指针，避免 vector 构造)
+                    // 注意：需要修改 Shader 的 vertex 签名接收 (const Vec4* attribs)
+                    v.pos = shader.vertex(attribs, ctx); 
+                    v.ctx = ctx;
+                    triangle.push_back(v);
                 }
 
-                ShaderContext ctx;
-                VOut v;
-                // 调用 Shader Vertex (传递栈数组指针，避免 vector 构造)
-                // 注意：需要修改 Shader 的 vertex 签名接收 (const Vec4* attribs)
-                v.pos = shader.vertex(attribs, ctx); 
-                v.ctx = ctx;
-                triangle.push_back(v);
-            }
+                // 裁剪 (Clipping)
+                StaticVector<VOut, 16> polygon = triangle;
+                // 依次通过 6 个视锥体平面
+                for (int p = 0; p < 6; ++p) {
+                    polygon = clipAgainstPlane(polygon, p);
+                    if (polygon.empty()) break;
+                }
+                if (polygon.empty()) continue;
 
-            // 裁剪 (Clipping)
-            StaticVector<VOut, 16> polygon = triangle;
-            // 依次通过 6 个视锥体平面
-            for (int p = 0; p < 6; ++p) {
-                polygon = clipAgainstPlane(polygon, p);
-                if (polygon.empty()) break;
-            }
-            if (polygon.empty()) continue;
+                // 透视除法与视口变换
+                for (auto& v : polygon) transformToScreen(v);
 
-            // 透视除法与视口变换
-            for (auto& v : polygon) transformToScreen(v);
-
-            // 三角形化并光栅化
-            for (size_t k = 1; k < polygon.size() - 1; ++k) {
-                rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
+                // 三角形化并光栅化
+                for (size_t k = 1; k < polygon.size() - 1; ++k) {
+                    rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
+                }
             }
         }
     }
@@ -1729,7 +1743,7 @@ public:
                 uint32_t vertexIdx = indices[i + k];
                 std::vector<Vec4> ins(MAX_ATTRIBS);
                 for(int a = 0; a < MAX_ATTRIBS; ++a) {
-                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx, 0);
                 }
                 
                 ShaderContext ctx;
@@ -1760,7 +1774,7 @@ public:
             uint32_t vertexIdx = indices[i];
             std::vector<Vec4> ins(MAX_ATTRIBS);
             for(int a = 0; a < MAX_ATTRIBS; ++a) {
-                if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
+                if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx, 0);
             }
             
             ShaderContext ctx;
@@ -1955,15 +1969,24 @@ public:
     //     }
     // }
 
-    Vec4 fetchAttribute(const VertexAttribState& attr, int idx) {
+    Vec4 fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx) {
         if (!attr.enabled) return Vec4(0,0,0,1);
         auto it = buffers.find(attr.bindingBufferID);
         if (it == buffers.end()) return Vec4(0,0,0,1);
         
         size_t stride = attr.stride ? attr.stride : attr.size * sizeof(float); // Default stride for floats
-        size_t offset = attr.pointerOffset + idx * stride;
+        // Instancing 核心逻辑
+        // 如果 divisor 为 0，使用 vertexIdx。
+        // 如果 divisor > 0，使用 instanceIdx / divisor。
+        int effectiveIdx = (attr.divisor == 0) ? vertexIdx : (instanceIdx / attr.divisor);
+        size_t offset = attr.pointerOffset + effectiveIdx * stride;
         
         float raw[4] = {0,0,0,1};
+        
+        // 边界检查（可选，但推荐）：防止读取超出 Buffer 范围
+        if (offset + attr.size * (attr.type == GL_FLOAT ? 4 : 1) > it->second.data.size()) {
+            return Vec4(0,0,0,1); 
+        }
 
         switch (attr.type) {
             case GL_FLOAT: {
@@ -1973,8 +1996,10 @@ public:
                 break;
             }
             case GL_UNSIGNED_BYTE: {
-                stride = attr.stride ? attr.stride : attr.size * sizeof(uint8_t);
-                offset = attr.pointerOffset + idx * stride;
+                // stride = attr.stride ? attr.stride : attr.size * sizeof(uint8_t);
+                // offset = attr.pointerOffset + vertexIdx * stride;
+                // 如果是 BYTE 类型，stride 默认值计算可能需要区分，但上面已经根据类型计算了 stride，
+                // 这里的逻辑复用 fetchAttribute 原有逻辑即可，重点是 offset 计算变了。
                 uint8_t ubyte_raw[4] = {0,0,0,255};
                 for(int i=0; i<attr.size; ++i) {
                     it->second.readSafe<uint8_t>(offset + i*sizeof(uint8_t), ubyte_raw[i]);
@@ -2048,7 +2073,7 @@ public:
     // 强制内联以避免函数调用开销
     // =========================================================
     template <typename ShaderT>
-    inline void processTriangleVertices(ShaderT& shader, uint32_t idx0, uint32_t idx1, uint32_t idx2) {
+    inline void processTriangleVertices(ShaderT& shader, uint32_t idx0, uint32_t idx1, uint32_t idx2, int instanceID) {
         VertexArrayObject& vao = getVAO();
         uint32_t indices[3] = {idx0, idx1, idx2};
         StaticVector<VOut, 16> triangle;
@@ -2065,12 +2090,14 @@ public:
             // 但通用管线必须遍历 enabled 的属性
             for (int a = 0; a < MAX_ATTRIBS; ++a) {
                 if (vao.attributes[a].enabled) {
-                    attribs[a] = fetchAttribute(vao.attributes[a], idx);
+                    attribs[a] = fetchAttribute(vao.attributes[a], idx, instanceID);
                 }
             }
 
             ShaderContext ctx;
             // 调用 Shader (传入数组指针)
+            // 如果 Shader 需要 gl_InstanceID，通常需要修改 shader.vertex 签名或者作为 uniform 传入
+            // 这里我们保持接口不变，仅通过 Attribute Divisor 支持 Instancing
             VOut v;
             v.pos = shader.vertex(attribs, ctx);
             v.ctx = ctx;
@@ -2105,7 +2132,7 @@ public:
 
                 // 构造三角形的三个顶点索引
                 // DrawArrays 的索引就是线性的 i, i+1, i+2
-                processTriangleVertices(shader, i, i + 1, i + 2);
+                processTriangleVertices(shader, i, i + 1, i + 2, 0);
             }
         }
         else if (mode == GL_POINTS) {
@@ -2140,7 +2167,13 @@ public:
     // }
     template <typename ShaderT>
     void glDrawElements(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        if (!indices) return;
+        // 等价于绘制 1 个实例
+        glDrawElementsInstanced(shader, mode, count, type, indices, 1);
+    }
+
+    template <typename ShaderT>
+    void glDrawElementsInstanced(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) {
+        if (!indices || instanceCount == 0) return;
 
         // 辅助 Lambda：内联索引读取
         auto getIndex = [&](size_t i) -> uint32_t {
@@ -2152,18 +2185,22 @@ public:
         };
 
         if (mode == GL_TRIANGLES) {
-            for (GLsizei i = 0; i < count; i += 3) {
-                if (i + 2 >= count) break;
-                
-                // 从索引缓冲区读取实际的顶点索引
-                uint32_t idx0 = getIndex(i);
-                uint32_t idx1 = getIndex(i + 1);
-                uint32_t idx2 = getIndex(i + 2);
+            // 外层循环：遍历实例
+            for (GLsizei inst = 0; inst < instanceCount; ++inst) {
+                // 内层循环：遍历图元
+                for (GLsizei i = 0; i < count; i += 3) {
+                    if (i + 2 >= count) break;
+                    
+                    uint32_t idx0 = getIndex(i);
+                    uint32_t idx1 = getIndex(i + 1);
+                    uint32_t idx2 = getIndex(i + 2);
 
-                processTriangleVertices(shader, idx0, idx1, idx2);
+                    // 传递当前的 instance ID
+                    processTriangleVertices(shader, idx0, idx1, idx2, inst);
+                }
             }
         }
-        // ... 其他模式 ...
+        // TODO: Support Lines/Points if needed
     }
 
     void savePPM(const char* filename) {
