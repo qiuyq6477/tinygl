@@ -24,58 +24,8 @@
 #include "maths.h"
 #include "color.h"
 #include "colors.h"
-
-// ==========================================
-// 0. 基础容器 (Basic Containers)
-// ==========================================
-template<typename T, size_t Capacity>
-struct StaticVector {
-    T data[Capacity];
-    size_t count = 0;
-
-    void push_back(const T& val) {
-        if (count < Capacity) {
-            data[count++] = val;
-        }
-    }
-
-    void clear() { count = 0; }
-    bool empty() const { return count == 0; }
-    size_t size() const { return count; }
-
-    T& operator[](size_t i) { return data[i]; }
-    const T& operator[](size_t i) const { return data[i]; }
-
-    T* begin() { return data; }
-    T* end() { return data + count; }
-    const T* begin() const { return data; }
-    const T* end() const { return data + count; }
-    
-    T& back() { return data[count - 1]; }
-    const T& back() const { return data[count - 1]; }
-};
-
-// ==========================================
-// 1. 日志系统 (Logging System)
-// ==========================================
-enum LogLevel { INFO, WARN, ERRR };
-
-class Logger {
-public:
-    static void log(LogLevel level, const std::string& funcName, const std::string& msg) {
-        switch (level) {
-            case INFO: std::cout << "[INFO]  "; break;
-            case WARN: std::cout << "[WARN]  "; break;
-            case ERRR: std::cerr << "[ERROR] "; break;
-        }
-        std::cout << "[" << funcName << "] " << msg << std::endl;
-    }
-};
-
-#define LOG_INFO(msg) // Logger::log(INFO, __FUNCTION__, msg)
-#define LOG_WARN(msg) Logger::log(WARN, __FUNCTION__, msg)
-#define LOG_ERROR(msg) Logger::log(ERRR, __FUNCTION__, msg)
-
+#include "log.h"
+#include "container.h"
 // Buffer Type for glClear
 enum BufferType {
     COLOR = 1 << 0,
@@ -155,26 +105,6 @@ constexpr float DEPTH_INFINITY  = 1e9f;
 constexpr uint32_t COLOR_BLACK  = 0xFF000000; // AABBGGRR (Alpha=255, RGB=0)
 constexpr uint32_t COLOR_WHITE  = 0xFFFFFFFF;
 constexpr uint32_t COLOR_GREY   = 0xFFAAAAAA;
-
-// Buffer
-struct BufferObject {
-    std::vector<uint8_t> data;
-    GLenum usage = GL_STATIC_DRAW; // Default usage
-    
-    template <typename T>
-    bool readSafe(size_t offset, T& outValue) const {
-        if (offset + sizeof(T) > data.size()) {
-            static bool logged = false;
-            if (!logged) {
-                LOG_ERROR("Buffer Read Overflow! Offset: " + std::to_string(offset) + ", Size: " + std::to_string(data.size()));
-                logged = true;
-            }
-            return false;
-        }
-        std::memcpy(&outValue, data.data() + offset, sizeof(T));
-        return true;
-    }
-};
 
 // Texture
 struct TextureObject {
@@ -432,6 +362,26 @@ struct VertexArrayObject {
     GLuint elementBufferID = 0;
 };
 
+// Buffer
+struct BufferObject {
+    std::vector<uint8_t> data;
+    GLenum usage = GL_STATIC_DRAW; // Default usage
+    
+    template <typename T>
+    bool readSafe(size_t offset, T& outValue) const {
+        if (offset + sizeof(T) > data.size()) {
+            static bool logged = false;
+            if (!logged) {
+                LOG_ERROR("Buffer Read Overflow! Offset: " + std::to_string(offset) + ", Size: " + std::to_string(data.size()));
+                logged = true;
+            }
+            return false;
+        }
+        std::memcpy(&outValue, data.data() + offset, sizeof(T));
+        return true;
+    }
+};
+
 // Shader & Program
 struct ShaderContext { 
     Vec4 varyings[MAX_VARYINGS]; 
@@ -501,10 +451,6 @@ private:
 
     Viewport m_viewport;
 public:
-    // Fast-access storage for MVP matrix to allow shaders to read it directly via pointer
-    // avoiding both hash lookups and heap allocations for lambda captures.
-    Mat4 currMVP;
-
     SoftRenderContext(GLsizei width, GLsizei height) {
         fbWidth = width;
         fbHeight = height;
