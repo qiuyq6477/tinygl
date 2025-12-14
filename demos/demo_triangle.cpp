@@ -17,7 +17,7 @@ float vertices[] = {
 // 2. Shader 定义
 // ==========================================
 
-struct ColorShader {
+struct ColorShader : ShaderBase {
     // 顶点着色器
     // 输入：attribs[0] 是位置
     Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
@@ -29,8 +29,8 @@ struct ColorShader {
 
     // 片元着色器
     // 输出：颜色 (RGBA)
-    uint32_t fragment(const ShaderContext& ctx) {
-        return ColorUtils::FloatToUint32(Vec4(1.0f, 0.5f, 0.2f, 1.0f));
+    Vec4 fragment(const ShaderContext& ctx) {
+        return Vec4(1.0f, 0.5f, 0.2f, 1.0f);
     }
 };
 

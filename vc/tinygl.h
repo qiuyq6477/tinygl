@@ -1,16 +1,7 @@
-/**
- * Professional Software Rasterizer (Final Stable Version)
- * -------------------------------------------------------
- * Fixes:
- * - Solved [glTexImage2D] error by properly initializing Texture objects in glGenTextures.
- * - Added auto-creation logic in glBindTexture for robustness.
- * - Confirmed execution flow via logs.
- */
-
 #include <vector>
 #include <unordered_map>
 #include <iostream>
-#include <cstring> // for memcpy
+#include <cstring> 
 #include <cstdint>
 #include <cmath>
 #include <functional>
@@ -26,6 +17,11 @@
 #include "colors.h"
 #include "log.h"
 #include "container.h"
+#include "shader.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 // Buffer Type for glClear
 enum BufferType {
     COLOR = 1 << 0,
@@ -34,7 +30,7 @@ enum BufferType {
 };
 
 // ==========================================
-// 3. 资源定义
+// 资源定义
 // ==========================================
 using GLenum = uint32_t;
 using GLuint = uint32_t;
@@ -94,6 +90,7 @@ const GLenum GL_TEXTURE_MAG_FILTER = 0x2800;
 // Wrap Modes
 const GLenum GL_REPEAT = 0x2901;
 const GLenum GL_CLAMP_TO_EDGE = 0x812F;
+const GLenum GL_CLAMP_TO_BORDER = 0x812D;
 const GLenum GL_MIRRORED_REPEAT = 0x8370;
 
 // Filter Modes
@@ -103,6 +100,11 @@ const GLenum GL_NEAREST_MIPMAP_NEAREST = 0x2700;
 const GLenum GL_LINEAR_MIPMAP_NEAREST = 0x2701;
 const GLenum GL_NEAREST_MIPMAP_LINEAR = 0x2702;
 const GLenum GL_LINEAR_MIPMAP_LINEAR = 0x2703;
+
+const GLenum GL_TEXTURE_BORDER_COLOR = 0x1004;
+const GLenum GL_TEXTURE_MIN_LOD = 0x813A;
+const GLenum GL_TEXTURE_MAX_LOD = 0x813B;
+const GLenum GL_TEXTURE_LOD_BIAS = 0x8501; // 可选支持
 
 // System Limits & Defaults
 constexpr int MAX_ATTRIBS       = 16;   // 最大顶点属性数量
@@ -130,6 +132,12 @@ struct TextureObject {
     GLenum minFilter = GL_NEAREST_MIPMAP_LINEAR; // 默认三线性
     GLenum magFilter = GL_LINEAR;
 
+    // 边框颜色 (归一化浮点 RGBA)
+    Vec4 borderColor = {0.0f, 0.0f, 0.0f, 0.0f}; // 默认透明黑
+
+    float minLOD = -1000.0f;
+    float maxLOD = 1000.0f;
+    float lodBias = 0.0f;
 
     // 生成 Mipmaps (Box Filter 下采样)
     void generateMipmaps() {
@@ -178,15 +186,30 @@ struct TextureObject {
         LOG_INFO("Generated " + std::to_string(levels.size()) + " mipmap levels.");
     }
 
+    // 判断是否需要使用边框颜色
+    // 返回 true 表示坐标越界且模式为 CLAMP_TO_BORDER
+    bool checkBorder(float uv, GLenum wrapMode) const {
+        if (wrapMode == GL_CLAMP_TO_BORDER) {
+            if (uv < 0.0f || uv > 1.0f) return true;
+        }
+        return false;
+    }
+
     // 处理 Wrap Mode
+    // 对于 CLAMP_TO_BORDER，我们在 sample 层级处理越界，
+    // 这里只需将其钳制在 0-1 之间以便计算像素索引（防止 crash）
     float applyWrap(float val, GLenum mode) const {
         switch (mode) {
             case GL_REPEAT: 
                 return val - std::floor(val);
             case GL_MIRRORED_REPEAT: 
-                return std::abs(val - 2.0f * std::floor(val / 2.0f)) - 1.0f; // 简化版
+                return std::abs(val - 2.0f * std::floor(val / 2.0f)) - 1.0f;
             case GL_CLAMP_TO_EDGE: 
-                return std::clamp(val, 0.0f, 0.9999f); // 防止触底
+                return std::clamp(val, 0.0f, 0.9999f); 
+            case GL_CLAMP_TO_BORDER:
+                // 如果进入到这一步，说明已经决定要采样了（虽然逻辑上应该先返回 BorderColor）
+                // 这里 clamp 住防止数组越界
+                return std::clamp(val, 0.0f, 0.9999f);
             default: return val - std::floor(val);
         }
     }
@@ -209,6 +232,10 @@ struct TextureObject {
 
     // 双线性插值采样 (Bilinear Interpolation)
     Vec4 sampleBilinear(float u, float v, int level) const {
+        // 边框检测
+        if (checkBorder(u, wrapS) || checkBorder(v, wrapT)) {
+            return borderColor;
+        }
         if(level >= static_cast<GLint>(levels.size())) return {0,0,0,1};
         int w = std::max(1, width >> level);
         int h = std::max(1, height >> level);
@@ -276,9 +303,41 @@ struct TextureObject {
         const float k = 1.0f / 255.0f;
         return Vec4((p&0xFF)*k, ((p>>8)&0xFF)*k, ((p>>16)&0xFF)*k, 1.0f);
     }
+    // [通用版] 支持任意尺寸图片的最近邻采样
+    Vec4 sampleNearest(float u, float v) const {
+        // 1. 防止空纹理崩溃
+        if (levels.empty() || levels[0].empty()) return Vec4(1.0f, 0.0f, 1.0f, 1.0f);; // 紫色作为错误色
+        
+        int w = width;
+        int h = height;
+        
+        // 2. 转换为整数坐标
+        // 注意：这里没有使用 width-1 这种位掩码
+        int iu = (int)std::floor(u * w);
+        int iv = (int)std::floor(v * h);
 
+        // 3. 通用取模处理 Wrap (GL_REPEAT)
+        // 逻辑：(idx % size + size) % size 可以正确处理负数坐标
+        int x = iu % w;
+        if (x < 0) x += w;
+        
+        int y = iv % h;
+        if (y < 0) y += h;
+
+        // 3. 获取原始像素
+        uint32_t pixel = levels[0][y * w + x];
+
+        // 4. 解包并归一化
+        constexpr float k = 1.0f / 255.0f;
+        return Vec4(
+            (float)(pixel & 0xFF) * k,         // R
+            (float)((pixel >> 8) & 0xFF) * k,  // G
+            (float)((pixel >> 16) & 0xFF) * k, // B
+            (float)((pixel >> 24) & 0xFF) * k  // A
+        );
+    }
     // 前提：纹理尺寸必须是 2 的幂 (256, 512...) 且 Wrap 模式为 REPEAT
-    uint32_t sampleNearestFast(float u, float v) const {
+    Vec4 sampleNearestFast(float u, float v) const {
         // 1. 利用位运算取模 (替代 slow floor)
         // 假设 width 和 height 是 256 (掩码为 255)
         uint32_t maskX = width - 1;
@@ -293,14 +352,33 @@ struct TextureObject {
         int x = iu & maskX;
         int y = iv & maskY;
 
-        // 4. 直接返回原始像素数据 (Level 0)
-        // 避免了将 0-255 转为 0.0-1.0 的 float 转换开销
-        return levels[0][y * width + x];
+        // 3. 获取原始像素 (0xAABBGGRR)
+        uint32_t pixel = levels[0][y * width + x];
+        
+        // 4. 解包并归一化
+        constexpr float k = 1.0f / 255.0f;
+        return Vec4(
+            (float)(pixel & 0xFF) * k,         // R
+            (float)((pixel >> 8) & 0xFF) * k,  // G
+            (float)((pixel >> 16) & 0xFF) * k, // B
+            (float)((pixel >> 24) & 0xFF) * k  // A
+        );
     }
     
     // 主采样函数 (根据 LOD 选择 Filter)
     Vec4 sample(float u, float v, float lod = 0.0f) const {
         if (levels.empty()) return {1, 0, 1, 1};
+
+        // 边框检测 (Nearest 情况)
+        // 如果是 Nearest 模式且未进入 Mipmap 逻辑，也需要检测
+        if (magFilter == GL_NEAREST && lod <= 0.0f) {
+            if (checkBorder(u, wrapS) || checkBorder(v, wrapT)) return borderColor;
+        }
+
+
+        // 应用 LOD Bias 和 Clamping
+        lod += lodBias;
+        lod = std::clamp(lod, minLOD, maxLOD);
 
         // 1. Magnification (放大): LOD < 0 (纹理像素比屏幕像素大)
         if (lod <= 0.0f && magFilter == GL_NEAREST) {
@@ -324,6 +402,10 @@ struct TextureObject {
         }
         if (minFilter == GL_NEAREST_MIPMAP_NEAREST) {
             int level = (int)std::round(lod);
+
+            // Nearest Mipmap Nearest 也需要 Border Check
+            if (checkBorder(u, wrapS) || checkBorder(v, wrapT)) return borderColor;
+
             int w = std::max(1, width >> level);
             int h = std::max(1, height >> level);
             int x = (int)(applyWrap(u, wrapS) * w);
@@ -433,7 +515,7 @@ struct Viewport {
 };
 
 // ==========================================
-// 4. 上下文核心 (Context)
+// 上下文核心 (Context)
 // ==========================================
 class SoftRenderContext {
 private:
@@ -676,14 +758,6 @@ public:
                 return;
             }
         }
-        
-        // Generate Mipmaps only for base level
-        if (level == 0) {
-            tex->generateMipmaps();
-            LOG_INFO("Loaded Texture " + std::to_string(w) + "x" + std::to_string(h) + " for level 0 with Mipmaps.");
-        } else {
-            LOG_INFO("Loaded Texture " + std::to_string(w) + "x" + std::to_string(h) + " for level " + std::to_string(level) + ".");
-        }
     }
 
     // 设置纹理参数
@@ -697,9 +771,63 @@ public:
             case GL_TEXTURE_WRAP_T: tex->wrapT = (GLenum)param; break;
             case GL_TEXTURE_MIN_FILTER: tex->minFilter = (GLenum)param; break;
             case GL_TEXTURE_MAG_FILTER: tex->magFilter = (GLenum)param; break;
+            case GL_TEXTURE_MIN_LOD: tex->minLOD = (float)param; break;
+            case GL_TEXTURE_MAX_LOD: tex->maxLOD = (float)param; break;
+            case GL_TEXTURE_LOD_BIAS: tex->lodBias = (float)param; break;
+        }
+    }
+    // Float Scalar 版本
+    void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
+        if (target != GL_TEXTURE_2D) return;
+        TextureObject* tex = getTexture(m_activeTextureUnit);
+        if (!tex) return;
+
+        switch (pname) {
+            case GL_TEXTURE_MIN_LOD: tex->minLOD = param; break;
+            case GL_TEXTURE_MAX_LOD: tex->maxLOD = param; break;
+            case GL_TEXTURE_LOD_BIAS: tex->lodBias = param; break;
+            // 对于 Enum 类型的参数，允许用 float 传进来 (兼容性)
+            case GL_TEXTURE_WRAP_S: tex->wrapS = (GLenum)param; break;
+            case GL_TEXTURE_WRAP_T: tex->wrapT = (GLenum)param; break;
+            case GL_TEXTURE_MIN_FILTER: tex->minFilter = (GLenum)param; break;
+            case GL_TEXTURE_MAG_FILTER: tex->magFilter = (GLenum)param; break;
+        }
+    }
+    // nt Vector 版本
+    void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
+        if (target != GL_TEXTURE_2D || !params) return;
+        TextureObject* tex = getTexture(m_activeTextureUnit);
+        if (!tex) return;
+
+        switch (pname) {
+            case GL_TEXTURE_BORDER_COLOR:
+                // 将 Int 颜色 (0-2147483647 或 0-255? OpenGL 这里的 int 实际上是映射到 0-1)
+                // 标准规定：Int 值会线性映射。通常 0 -> 0.0, MAX_INT -> 1.0
+                // 但为了简化软渲染器，我们假设用户传入的是 0-255 范围
+                tex->borderColor = Vec4(params[0]/255.0f, params[1]/255.0f, params[2]/255.0f, params[3]/255.0f);
+                break;
+            default:
+                glTexParameteri(target, pname, params[0]);
+                break;
         }
     }
 
+    // Float Vector 版本 (关键：Border Color)
+    void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
+        if (target != GL_TEXTURE_2D || !params) return;
+        TextureObject* tex = getTexture(m_activeTextureUnit);
+        if (!tex) return;
+
+        switch (pname) {
+            case GL_TEXTURE_BORDER_COLOR:
+                tex->borderColor = Vec4(params[0], params[1], params[2], params[3]);
+                break;
+            default:
+                // 如果用户传的是标量参数的指针形式
+                glTexParameterf(target, pname, params[0]);
+                break;
+        }
+    }
     // --- 裁剪与光栅化辅助结构 ---
     // 线性插值辅助函数 (Linear Interpolation)
     // 用于在被裁剪的边上生成新的顶点
@@ -1379,7 +1507,6 @@ public:
         }
     }
 
-// [重构] 极致性能的通用光栅化函数
     template <typename ShaderT>
     void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
         // 1. 包围盒计算 (Bounding Box)
@@ -1490,7 +1617,8 @@ public:
                             }
 
                             // 内联调用 Fragment Shader
-                            *pColor = shader.fragment(fsIn);
+                            Vec4 fColor = shader.fragment(fsIn);
+                            *pColor = ColorUtils::FloatToUint32(fColor);
                         }
                     }
                 }
@@ -1561,7 +1689,8 @@ public:
                         }
 
                         // 调用 Fragment Shader
-                        m_colorBufferPtr[pix] = shader.fragment(fsIn);
+                        Vec4 fColor = shader.fragment(fsIn);
+                        m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                     }
                 }
             }
@@ -1598,8 +1727,8 @@ public:
             fsIn.lod = 0; // 点没有 LOD 概念
 
             // 调用 Fragment Shader
-            uint32_t color = shader.fragment(fsIn);
-            m_colorBufferPtr[pix] = color;
+            Vec4 fColor = shader.fragment(fsIn);
+            m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
         }
     }
 

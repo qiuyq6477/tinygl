@@ -13,7 +13,7 @@ static uint32_t g_cubeIndices[36];
 // ==========================================
 // 定义 Shader 结构体 (Template Architecture)
 // ==========================================
-struct CubeShader {
+struct CubeShader : ShaderBase {
     // Uniforms
     TextureObject* texture = nullptr;
     SimdMat4 mvp; 
@@ -32,25 +32,12 @@ struct CubeShader {
         return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
-    inline uint32_t fragment(const ShaderContext& inCtx) {
-        uint32_t texColor = 0xFFFFFFFF;
+    inline Vec4 fragment(const ShaderContext& inCtx) {
+        Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
         if (texture) {
             texColor = texture->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
         }
-
-        uint32_t r = texColor & 0xFF;
-        uint32_t g = (texColor >> 8) & 0xFF;
-        uint32_t b = (texColor >> 16) & 0xFF;
-
-        float vr = inCtx.varyings[1].x * colorMod.x;
-        float vg = inCtx.varyings[1].y * colorMod.y;
-        float vb = inCtx.varyings[1].z * colorMod.z;
-
-        uint32_t fr = (uint32_t)(r * vr);
-        uint32_t fg = (uint32_t)(g * vg);
-        uint32_t fb = (uint32_t)(b * vb);
-
-        return (255 << 24) | (fb << 16) | (fg << 8) | fr;
+        return mix(inCtx.varyings[0], texColor, 0.5);
     }
 };
 

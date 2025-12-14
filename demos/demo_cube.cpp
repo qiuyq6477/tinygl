@@ -12,7 +12,7 @@ static uint32_t g_cubeIndices[36];
 // ==========================================
 // 定义 Shader 结构体 (Template Architecture)
 // ==========================================
-struct CubeShader {
+struct CubeShader : ShaderBase {
     // Uniforms
     TextureObject* texture = nullptr;
     SimdMat4 mvp; // 使用 SIMD 矩阵加速
@@ -54,30 +54,13 @@ struct CubeShader {
     }
 
     // Fragment Shader (返回 0xAABBGGRR)
-    inline uint32_t fragment(const ShaderContext& inCtx) {
+    inline Vec4 fragment(const ShaderContext& inCtx) {
         // 1. 极速纹理采样 (Nearest)
-        uint32_t texColor = 0xFFFFFFFF;
+        Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
         if (texture) {
             texColor = texture->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
         }
-
-        // 2. 混合顶点颜色 (简单乘法)
-        // 解析 Texture Color
-        uint32_t r = texColor & 0xFF;
-        uint32_t g = (texColor >> 8) & 0xFF;
-        uint32_t b = (texColor >> 16) & 0xFF;
-
-        // 混合 Varying Color (假设 varyings[1] 是 normalized 0.0-1.0)
-        // 避免 float->vec4->float 的来回转换，直接算
-        float vr = inCtx.varyings[1].x;
-        float vg = inCtx.varyings[1].y;
-        float vb = inCtx.varyings[1].z;
-
-        uint32_t fr = (uint32_t)(r * vr);
-        uint32_t fg = (uint32_t)(g * vg);
-        uint32_t fb = (uint32_t)(b * vb);
-
-        return (255 << 24) | (fb << 16) | (fg << 8) | fr;
+        return mix(inCtx.varyings[0], texColor, 0.5);
     }
 };
 

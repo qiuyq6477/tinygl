@@ -85,17 +85,9 @@ struct InstancedCubeShader {
     }
 
     // Fragment Shader
-    uint32_t fragment(const ShaderContext& ctx) {
+    Vec4 fragment(const ShaderContext& ctx) {
         // 直接输出插值后的颜色
-        Vec4 c = ctx.varyings[0];
-        
-        // 简单的漫反射模拟 (这里为了性能直接输出纯色)
-        return OLIVEC_RGBA(
-            (int)(c.x * 255),
-            (int)(c.y * 255),
-            (int)(c.z * 255),
-            255
-        );
+        return ctx.varyings[0];
     }
 };
 
