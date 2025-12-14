@@ -223,7 +223,7 @@ Olivec_Canvas vc_render(float dt, void* pixels) {
     // 5. 绘制调用
     // 使用 glDrawElementsInstanced 一次性绘制 100 个 Cube
     // 36 indices, GL_UNSIGNED_INT, offset 0, 100 instances
-    g_ctx->glDrawElementsInstanced(g_shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, cubeIndices, INSTANCE_COUNT);
+    g_ctx->glDrawElementsInstanced(g_shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void *)0, INSTANCE_COUNT);
 
     // 6. 返回 Canvas (TinyGL 的 buffer 指针包装)
     return olivec_canvas((uint32_t*)pixels, 800, 600, 800);

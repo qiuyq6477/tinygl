@@ -113,7 +113,7 @@ void vc_init(void) {
     g_ctx->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     g_ctx->glGenBuffers(1, &g_ebo); 
     g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo);
-    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(g_cubeIndices), g_cubeIndices, GL_STATIC_DRAW);
 
     GLsizei stride = sizeof(Vertex);
     g_ctx->glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)offsetof(Vertex, pos));
@@ -152,7 +152,7 @@ Olivec_Canvas vc_render(float dt, void* pixels) {
         Mat4 mvp = proj * Mat4::Identity() * model;
         shader.mvp.load(mvp);
 
-        g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, g_cubeIndices);
+        g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void *)0);
     }
 
     // 2. Draw PiP View (Bottom Right)
@@ -179,7 +179,7 @@ Olivec_Canvas vc_render(float dt, void* pixels) {
         Mat4 mvp = proj * Mat4::Identity() * model;
         shader.mvp.load(mvp);
 
-        g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, g_cubeIndices);
+        g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void *)0);
     }
 
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);

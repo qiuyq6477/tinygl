@@ -141,7 +141,7 @@ void vc_init(void) {
     g_ctx->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     g_ctx->glGenBuffers(1, &g_ebo); 
     g_ctx->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ebo);
-    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    g_ctx->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(g_cubeIndices), g_cubeIndices, GL_STATIC_DRAW);
 
     GLsizei stride = sizeof(Vertex);
     g_ctx->glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)offsetof(Vertex, pos));
@@ -215,7 +215,7 @@ Olivec_Canvas vc_render(float dt, void* pixels) {
     // 3. [修改] 使用统一的 drawElements 接口
     // 参数：Shader对象, 模式, 数量, 类型, 索引指针
     // 此时 g_ctx 会根据 mode=GL_TRIANGLES 自动路由逻辑
-    g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, g_cubeIndices);
+    g_ctx->glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void *)0);
 
     return olivec_canvas(g_ctx->getColorBuffer(), DEMO_WIDTH, DEMO_HEIGHT, DEMO_WIDTH);
 }

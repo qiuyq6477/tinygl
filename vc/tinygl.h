@@ -47,15 +47,20 @@ const GLenum GL_ARRAY_BUFFER = 0x8892;
 const GLenum GL_ELEMENT_ARRAY_BUFFER = 0x8893;
 const GLenum GL_STATIC_DRAW = 0x88E4;
 const GLenum GL_FLOAT = 0x1406;
-const GLenum GL_TRIANGLES = 0x0004;
-const GLenum GL_POINTS = 0x0000;
-const GLenum GL_LINES = 0x0001;
 const GLenum GL_TEXTURE_2D = 0x0DE1;
 const GLenum GL_RGBA = 0x1908;
 const GLenum GL_RGB = 0x1907;
 const GLenum GL_UNSIGNED_BYTE = 0x1401;
 const GLenum GL_UNSIGNED_SHORT = 0x1403;
 const GLenum GL_UNSIGNED_INT = 0x1405;
+
+const GLenum GL_POINTS = 0x0000;
+const GLenum GL_LINES = 0x0001;
+const GLenum GL_LINE_LOOP = 0x0002;
+const GLenum GL_LINE_STRIP = 0x0003;
+const GLenum GL_TRIANGLES = 0x0004;
+const GLenum GL_TRIANGLE_STRIP = 0x0005;
+const GLenum GL_TRIANGLE_FAN = 0x0006;
 
 const GLenum GL_FRONT_AND_BACK = 0x0408;
 const GLenum GL_FILL = 0x1B02;
@@ -714,6 +719,83 @@ public:
         return res;
     }
 
+    const std::vector<uint32_t>& readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
+        m_indexCache.clear();
+        m_indexCache.reserve(count);
+        size_t idxOffset = reinterpret_cast<size_t>(indices_ptr);
+        
+        VertexArrayObject& vao = getVAO();
+        if (vao.elementBufferID == 0) {
+            LOG_ERROR("No EBO bound to current VAO for glDrawElements");
+            return m_indexCache;
+        }
+
+        switch (type) {
+            case GL_UNSIGNED_INT: {
+                for(int i=0; i<count; ++i) {
+                    uint32_t index;
+                    buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*sizeof(uint32_t), index);
+                    m_indexCache.push_back(index);
+                }
+                break;
+            }
+            case GL_UNSIGNED_SHORT: {
+                for(int i=0; i<count; ++i) {
+                    uint16_t index;
+                    buffers[vao.elementBufferID].readSafe<uint16_t>(idxOffset + i*sizeof(uint16_t), index);
+                    m_indexCache.push_back(static_cast<uint32_t>(index));
+                }
+                break;
+            }
+            case GL_UNSIGNED_BYTE: {
+                 for(int i=0; i<count; ++i) {
+                    uint8_t index;
+                    buffers[vao.elementBufferID].readSafe<uint8_t>(idxOffset + i*sizeof(uint8_t), index);
+                    m_indexCache.push_back(static_cast<uint32_t>(index));
+                }
+                break;
+            }
+            default:
+                LOG_ERROR("Unsupported index type in glDrawElements");
+                return m_indexCache;
+        }
+        return m_indexCache;
+    }
+
+    // Converts source pixel data to internal RGBA8888 format
+    bool convertToInternalFormat(const void* src_data, GLsizei src_width, GLsizei src_height,
+                                 GLenum src_format, GLenum src_type, std::vector<uint32_t>& dst_pixels)
+    {
+        dst_pixels.resize(src_width * src_height);
+        if (!src_data) return true; // Just resize, don't fill if no source data
+
+        const uint8_t* src_bytes = static_cast<const uint8_t*>(src_data);
+        size_t pixel_count = src_width * src_height;
+
+        if (src_type == GL_UNSIGNED_BYTE) {
+            if (src_format == GL_RGBA) {
+                // Direct copy for RGBA8888
+                std::memcpy(dst_pixels.data(), src_data, pixel_count * 4);
+                return true;
+            } else if (src_format == GL_RGB) {
+                // Convert RGB888 to RGBA8888
+                for (size_t i = 0; i < pixel_count; ++i) {
+                    uint8_t r = src_bytes[i * 3 + 0];
+                    uint8_t g = src_bytes[i * 3 + 1];
+                    uint8_t b = src_bytes[i * 3 + 2];
+                    dst_pixels[i] = (0xFF << 24) | (b << 16) | (g << 8) | r; // AABBGGRR
+                }
+                return true;
+            } else {
+                LOG_ERROR("Unsupported source format with GL_UNSIGNED_BYTE type.");
+                return false;
+            }
+        } else {
+            LOG_ERROR("Unsupported source type for pixel conversion.");
+            return false;
+        }
+    }
+
     // Sutherland-Hodgman 裁剪算法的核心：针对单个平面进行裁剪
     // inputVerts: 输入的顶点列表
     // planeID: 0=Left, 1=Right, 2=Bottom, 3=Top, 4=Near, 5=Far
@@ -832,8 +914,6 @@ public:
         return clippedVerts;
     }
 
-
-
     // 执行透视除法与视口变换 (Perspective Division & Viewport)
     // 将 Clip Space (x,y,z,w) -> Screen Space (sx, sy, sz, 1/w)
     void transformToScreen(VOut& v) {
@@ -857,6 +937,78 @@ public:
         float dfdx = (temp0 * (v2.scn.y - v0.scn.y) - temp1 * (v1.scn.y - v0.scn.y)) * invArea;
         float dfdy = (temp1 * (v1.scn.x - v0.scn.x) - temp0 * (v2.scn.x - v0.scn.x)) * invArea;
         return {dfdx, dfdy};
+    }
+
+    Vec4 fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx) {
+        if (!attr.enabled) return Vec4(0,0,0,1);
+
+        auto it = buffers.find(attr.bindingBufferID);
+        // 检查 1: Buffer 是否存在
+        if (it == buffers.end()) return Vec4(0,0,0,1);
+        
+        const auto& buffer = it->second;
+        // 检查 2: Buffer 是否为空
+        if (buffer.data.empty()) return Vec4(0,0,0,1);
+
+        // 计算 stride 
+        // TODO: 支持其他类型的 Attribute
+        size_t stride = attr.stride ? attr.stride : attr.size * sizeof(float); // Default stride for floats
+        // Instancing 核心逻辑
+        // 如果 divisor 为 0，使用 vertexIdx。
+        // 如果 divisor > 0，使用 instanceIdx / divisor。
+        int effectiveIdx = (attr.divisor == 0) ? vertexIdx : (instanceIdx / attr.divisor);
+        // 计算起始偏移量
+        size_t offset = attr.pointerOffset + effectiveIdx * stride;
+        
+        // 计算读取该属性所需的总大小
+        // 注意：attr.type 可能是 float 或 byte，这里假设标准 float 为 4 字节
+        // 如果你的系统支持更多类型，这里需要根据 attr.type 动态计算 dataSize
+        size_t elementSize = (attr.type == GL_UNSIGNED_BYTE) ? sizeof(uint8_t) : sizeof(float);
+        size_t readSize = attr.size * elementSize;
+
+        // 检查 3: 严格的越界检查
+        // offset + readSize > buffer.size()
+        if (offset >= buffer.data.size() || (buffer.data.size() - offset) < readSize) {
+            // 返回默认值，防止崩溃
+            return Vec4(0,0,0,1);
+        }
+
+        float raw[4] = {0,0,0,1};
+        
+        // 读取逻辑 (使用 readSafe 进一步保证，或者直接 memcpy 因为上面已检查)
+        switch (attr.type) {
+            case GL_FLOAT: {
+                // for(int i=0; i<attr.size; ++i) {
+                //     it->second.readSafe<float>(offset + i*sizeof(float), raw[i]);
+                // }
+                // 直接拷贝，比循环 readSafe 快
+                std::memcpy(raw, buffer.data.data() + offset, attr.size * sizeof(float));
+                break;
+            }
+            case GL_UNSIGNED_BYTE: {
+                // stride = attr.stride ? attr.stride : attr.size * sizeof(uint8_t);
+                // offset = attr.pointerOffset + vertexIdx * stride;
+                // 如果是 BYTE 类型，stride 默认值计算可能需要区分，但上面已经根据类型计算了 stride，
+                // 这里的逻辑复用 fetchAttribute 原有逻辑即可，重点是 offset 计算变了。
+                uint8_t ubyte_raw[4] = {0,0,0,255};
+                // for(int i=0; i<attr.size; ++i) {
+                //     it->second.readSafe<uint8_t>(offset + i*sizeof(uint8_t), ubyte_raw[i]);
+                // }
+                std::memcpy(ubyte_raw, buffer.data.data() + offset, attr.size * sizeof(uint8_t));
+                
+                if (attr.normalized) {
+                    for(int i=0; i<4; ++i) raw[i] = ubyte_raw[i] / 255.0f;
+                } else {
+                    for(int i=0; i<4; ++i) raw[i] = (float)ubyte_raw[i];
+                }
+                break;
+            }
+            default:
+                LOG_WARN("Unsupported vertex attribute type.");
+                break;
+        }
+        
+        return Vec4(raw[0], raw[1], raw[2], raw[3]);
     }
 
     // 纯粹的光栅化三角形逻辑 (Rasterize Triangle) - Scanline Implementation
@@ -1352,246 +1504,6 @@ public:
         }
     }
 
-    // [重构] 零堆分配的 DrawElements
-    // 直接接收原始指针和 GLenum 类型，模拟真实驱动行为
-    template <typename ShaderT>
-    void drawElementsTemplate(ShaderT& shader, GLsizei count, GLenum type, const void* indices, GLsizei primcount = 1) {
-        if (!indices) return;
-        VertexArrayObject& vao = getVAO();
-        
-        // 辅助 Lambda：处理不同类型的索引读取
-        // 编译器会将其内联，虽然 switch 在循环里，但分支预测器通常能处理这种固定模式
-        // 极致优化可以把 type 作为模板参数，但这里为了接口通用性保留 switch
-        auto getIndex = [&](size_t i) -> uint32_t {
-            const uint8_t* ptr = (const uint8_t*)indices;
-            if (type == GL_UNSIGNED_INT) return ((const uint32_t*)ptr)[i];
-            if (type == GL_UNSIGNED_SHORT) return ((const uint16_t*)ptr)[i];
-            if (type == GL_UNSIGNED_BYTE) return ((const uint8_t*)ptr)[i];
-            return 0;
-        };
-        for (GLsizei instanceID = 0; instanceID < primcount; ++instanceID) {
-            // 设置实例 ID (如果 Shader 需要)
-            // shader.setInstanceID(instanceID);
-            // 遍历图元
-            for (GLsizei i = 0; i < count; i += 3) {
-                if (i + 2 >= count) break;
-                
-                StaticVector<VOut, 16> triangle;
-                
-                // 顶点处理循环
-                for (int k = 0; k < 3; ++k) {
-                    uint32_t idx = getIndex(i + k);
-                    
-                    // [优化] 栈上分配属性数组，避免 std::vector
-                    // 假设 Shader 只需要前几个属性，但为了通用，我们准备 MAX_ATTRIBS
-                    // 注意：这里是一个权衡。如果 MAX_ATTRIBS 很大 (16)，拷贝开销可能存在。
-                    // 更好的做法是传指针。但鉴于 Mat4 变换才是大头，这里的拷贝可接受。
-                    Vec4 attribs[MAX_ATTRIBS];
-                    
-                    // 收集属性
-                    // 这里我们稍微展开一下，只处理启用的属性
-                    for (int a = 0; a < MAX_ATTRIBS; ++a) {
-                        if (vao.attributes[a].enabled) {
-                            attribs[a] = fetchAttribute(vao.attributes[a], idx, instanceID);
-                        }
-                    }
-
-                    ShaderContext ctx;
-                    VOut v;
-                    // 调用 Shader Vertex (传递栈数组指针，避免 vector 构造)
-                    // 注意：需要修改 Shader 的 vertex 签名接收 (const Vec4* attribs)
-                    v.pos = shader.vertex(attribs, ctx); 
-                    v.ctx = ctx;
-                    triangle.push_back(v);
-                }
-
-                // 裁剪 (Clipping)
-                StaticVector<VOut, 16> polygon = triangle;
-                // 依次通过 6 个视锥体平面
-                for (int p = 0; p < 6; ++p) {
-                    polygon = clipAgainstPlane(polygon, p);
-                    if (polygon.empty()) break;
-                }
-                if (polygon.empty()) continue;
-
-                // 透视除法与视口变换
-                for (auto& v : polygon) transformToScreen(v);
-
-                // 三角形化并光栅化
-                for (size_t k = 1; k < polygon.size() - 1; ++k) {
-                    rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
-                }
-            }
-        }
-    }
-
-    // --- Rasterizer ---
-    const std::vector<uint32_t>& readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr) {
-        m_indexCache.clear();
-        m_indexCache.reserve(count);
-        size_t idxOffset = reinterpret_cast<size_t>(indices_ptr);
-        
-        VertexArrayObject& vao = getVAO();
-        if (vao.elementBufferID == 0) {
-            LOG_ERROR("No EBO bound to current VAO for glDrawElements");
-            return m_indexCache;
-        }
-
-        switch (type) {
-            case GL_UNSIGNED_INT: {
-                for(int i=0; i<count; ++i) {
-                    uint32_t index;
-                    buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*sizeof(uint32_t), index);
-                    m_indexCache.push_back(index);
-                }
-                break;
-            }
-            case GL_UNSIGNED_SHORT: {
-                for(int i=0; i<count; ++i) {
-                    uint16_t index;
-                    buffers[vao.elementBufferID].readSafe<uint16_t>(idxOffset + i*sizeof(uint16_t), index);
-                    m_indexCache.push_back(static_cast<uint32_t>(index));
-                }
-                break;
-            }
-            case GL_UNSIGNED_BYTE: {
-                 for(int i=0; i<count; ++i) {
-                    uint8_t index;
-                    buffers[vao.elementBufferID].readSafe<uint8_t>(idxOffset + i*sizeof(uint8_t), index);
-                    m_indexCache.push_back(static_cast<uint32_t>(index));
-                }
-                break;
-            }
-            default:
-                LOG_ERROR("Unsupported index type in glDrawElements");
-                return m_indexCache;
-        }
-        return m_indexCache;
-    }
-
-
-    void processLines(const std::vector<uint32_t>& indices, GLsizei count) {
-        ProgramObject* prog = getCurrentProgram();
-        VertexArrayObject& vao = getVAO();
-
-        for (GLsizei i = 0; i < count; i += 2) {
-            if (i + 1 >= count) break;
-
-            VOut v0, v1;
-            std::vector<VOut*> line_verts = {&v0, &v1};
-
-            // Step 1: Vertex Processing
-            for (int k = 0; k < 2; ++k) {
-                uint32_t vertexIdx = indices[i + k];
-                std::vector<Vec4> ins(MAX_ATTRIBS);
-                for(int a = 0; a < MAX_ATTRIBS; ++a) {
-                    if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx, 0);
-                }
-                
-                ShaderContext ctx;
-                line_verts[k]->pos = prog->vertexShader(ins, ctx);
-                line_verts[k]->ctx = ctx;
-            }
-
-            // Step 2: Line Clipping
-            StaticVector<VOut, 16> clipped = clipLine(v0, v1);
-
-            if (!clipped.empty()) {
-                // Step 3: Transform and Rasterize
-                transformToScreen(clipped[0]);
-                transformToScreen(clipped[1]);
-                rasterizeLine(clipped[0], clipped[1]);
-            }
-        }
-    }
-
-    void processPoints(const std::vector<uint32_t>& indices, GLsizei count) {
-        ProgramObject* prog = getCurrentProgram();
-        VertexArrayObject& vao = getVAO();
-
-        for (GLsizei i = 0; i < count; ++i) {
-            VOut v;
-            
-            // Step 1: Vertex Processing
-            uint32_t vertexIdx = indices[i];
-            std::vector<Vec4> ins(MAX_ATTRIBS);
-            for(int a = 0; a < MAX_ATTRIBS; ++a) {
-                if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx, 0);
-            }
-            
-            ShaderContext ctx;
-            v.pos = prog->vertexShader(ins, ctx);
-            v.ctx = ctx;
-            
-            // Step 2: Trivial Point Clipping
-            if (v.pos.x >= -v.pos.w && v.pos.x <= v.pos.w &&
-                v.pos.y >= -v.pos.w && v.pos.y <= v.pos.w &&
-                v.pos.z >= -v.pos.w && v.pos.z <= v.pos.w)
-            {
-                // Step 3: Transform and Rasterize
-                transformToScreen(v);
-                rasterizePoint(v);
-            }
-        }
-    }
-
-    void rasterizeLine(const VOut& v0, const VOut& v1) {
-        auto* prog = getCurrentProgram();
-        
-        int x0 = (int)v0.scn.x; int y0 = (int)v0.scn.y;
-        int x1 = (int)v1.scn.x; int y1 = (int)v1.scn.y;
-
-        int dx = std::abs(x1 - x0);
-        int dy = -std::abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1;
-        int sy = y0 < y1 ? 1 : -1;
-        int err = dx + dy;
-
-        float total_dist = std::sqrt((float)dx*dx + (float)dy*dy);
-        if (total_dist < EPSILON) total_dist = 1.0f;
-
-        // Viewport & Buffer Clipping Bounds
-        int vx0 = std::max(0, m_viewport.x);
-        int vx1 = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-        int vy0 = std::max(0, m_viewport.y);
-        int vy1 = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
-
-        while (true) {
-            if (x0 >= vx0 && x0 < vx1 && y0 >= vy0 && y0 < vy1) {
-                float dist_from_0 = std::sqrt(std::pow((float)x0 - v0.scn.x, 2) + std::pow((float)y0 - v0.scn.y, 2));
-                float t = dist_from_0 / total_dist;
-                t = std::clamp(t, 0.0f, 1.0f);
-
-                float zInv = (1.0f - t) * v0.scn.w + t * v1.scn.w;
-                if (zInv > 0) {
-                    float z = 1.0f / zInv;
-                    int pix = y0 * fbWidth + x0;
-                    if (z < depthBuffer[pix]) {
-                        depthBuffer[pix] = z;
-
-                        ShaderContext fsIn;
-                        fsIn.lod = 0; 
-                        for (int k = 0; k < MAX_VARYINGS; ++k) {
-                            Vec4 a = v0.ctx.varyings[k] * v0.scn.w * (1.0f - t) + v1.ctx.varyings[k] * v1.scn.w * t;
-                            fsIn.varyings[k] = a * z;
-                        }
-
-                        Vec4 c = prog->fragmentShader(fsIn);
-                        uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
-                        uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
-                        uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
-                        m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
-                    }
-                }
-            }
-
-            if (x0 == x1 && y0 == y1) break;
-            int e2 = 2 * err;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
-    }
-
     // 模板化的线段光栅化 (Bresenham)
     template <typename ShaderT>
     void rasterizeLineTemplate(ShaderT& shader, const VOut& v0, const VOut& v1) {
@@ -1661,36 +1573,6 @@ public:
         }
     }
 
-    void rasterizePoint(const VOut& v) {
-        int x = (int)v.scn.x;
-        int y = (int)v.scn.y;
-
-        int vx0 = std::max(0, m_viewport.x);
-        int vx1 = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-        int vy0 = std::max(0, m_viewport.y);
-        int vy1 = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
-
-        if (x < vx0 || x >= vx1 || y < vy0 || y >= vy1) return;
-
-        int pix = y * fbWidth + x;
-        if (v.scn.z < depthBuffer[pix]) {
-            depthBuffer[pix] = v.scn.z;
-            
-            auto* prog = getCurrentProgram();
-            ShaderContext fsIn = v.ctx;
-            for(int k=0; k<MAX_VARYINGS; ++k) {
-                 fsIn.varyings[k] = v.ctx.varyings[k];
-            }
-            fsIn.lod = 0;
-
-            Vec4 c = prog->fragmentShader(fsIn);
-            uint8_t R = (uint8_t)(std::clamp(c.x, 0.0f, 1.0f) * 255);
-            uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
-            uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
-            m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
-        }
-    }
-
     // 模板化的点光栅化
     template <typename ShaderT>
     void rasterizePointTemplate(ShaderT& shader, const VOut& v) {
@@ -1721,197 +1603,8 @@ public:
         }
     }
 
-    // Converts source pixel data to internal RGBA8888 format
-    bool convertToInternalFormat(const void* src_data, GLsizei src_width, GLsizei src_height,
-                                 GLenum src_format, GLenum src_type, std::vector<uint32_t>& dst_pixels)
-    {
-        dst_pixels.resize(src_width * src_height);
-        if (!src_data) return true; // Just resize, don't fill if no source data
-
-        const uint8_t* src_bytes = static_cast<const uint8_t*>(src_data);
-        size_t pixel_count = src_width * src_height;
-
-        if (src_type == GL_UNSIGNED_BYTE) {
-            if (src_format == GL_RGBA) {
-                // Direct copy for RGBA8888
-                std::memcpy(dst_pixels.data(), src_data, pixel_count * 4);
-                return true;
-            } else if (src_format == GL_RGB) {
-                // Convert RGB888 to RGBA8888
-                for (size_t i = 0; i < pixel_count; ++i) {
-                    uint8_t r = src_bytes[i * 3 + 0];
-                    uint8_t g = src_bytes[i * 3 + 1];
-                    uint8_t b = src_bytes[i * 3 + 2];
-                    dst_pixels[i] = (0xFF << 24) | (b << 16) | (g << 8) | r; // AABBGGRR
-                }
-                return true;
-            } else {
-                LOG_ERROR("Unsupported source format with GL_UNSIGNED_BYTE type.");
-                return false;
-            }
-        } else {
-            LOG_ERROR("Unsupported source type for pixel conversion.");
-            return false;
-        }
-    }
-
-    
-    // void processTriangles(const std::vector<uint32_t>& indices, GLsizei count) {
-    //     ProgramObject* prog = getCurrentProgram(); // Already checked in glDrawElements
-    //     VertexArrayObject& vao = getVAO();
-
-    //     for(GLsizei i = 0; i < count; i += 3) {
-    //         if (i + 2 >= count) break;
-
-    //         StaticVector<VOut, 16> triangle;
-            
-    //         // Step 1: Vertex Processing
-    //         for (int k = 0; k < 3; ++k) {
-    //             uint32_t vertexIdx = indices[i + k];
-    //             std::vector<Vec4> ins(MAX_ATTRIBS);
-    //             for(int a = 0; a < MAX_ATTRIBS; ++a) {
-    //                 if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
-    //             }
-                
-    //             ShaderContext ctx;
-    //             VOut v;
-    //             // 注意：VS 输出的是 Clip Space Position (未除 w)
-    //             v.pos = prog->vertexShader(ins, ctx);
-    //             v.ctx = ctx;
-    //             triangle.push_back(v);
-    //         }
-
-    //         // Step 2: Clipping (裁剪)
-    //         // 将三角形依次通过 6 个平面的裁剪
-    //         // 顺序：Near -> Far -> Left -> Right -> Top -> Bottom
-    //         // 最重要的是 Near Plane，因为它防止 w <= 0 导致的除以零崩溃
-    //         StaticVector<VOut, 16> polygon = triangle;
-            
-    //         // 依次针对 6 个平面裁剪
-    //         for (int p = 0; p < 6; ++p) {
-    //             polygon = clipAgainstPlane(polygon, p);
-    //             if (polygon.empty()) break; // 如果完全被裁掉了，提前结束
-    //         }
-            
-    //         if (polygon.empty()) continue;
-
-    //         // Step 3: Perspective Division & Viewport (坐标变换)
-    //         // 对裁剪剩下的多边形顶点进行变换
-    //         for (auto& v : polygon) {
-    //             transformToScreen(v);
-    //         }
-
-    //         // Step 4: Triangulation & Rasterization (扇形剖分与光栅化)
-    //         // 裁剪后的多边形可能是 3, 4, 5... 个顶点 (凸多边形)
-    //         // 我们将其拆解为 (v0, v1, v2), (v0, v2, v3)...
-    //         for (size_t k = 1; k < polygon.size() - 1; ++k) {
-    //             rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
-    //         }
-    //     }
-    // }
-
-    Vec4 fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx) {
-        if (!attr.enabled) return Vec4(0,0,0,1);
-        auto it = buffers.find(attr.bindingBufferID);
-        if (it == buffers.end()) return Vec4(0,0,0,1);
-        
-        // 计算 stride 
-        // TODO: 支持其他类型的 Attribute
-        size_t stride = attr.stride ? attr.stride : attr.size * sizeof(float); // Default stride for floats
-        // Instancing 核心逻辑
-        // 如果 divisor 为 0，使用 vertexIdx。
-        // 如果 divisor > 0，使用 instanceIdx / divisor。
-        int effectiveIdx = (attr.divisor == 0) ? vertexIdx : (instanceIdx / attr.divisor);
-        size_t offset = attr.pointerOffset + effectiveIdx * stride;
-        
-        float raw[4] = {0,0,0,1};
-        
-        // 边界检查（可选，但推荐）：防止读取超出 Buffer 范围
-        if (offset + attr.size * (attr.type == GL_FLOAT ? 4 : 1) > it->second.data.size()) {
-            return Vec4(0,0,0,1); 
-        }
-
-        switch (attr.type) {
-            case GL_FLOAT: {
-                for(int i=0; i<attr.size; ++i) {
-                    it->second.readSafe<float>(offset + i*sizeof(float), raw[i]);
-                }
-                break;
-            }
-            case GL_UNSIGNED_BYTE: {
-                // stride = attr.stride ? attr.stride : attr.size * sizeof(uint8_t);
-                // offset = attr.pointerOffset + vertexIdx * stride;
-                // 如果是 BYTE 类型，stride 默认值计算可能需要区分，但上面已经根据类型计算了 stride，
-                // 这里的逻辑复用 fetchAttribute 原有逻辑即可，重点是 offset 计算变了。
-                uint8_t ubyte_raw[4] = {0,0,0,255};
-                for(int i=0; i<attr.size; ++i) {
-                    it->second.readSafe<uint8_t>(offset + i*sizeof(uint8_t), ubyte_raw[i]);
-                }
-                
-                if (attr.normalized) {
-                    for(int i=0; i<4; ++i) raw[i] = ubyte_raw[i] / 255.0f;
-                } else {
-                    for(int i=0; i<4; ++i) raw[i] = (float)ubyte_raw[i];
-                }
-                break;
-            }
-            default:
-                LOG_WARN("Unsupported vertex attribute type.");
-                break;
-        }
-        
-        return Vec4(raw[0], raw[1], raw[2], raw[3]);
-    }
-
-    // glDrawArrays
-    // void glDrawArrays(GLenum /*mode*/, GLint first, GLsizei count) {
-    //     auto* prog = getCurrentProgram();
-    //     if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
-    //     VertexArrayObject& vao = getVAO();
-        
-    //     // 遍历所有三角形 (每次处理3个顶点，线性读取)
-    //     for(int i=0; i<count; i+=3) {
-    //         // 如果剩余顶点不足一个三角形则退出
-    //         if (i + 2 >= count) break;
-
-    //         StaticVector<VOut, 16> triangle;
-            
-    //         // Step 1: Vertex Processing
-    //         for (int k=0; k<3; ++k) {
-    //             // 直接使用线性索引 (first + i + k)
-    //             int vertexIdx = first + i + k;
-                
-    //             std::vector<Vec4> ins(MAX_ATTRIBS);
-    //             for(int a=0; a<MAX_ATTRIBS; a++) {
-    //                 if(vao.attributes[a].enabled) ins[a] = fetchAttribute(vao.attributes[a], vertexIdx);
-    //             }
-                
-    //             ShaderContext ctx;
-    //             VOut v;
-    //             v.pos = prog->vertexShader(ins, ctx);
-    //             v.ctx = ctx;
-    //             triangle.push_back(v);
-    //         }
-
-    //         // Step 2: Clipping (复制自 glDrawElements)
-    //         StaticVector<VOut, 16> polygon = triangle;
-    //         for (int p = 0; p < 6; ++p) {
-    //             polygon = clipAgainstPlane(polygon, p);
-    //             if (polygon.empty()) break;
-    //         }
-    //         if (polygon.empty()) continue;
-
-    //         // Step 3: Transform (复制自 glDrawElements)
-    //         for (auto& v : polygon) transformToScreen(v);
-
-    //         // Step 4: Rasterization (复制自 glDrawElements)
-    //         for (size_t k = 1; k < polygon.size() - 1; ++k) {
-    //             rasterizeTriangle(polygon[0], polygon[k], polygon[k+1]);
-    //         }
-    //     }
-    // }
     // =========================================================
-    // [新增] 私有辅助函数：处理单个三角形的管线流程
+    // 处理单个三角形的管线流程
     // 目的：复用 Arrays 和 Elements 的后续逻辑，减少代码重复
     // 强制内联以避免函数调用开销
     // =========================================================
@@ -1985,59 +1678,188 @@ public:
         }
     }
 
+    // 处理单个点 (Vertex -> Clip -> Raster)
     template <typename ShaderT>
-    void glDrawArrays(ShaderT& shader, GLenum mode, GLint first, GLsizei count) {
-        if (mode == GL_TRIANGLES) {
-            // 每次处理 3 个顶点
-            for (GLint i = first; i < first + count; i += 3) {
-                // 边界检查：确保有足够的顶点组成一个三角形
-                if (i + 2 >= first + count) break;
-
-                // 构造三角形的三个顶点索引
-                // DrawArrays 的索引就是线性的 i, i+1, i+2
-                processTriangleVertices(shader, i, i + 1, i + 2, 0);
+    inline void processPointVertex(ShaderT& shader, uint32_t idx, int instanceID) {
+        VertexArrayObject& vao = getVAO();
+        
+        // 1. Vertex Shader
+        Vec4 attribs[MAX_ATTRIBS];
+        for (int a = 0; a < MAX_ATTRIBS; ++a) {
+            if (vao.attributes[a].enabled) {
+                attribs[a] = fetchAttribute(vao.attributes[a], idx, instanceID);
             }
         }
-        else if (mode == GL_POINTS) {
-            // TODO: 实现 Points
+        ShaderContext ctx;
+        VOut v;
+        v.pos = shader.vertex(attribs, ctx);
+        v.ctx = ctx;
+
+        // 2. Clipping (Points)
+        // 简单的视锥体剔除: -w <= x,y,z <= w
+        if (std::abs(v.pos.x) > v.pos.w || 
+            std::abs(v.pos.y) > v.pos.w || 
+            std::abs(v.pos.z) > v.pos.w) return;
+
+        // 3. Transform
+        transformToScreen(v);
+
+        // 4. Rasterize
+        rasterizePointTemplate(shader, v);
+    }
+
+    // 处理单条线 (Vertex -> Clip -> Raster)
+    template <typename ShaderT>
+    inline void processLineVertices(ShaderT& shader, uint32_t idx0, uint32_t idx1, int instanceID) {
+        VertexArrayObject& vao = getVAO();
+        uint32_t indices[2] = {idx0, idx1};
+        VOut verts[2];
+
+        // 1. Vertex Shader
+        for(int i=0; i<2; ++i) {
+            Vec4 attribs[MAX_ATTRIBS];
+            for (int a = 0; a < MAX_ATTRIBS; ++a) {
+                if (vao.attributes[a].enabled) {
+                    attribs[a] = fetchAttribute(vao.attributes[a], indices[i], instanceID);
+                }
+            }
+            ShaderContext ctx;
+            verts[i].pos = shader.vertex(attribs, ctx);
+            verts[i].ctx = ctx;
         }
-        else if (mode == GL_LINES) {
-            // TODO: 实现 Lines
+
+        // 2. Clipping (Lines)
+        // 使用 Liang-Barsky 算法裁剪线段
+        // 注意：clipLine 返回的是 StaticVector，可能包含 0 个或 2 个顶点
+        StaticVector<VOut, 16> clipped = clipLine(verts[0], verts[1]);
+        if (clipped.count < 2) return;
+
+        // 3. Transform
+        transformToScreen(clipped[0]);
+        transformToScreen(clipped[1]);
+
+        // 4. Rasterize
+        rasterizeLineTemplate(shader, clipped[0], clipped[1]);
+    }
+
+    // 通用图元组装函数
+    // ShaderT: 着色器类型
+    // IndexGetterF: 获取索引的函数对象/Lambda (int i -> uint32_t index)
+    template <typename ShaderT, typename IndexGetterF>
+    inline void drawTopology(ShaderT& shader, GLenum mode, GLsizei count, int instanceID, IndexGetterF getIndex) {
+        switch (mode) {
+            case GL_POINTS: {
+                for (int i = 0; i < count; ++i) {
+                    processPointVertex(shader, getIndex(i), instanceID);
+                }
+                break;
+            }
+            case GL_LINES: {
+                for (int i = 0; i < count; i += 2) {
+                    if (i + 1 >= count) break;
+                    processLineVertices(shader, getIndex(i), getIndex(i+1), instanceID);
+                }
+                break;
+            }
+            case GL_LINE_STRIP: {
+                if (count < 2) break;
+                for (int i = 0; i < count - 1; ++i) {
+                    processLineVertices(shader, getIndex(i), getIndex(i+1), instanceID);
+                }
+                break;
+            }
+            case GL_LINE_LOOP: {
+                if (count < 2) break;
+                for (int i = 0; i < count - 1; ++i) {
+                    processLineVertices(shader, getIndex(i), getIndex(i+1), instanceID);
+                }
+                processLineVertices(shader, getIndex(count-1), getIndex(0), instanceID);
+                break;
+            }
+            case GL_TRIANGLES: {
+                for (int i = 0; i < count; i += 3) {
+                    if (i + 2 >= count) break;
+                    processTriangleVertices(shader, getIndex(i), getIndex(i+1), getIndex(i+2), instanceID);
+                }
+                break;
+            }
+            case GL_TRIANGLE_STRIP: {
+                if (count < 3) break;
+                for (int i = 0; i < count - 2; ++i) {
+                    uint32_t idx0 = getIndex(i);
+                    uint32_t idx1 = getIndex(i+1);
+                    uint32_t idx2 = getIndex(i+2);
+                    if (i % 2 == 0)
+                        processTriangleVertices(shader, idx0, idx1, idx2, instanceID);
+                    else
+                        processTriangleVertices(shader, idx0, idx2, idx1, instanceID);
+                }
+                break;
+            }
+            case GL_TRIANGLE_FAN: {
+                if (count < 3) break;
+                uint32_t centerIdx = getIndex(0);
+                for (int i = 1; i < count - 1; ++i) {
+                    processTriangleVertices(shader, centerIdx, getIndex(i), getIndex(i+1), instanceID);
+                }
+                break;
+            }
         }
     }
 
-    // void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-    //     ProgramObject* prog = getCurrentProgram();
-    //     if (!prog || !prog->vertexShader || !prog->fragmentShader) return;
+     // 支持所有 Mode 的 glDrawArrays
+    template <typename ShaderT>
+    void glDrawArrays(ShaderT& shader, GLenum mode, GLint first, GLsizei count) {
+        if (count <= 0) return;
         
-    //     const std::vector<uint32_t>& idxCache = readIndicesAsInts(count, type, indices);
-    //     if (idxCache.empty()) return;
+        // 定义 getter: 索引就是 first + i
+        auto linearIndexGetter = [&](int i) -> uint32_t {
+            return (uint32_t)(first + i);
+        };
 
-    //     switch (mode) {
-    //         case GL_TRIANGLES:
-    //             processTriangles(idxCache, count);
-    //             break;
-    //         case GL_POINTS:
-    //             processPoints(idxCache, count);
-    //             break;
-    //         case GL_LINES:
-    //             processLines(idxCache, count);
-    //             break;
-    //         default:
-    //             LOG_WARN("Unsupported primitive mode in glDrawElements.");
-    //             break;
-    //     }
-    // }
+        // 直接调用通用逻辑 (默认 instanceID = 0)
+        drawTopology(shader, mode, count, 0, linearIndexGetter);
+    }
+
+    template <typename ShaderT>
+    void glDrawArraysInstanced(ShaderT& shader, GLenum mode, GLint first, GLsizei count, GLsizei primcount) {
+        if (count <= 0 || primcount <= 0) return;
+        
+        auto linearIndexGetter = [&](int i) -> uint32_t {
+            return (uint32_t)(first + i);
+        };
+
+        for (int inst = 0; inst < primcount; ++inst) {
+            drawTopology(shader, mode, count, inst, linearIndexGetter);
+        }
+    }
+
     template <typename ShaderT>
     void glDrawElements(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices) {
         // 等价于绘制 1 个实例
         glDrawElementsInstanced(shader, mode, count, type, indices, 1);
     }
 
+    // 获取索引类型的大小（字节）
+    size_t getIndexTypeSize(GLenum type) {
+        switch (type) {
+            case GL_UNSIGNED_INT:   return sizeof(uint32_t);
+            case GL_UNSIGNED_SHORT: return sizeof(uint16_t);
+            case GL_UNSIGNED_BYTE:  return sizeof(uint8_t);
+            default: return 0;
+        }
+    }
+
     template <typename ShaderT>
     void glDrawElementsInstanced(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) {
         if (count == 0 || instanceCount == 0) return;
         
+        size_t indexSize = getIndexTypeSize(type);
+        if (indexSize == 0) {
+            LOG_ERROR("glDrawElements: Invalid index type.");
+            return;
+        }
+
         // 1. 确定索引数据的基地址
         const uint8_t* indexDataPtr = nullptr;
         VertexArrayObject& vao = getVAO();
@@ -2047,21 +1869,24 @@ public:
             auto it = buffers.find(vao.elementBufferID);
             if (it != buffers.end()) {
                 const auto& buffer = it->second;
+                // indices 在这里解释为字节偏移量
                 size_t offset = reinterpret_cast<size_t>(indices);
-                
-                // 简单的边界检查 (可选)
-                if (offset < buffer.data.size()) {
-                    indexDataPtr = buffer.data.data() + offset;
-                } else {
-                    LOG_ERROR("glDrawElements: Index offset out of EBO bounds.");
+                // 计算需要读取的总字节数
+                size_t requiredSize = count * indexSize;
+                // [关键边界检查]
+                // 确保 offset + count * size 不会超出 buffer
+                if (offset >= buffer.data.size() || (buffer.data.size() - offset) < requiredSize) {
+                    LOG_ERROR("glDrawElements: Index buffer overflow!");
                     return;
                 }
+                indexDataPtr = buffer.data.data() + offset;
             } else {
                 LOG_ERROR("glDrawElements: Bound EBO ID not found in buffers.");
                 return;
             }
         } else {
             // --- 用户指针模式 ---
+            if (indices == nullptr) return; // 空指针检查
             // 此时 indices 参数被视为 CPU 内存地址
             indexDataPtr = static_cast<const uint8_t*>(indices);
         }
@@ -2078,24 +1903,10 @@ public:
             return 0;
         };
 
-        // 3. 绘制循环
-        if (mode == GL_TRIANGLES) {
-            // 外层循环：遍历实例
-            for (GLsizei inst = 0; inst < instanceCount; ++inst) {
-                // 内层循环：遍历图元
-                for (GLsizei i = 0; i < count; i += 3) {
-                    if (i + 2 >= count) break;
-                    
-                    uint32_t idx0 = getIndex(i);
-                    uint32_t idx1 = getIndex(i + 1);
-                    uint32_t idx2 = getIndex(i + 2);
-
-                    // 传递当前的 instance ID
-                    processTriangleVertices(shader, idx0, idx1, idx2, inst);
-                }
-            }
+        // 3. 循环实例并调用通用逻辑
+        for (GLsizei instanceID = 0; instanceID < instanceCount; ++instanceID) {
+            drawTopology(shader, mode, count, instanceID, getIndex);
         }
-        // TODO: Support Lines/Points if needed
     }
 
     void savePPM(const char* filename) {
