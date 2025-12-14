@@ -57,6 +57,11 @@ const GLenum GL_UNSIGNED_BYTE = 0x1401;
 const GLenum GL_UNSIGNED_SHORT = 0x1403;
 const GLenum GL_UNSIGNED_INT = 0x1405;
 
+const GLenum GL_FRONT_AND_BACK = 0x0408;
+const GLenum GL_FILL = 0x1B02;
+const GLenum GL_LINE = 0x1B01;
+const GLenum GL_POINT = 0x1B00;
+
 // 纹理单元常量
 const GLenum GL_TEXTURE0 = 0x84C0;
 const GLenum GL_TEXTURE1 = 0x84C1;
@@ -450,6 +455,7 @@ private:
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
     Viewport m_viewport;
+    GLenum m_polygonMode = GL_FILL; // 默认填充
 public:
     SoftRenderContext(GLsizei width, GLsizei height) {
         fbWidth = width;
@@ -481,6 +487,14 @@ public:
         m_viewport.y = y;
         m_viewport.w = w;
         m_viewport.h = h;
+    }
+
+    // 设置多边形模式 API
+    void glPolygonMode(GLenum face, GLenum mode) {
+        // 暂时只支持 GL_FRONT_AND_BACK
+        if (face == GL_FRONT_AND_BACK) {
+            m_polygonMode = mode;
+        }
     }
 
     // --- State Management ---
@@ -1578,6 +1592,75 @@ public:
         }
     }
 
+    // 模板化的线段光栅化 (Bresenham)
+    template <typename ShaderT>
+    void rasterizeLineTemplate(ShaderT& shader, const VOut& v0, const VOut& v1) {
+        int x0 = (int)v0.scn.x; int y0 = (int)v0.scn.y;
+        int x1 = (int)v1.scn.x; int y1 = (int)v1.scn.y;
+
+        int dx = std::abs(x1 - x0);
+        int dy = -std::abs(y1 - y0);
+        int sx = x0 < x1 ? 1 : -1;
+        int sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+
+        // 线段长度，用于插值
+        float total_dist = std::sqrt(std::pow((float)x1 - x0, 2) + std::pow((float)y1 - y0, 2));
+        if (total_dist < 1e-5f) total_dist = 1.0f;
+
+        // 视口边界
+        int minX = m_viewport.x;
+        int maxX = m_viewport.x + m_viewport.w;
+        int minY = m_viewport.y;
+        int maxY = m_viewport.y + m_viewport.h;
+
+        while (true) {
+            // 像素裁剪
+            if (x0 >= minX && x0 < maxX && y0 >= minY && y0 < maxY) {
+                // 计算当前点在 v0->v1 上的插值系数 t
+                float dist = std::sqrt(std::pow((float)x0 - v0.scn.x, 2) + std::pow((float)y0 - v0.scn.y, 2));
+                float t = dist / total_dist;
+                t = std::clamp(t, 0.0f, 1.0f);
+
+                // 透视校正插值 Z (Linear Z in Screen Space is 1/w)
+                // 注意：这里简化处理，严谨的线段透视插值也需要重心坐标逻辑
+                float zInv = v0.scn.w * (1.0f - t) + v1.scn.w * t;
+                
+                if (zInv > 1e-5f) { // 避免除零
+                    float z = 1.0f / zInv; // 恢复真实深度
+                    int pix = y0 * fbWidth + x0;
+                    
+                    if (z < depthBuffer[pix]) {
+                        depthBuffer[pix] = z;
+
+                        // 属性插值
+                        ShaderContext fsIn;
+                        fsIn.lod = 0;
+
+                        // 利用 SIMD 批量插值 Varyings
+                        // 插值公式: val = (val0 * w0 * (1-t) + val1 * w1 * t) * z
+                        // 预计算权重
+                        float w_t0 = v0.scn.w * (1.0f - t) * z;
+                        float w_t1 = v1.scn.w * t * z;
+
+                        // 简单循环或 SIMD 处理 Varyings
+                        for(int k=0; k<MAX_VARYINGS; ++k) {
+                            fsIn.varyings[k] = v0.ctx.varyings[k] * w_t0 + v1.ctx.varyings[k] * w_t1;
+                        }
+
+                        // 调用 Fragment Shader
+                        m_colorBufferPtr[pix] = shader.fragment(fsIn);
+                    }
+                }
+            }
+
+            if (x0 == x1 && y0 == y1) break;
+            int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
+    }
+
     void rasterizePoint(const VOut& v) {
         int x = (int)v.scn.x;
         int y = (int)v.scn.y;
@@ -1605,6 +1688,36 @@ public:
             uint8_t G = (uint8_t)(std::clamp(c.y, 0.0f, 1.0f) * 255);
             uint8_t B = (uint8_t)(std::clamp(c.z, 0.0f, 1.0f) * 255);
             m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+        }
+    }
+
+    // 模板化的点光栅化
+    template <typename ShaderT>
+    void rasterizePointTemplate(ShaderT& shader, const VOut& v) {
+        int x = (int)v.scn.x;
+        int y = (int)v.scn.y;
+
+        // 简单的视口裁剪检查
+        if (x < m_viewport.x || x >= m_viewport.x + m_viewport.w ||
+            y < m_viewport.y || y >= m_viewport.y + m_viewport.h) return;
+
+        int pix = y * fbWidth + x;
+        
+        // 深度测试 (注意：Points 通常没有透视插值问题，但仍需 Z 测试)
+        // v.scn.z 存储的是 Z/W (NDC depth range 0-1 if transformed correctly, or clip z)
+        // 这里的逻辑假设 v.scn.z 是已经透视除法后的深度值
+        float z = v.scn.z; // 或者 1.0f/v.scn.w 取决于你的深度缓冲存什么
+
+        if (z < depthBuffer[pix]) {
+            depthBuffer[pix] = z;
+            
+            // 准备 Shader 上下文
+            ShaderContext fsIn = v.ctx; 
+            fsIn.lod = 0; // 点没有 LOD 概念
+
+            // 调用 Fragment Shader
+            uint32_t color = shader.fragment(fsIn);
+            m_colorBufferPtr[pix] = color;
         }
     }
 
@@ -1845,10 +1958,30 @@ public:
         // 3. Perspective Division & Viewport Transform
         for (auto& v : polygon) transformToScreen(v);
 
-        // 4. Rasterization Stage
-        // 三角形化处理裁剪后的多边形 (Triangle Fan)
-        for (size_t k = 1; k < polygon.size() - 1; ++k) {
-            rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
+        // 4. Rasterization Stage (根据模式分发)
+        
+        if (m_polygonMode == GL_FILL) {
+            // 三角形化处理裁剪后的多边形 (Triangle Fan)
+            for (size_t k = 1; k < polygon.size() - 1; ++k) {
+                rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
+            }
+        } 
+        else if (m_polygonMode == GL_LINE) {
+            // 线框模式
+            // 注意：这里我们绘制的是裁剪后多边形的边缘
+            // 对于一个三角形，如果不被裁剪，就是 3 条边
+            // 如果被裁剪成多边形，这里会画出多边形的轮廓
+            for (size_t k = 0; k < polygon.size(); ++k) {
+                const VOut& vStart = polygon[k];
+                const VOut& vEnd   = polygon[(k + 1) % polygon.size()];
+                rasterizeLineTemplate(shader, vStart, vEnd);
+            }
+        }
+        else if (m_polygonMode == GL_POINT) {
+            // 点模式
+            for (const auto& v : polygon) {
+                rasterizePointTemplate(shader, v);
+            }
         }
     }
 
