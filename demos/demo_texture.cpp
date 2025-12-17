@@ -1,5 +1,5 @@
-#include "../vc/vc.cpp"        // 平台入口
-#include "../vc/tinygl.h"  // 软渲染器实现
+#include "../src/framework/vc.cpp"        // 平台入口
+#include <tinygl/tinygl.h>  // 软渲染器实现
 #include <algorithm>
 
 

@@ -5,6 +5,9 @@ project(tinygl CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 全局包含目录
+include_directories(include)
+
 # ========================================================
 # [新增] 1. 设置默认构建类型为 Release
 # 如果用户没有指定 -DCMAKE_BUILD_TYPE=Debug，默认开启全速优化

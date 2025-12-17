@@ -1,7 +1,7 @@
 #include <algorithm>  // std::clamp
-#include "../vc/vc.cpp"       // 平台入口 (SDL/Term)
-#include "../vc/tinygl.h" // 软渲染器实现
-#include "../vc/color.h"  // 颜色转换工具
+#include "../src/framework/vc.cpp"       // 平台入口 (SDL/Term)
+#include <tinygl/tinygl.h> // 软渲染器实现
+#include <tinygl/color.h>  // 颜色转换工具
 // ==========================================
 // 1. 数据定义
 // ==========================================

@@ -1,6 +1,6 @@
-#include "../vc/tinygl.h" 
-#include "../vc/vc.cpp"
-#include "../vc/color.h"
+#include <tinygl/tinygl.h> 
+#include "../src/framework/vc.cpp"
+#include <tinygl/color.h>
 // ==========================================
 // 1. 数据定义
 // ==========================================
