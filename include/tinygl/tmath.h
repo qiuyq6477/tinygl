@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cmath>
+#include <cstdint>
+
 struct Vec2 { float x, y; };
 struct Vec4 {
     float x, y, z, w;

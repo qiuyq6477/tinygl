@@ -1,7 +1,7 @@
 #pragma once
 #include <cmath>
 #include <algorithm>
-#include "math.h"
+#include "tmath.h"
 
 struct ShaderBase {
 

@@ -11,8 +11,8 @@
 #include <iomanip>
 #include <random>
 #include <arm_neon.h>
-#include "math.h"
-#include "maths.h"
+#include "tmath.h"
+#include "math_simd.h"
 #include "color.h"
 #include "colors.h"
 #include "log.h"

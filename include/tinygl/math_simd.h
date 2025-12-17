@@ -1,7 +1,7 @@
 #pragma once
 
 #include <arm_neon.h>
-#include "math.h"
+#include "tmath.h"
 // ==========================================
 // macOS ARM NEON SIMD 包装类
 // ==========================================
