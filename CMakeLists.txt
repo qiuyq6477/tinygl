@@ -60,12 +60,16 @@ if(VC_PLATFORM STREQUAL "VC_SDL_PLATFORM")
     
     # 定义平台宏
     add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
+
+    # [新增] 框架库
+    add_library(tinygl_framework STATIC src/framework/platform.cpp)
+    target_link_libraries(tinygl_framework ${SDL2_LIBRARIES})
     
     # 为每个案例创建可执行文件
     foreach(DEMO_FILE ${DEMO_FILES})
         get_filename_component(DEMO_NAME ${DEMO_FILE} NAME_WE)
         add_executable(${DEMO_NAME} ${DEMO_FILE})
-        target_link_libraries(${DEMO_NAME} ${SDL2_LIBRARIES})
+        target_link_libraries(${DEMO_NAME} tinygl_framework)
         target_compile_options(${DEMO_NAME} PRIVATE -Wall -Wextra)
     endforeach()
     

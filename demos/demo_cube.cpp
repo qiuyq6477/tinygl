@@ -1,5 +1,5 @@
 #include <tinygl/tinygl.h> 
-#include "../src/framework/vc.cpp"
+#include <tinygl/app.h>
 
 #define DEMO_WIDTH 800
 #define DEMO_HEIGHT 600

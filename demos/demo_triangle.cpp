@@ -1,5 +1,5 @@
 #include <tinygl/tinygl.h> 
-#include "../src/framework/vc.cpp"
+#include <tinygl/app.h>
 #include <tinygl/color.h>
 // ==========================================
 // 1. 数据定义

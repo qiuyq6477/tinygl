@@ -1,5 +1,5 @@
 #include <algorithm>  // std::clamp
-#include "../src/framework/vc.cpp"       // 平台入口 (SDL/Term)
+#include <tinygl/app.h>       // 平台入口 (SDL/Term)
 #include <tinygl/tinygl.h> // 软渲染器实现
 #include <tinygl/color.h>  // 颜色转换工具
 // ==========================================

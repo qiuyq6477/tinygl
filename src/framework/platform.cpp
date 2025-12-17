@@ -30,15 +30,8 @@
 // ```
 
 #define OLIVEC_IMPLEMENTATION
-
-#include "olive.cpp"
+#include <tinygl/app.h>
 #include <SDL2/SDL.h> // Moved to top for SDL_Event definition
-// Declare functions that the demo is expected to provide
-extern "C" {
-    void vc_init(void);
-    void vc_input(SDL_Event *event);
-    Olivec_Canvas vc_render(float dt, void* pixels);
-}
 
 #ifndef VC_PLATFORM
 #error "Please define VC_PLATFORM macro"

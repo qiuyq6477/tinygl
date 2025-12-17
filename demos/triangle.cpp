@@ -1,4 +1,4 @@
-#include "../src/framework/vc.cpp"
+#include <tinygl/app.h>
 
 #define WIDTH 960
 #define HEIGHT 720
