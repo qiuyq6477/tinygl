@@ -46,6 +46,13 @@
 #include <stdio.h>
 #include <SDL2/SDL.h>
 
+#ifdef _WIN32
+    #include <direct.h>
+    #define chdir _chdir
+#else
+    #include <unistd.h>
+#endif
+
 #define return_defer(value) do { result = (value); goto defer; } while (0)
 
 static SDL_Texture *vc_sdl_texture = NULL;
@@ -77,6 +84,13 @@ int main(void)
 
     {
         if (SDL_Init(SDL_INIT_VIDEO) < 0) return_defer(1);
+
+        // 设置工作目录到可执行文件所在目录，以便正确加载资源
+        char *base_path = SDL_GetBasePath();
+        if (base_path) {
+            chdir(base_path);
+            SDL_free(base_path);
+        }
 
         window = SDL_CreateWindow("Olivec", 0, 0, 0, 0, 0);
         if (window == NULL) return_defer(1);

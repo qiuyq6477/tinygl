@@ -20,7 +20,7 @@
 #include "shader.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "third_party/stb_image.h"
 
 // Buffer Type for glClear
 enum BufferType {
