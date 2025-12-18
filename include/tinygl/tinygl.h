@@ -17,29 +17,22 @@
 #include "colors.h"
 #include "log.h"
 #include "container.h"
-#include "shader.h"
 
 #include "third_party/stb_image.h"
 
 #include "core/gl_defs.h"
-
-#include "core/texture.h"
-#include "core/vao.h"
-
-#include "core/buffer.h"
-
-#include "core/shader_structs.h"
+#include "core/gl_texture.h"
+#include "core/gl_buffer.h"
+#include "core/gl_shader.h"
 #include "core/geometry.h"
 class SoftRenderContext {
 private:
     std::unordered_map<GLuint, BufferObject> buffers;
     std::unordered_map<GLuint, VertexArrayObject> vaos;
     std::unordered_map<GLuint, TextureObject> textures;
-    std::unordered_map<GLuint, ProgramObject> programs;
 
     GLuint m_boundArrayBuffer = 0;
     GLuint m_boundVertexArray = 0;
-    GLuint m_currentProgram = 0;
     GLuint m_activeTextureUnit = 0;
     GLuint m_boundTextures[MAX_TEXTURE_UNITS] = {0};
 
@@ -83,112 +76,67 @@ public:
     }
 
     void glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
-
     // 设置多边形模式 API
     void glPolygonMode(GLenum face, GLenum mode);
-
     // --- State Management ---
     void glClearColor(float r, float g, float b, float a);
-    
     // Clear buffer function
     void glClear(uint32_t buffersToClear);
-
     // Get color buffer for external display
     uint32_t* getColorBuffer() { return m_colorBufferPtr; }
-
-    // --- Accessors ---
-    VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
-    
-    ProgramObject* getCurrentProgram() {
-        if (m_currentProgram == 0) return nullptr;
-        auto it = programs.find(m_currentProgram);
-        return (it != programs.end()) ? &it->second : nullptr;
-    }
-    
-    TextureObject* getTexture(GLuint unit) {
-        if (unit >= 32) return nullptr;
-        GLuint id = m_boundTextures[unit];
-        if (id == 0) return nullptr;
-        auto it = textures.find(id);
-        return (it != textures.end()) ? &it->second : nullptr;
-    }
-    
-    // 直接通过 ID 获取纹理对象 (绕过 Texture Unit 绑定状态)
-    // 这种方式更适合我们现在的 Template Shader 架构
-    TextureObject* getTextureObject(GLuint id);
 
     // --- Buffers ---
     void glGenBuffers(GLsizei n, GLuint* res);
     void glBindBuffer(GLenum target, GLuint buffer);
     void glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage);
-
-    // --- VAO ---
     void glGenVertexArrays(GLsizei n, GLuint* res);
     void glBindVertexArray(GLuint array);
+    VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
     void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer);
     void glEnableVertexAttribArray(GLuint index);
     void glVertexAttribDivisor(GLuint index, GLuint divisor);
+    Vec4 fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx);
 
     // --- Textures ---
     void glGenTextures(GLsizei n, GLuint* res);
     void glActiveTexture(GLenum texture);
     void glBindTexture(GLenum target, GLuint texture);
+    TextureObject* getTexture(GLuint unit);
+    TextureObject* getTextureObject(GLuint id);
     void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei w, GLsizei h, GLint border, GLenum format, GLenum type, const void* p);
-    // 设置纹理参数
-    void glTexParameteri(GLenum target, GLenum pname, GLint param);
-    // Float Scalar 版本
-    void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
-    // nt Vector 版本
-    void glTexParameteriv(GLenum target, GLenum pname, const GLint* params);
-    // Float Vector 版本 (关键：Border Color)
-    void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params);
-    // --- 裁剪与光栅化辅助结构 ---
+    void glTexParameteri(GLenum target, GLenum pname, GLint param); // 设置纹理参数
+    void glTexParameterf(GLenum target, GLenum pname, GLfloat param); // Float Scalar 版本
+    void glTexParameteriv(GLenum target, GLenum pname, const GLint* params); // nt Vector 版本
+    void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params); // Float Vector 版本 (关键：Border Color)
+
+    // --- util ---
     // 线性插值辅助函数 (Linear Interpolation)
     // 用于在被裁剪的边上生成新的顶点
     // t: [0, 1] 插值系数
-    VOut lerpVertex(const VOut& a, const VOut& b, float t) {
-        VOut res;
-        // 1. 插值位置 (Clip Space)
-        res.pos = a.pos * (1.0f - t) + b.pos * t;
-        
-        // 2. 插值 Varyings (颜色、UV等)
-        // 注意：这里的插值是线性的，但在投影后是不正确的。
-        // 不过由于我们是在 Clip Space (4D) 进行裁剪，还未进行透视除法，
-        // 所以直接线性插值属性是数学上正确的 (Rational Linear Interpolation)。
-        for (int i = 0; i < MAX_VARYINGS; ++i) {
-            res.ctx.varyings[i] = a.ctx.varyings[i] * (1.0f - t) + b.ctx.varyings[i] * t;
-        }
-        return res;
-    }
-
+    VOut lerpVertex(const VOut& a, const VOut& b, float t);
     const std::vector<uint32_t>& readIndicesAsInts(GLsizei count, GLenum type, const void* indices_ptr);
-
     // Converts source pixel data to internal RGBA8888 format
     bool convertToInternalFormat(const void* src_data, GLsizei src_width, GLsizei src_height,
                                  GLenum src_format, GLenum src_type, std::vector<uint32_t>& dst_pixels);
-
-    // Sutherland-Hodgman 裁剪算法的核心：针对单个平面进行裁剪
-    // inputVerts: 输入的顶点列表
-    // planeID: 0=Left, 1=Right, 2=Bottom, 3=Top, 4=Near, 5=Far
-    StaticVector<VOut, 16> clipAgainstPlane(const StaticVector<VOut, 16>& inputVerts, int planeID);
-
-    // Liang-Barsky Line Clipping against a single axis-aligned boundary
-    // Returns false if the line is completely outside.
-    // Modifies t0 and t1 to the new intersection points.
-    bool clipLineAxis(float p, float q, float& t0, float& t1);
-
-    // Clips a line against the canonical view volume. Returns the clipped vertices.
-    StaticVector<VOut, 16> clipLine(const VOut& v0, const VOut& v1);
-
+    // 辅助：计算属性 f 在屏幕空间的偏导数
+    Gradients calcGradients(const VOut& v0, const VOut& v1, const VOut& v2, float invArea, float f0, float f1, float f2);
     // 执行透视除法与视口变换 (Perspective Division & Viewport)
     // 将 Clip Space (x,y,z,w) -> Screen Space (sx, sy, sz, 1/w)
     void transformToScreen(VOut& v);
 
-    // 辅助：计算属性 f 在屏幕空间的偏导数
-    Gradients calcGradients(const VOut& v0, const VOut& v1, const VOut& v2, float invArea, float f0, float f1, float f2);
+    // --- clip ---
+    // Sutherland-Hodgman 裁剪算法的核心：针对单个平面进行裁剪
+    // inputVerts: 输入的顶点列表
+    // planeID: 0=Left, 1=Right, 2=Bottom, 3=Top, 4=Near, 5=Far
+    StaticVector<VOut, 16> clipAgainstPlane(const StaticVector<VOut, 16>& inputVerts, int planeID);
+    // Liang-Barsky Line Clipping against a single axis-aligned boundary
+    // Returns false if the line is completely outside.
+    // Modifies t0 and t1 to the new intersection points.
+    bool clipLineAxis(float p, float q, float& t0, float& t1);
+    // Clips a line against the canonical view volume. Returns the clipped vertices.
+    StaticVector<VOut, 16> clipLine(const VOut& v0, const VOut& v1);
 
-    Vec4 fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx);
-
+    // --- rasterize ---
     // 纯粹的光栅化三角形逻辑 (Rasterize Triangle) - Scanline Implementation
     /*
     * 顶点排序：首先根据 Y 坐标对三个顶点进行排序（Top, Mid, Bottom）。
@@ -201,7 +149,9 @@ public:
     * 透视校正：保留了基于 1/w 的透视校正插值逻辑，确保纹理和颜色在 3D 空间中的正确性。
     * 逻辑优化：移除了每像素的 LOD 计算（强制 LOD=0），进一步优化性能。
      */
-    void rasterizeTriangleScanline(const VOut& v0_in, const VOut& v1_in, const VOut& v2_in) {
+
+    template <typename ShaderT>
+    void rasterizeTriangleScanline(ShaderT& shader, const VOut& v0_in, const VOut& v1_in, const VOut& v2_in) {
         // 1. Backface Culling & Area Calculation (Use original winding)
         float area = (v1_in.scn.x - v0_in.scn.x) * (v2_in.scn.y - v0_in.scn.y) - 
                      (v1_in.scn.y - v0_in.scn.y) * (v2_in.scn.x - v0_in.scn.x);
@@ -284,8 +234,6 @@ public:
         float dyStart = (yStart + 0.5f) - vTop.scn.y;
         
         // We handle two phases: Top Half (yStart -> yMid) and Bottom Half (yMid -> yEnd)
-        auto* prog = getCurrentProgram();
-
         // ---------------------------------------------------------
         // Loop Helper (Macro or Lambda to avoid code duplication)
         // ---------------------------------------------------------
@@ -337,11 +285,8 @@ public:
                         }
 
                         // Shading
-                        Vec4 c = prog->fragmentShader(fsIn);
-                        uint32_t R = (uint32_t)(std::min(c.x, 1.0f) * 255.0f);
-                        uint32_t G = (uint32_t)(std::min(c.y, 1.0f) * 255.0f);
-                        uint32_t B = (uint32_t)(std::min(c.z, 1.0f) * 255.0f);
-                        m_colorBufferPtr[pixOffset] = (255 << 24) | (B << 16) | (G << 8) | R;
+                        Vec4 fColor = shader.fragment(fsIn);
+                        m_colorBufferPtr[pixOffset] = ColorUtils::FloatToUint32(fColor);
                     }
                 }
                 
@@ -401,8 +346,8 @@ public:
 
     // 纯粹的光栅化三角形逻辑 (Rasterize Triangle)
     // 输入已经是 Screen Space 的三个顶点
-    void rasterizeTriangleEdgeFunction(const VOut& v0, const VOut& v1, const VOut& v2) {
-        auto* prog = getCurrentProgram();
+    template <typename ShaderT>
+    void rasterizeTriangleEdgeFunction(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
         // 1. 包围盒计算 (Bounding Box)
         int limitMinX = std::max(0, m_viewport.x);
         int limitMaxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
@@ -531,15 +476,9 @@ public:
 
                             // 5. 执行 Fragment Shader
                             // (此时建议 fs 内部已经是优化过的 Lambda，不含哈希查找)
-                            Vec4 c = prog->fragmentShader(fsIn);
-                            
+                            Vec4 fColor = shader.fragment(fsIn);
                             // 6. 颜色写入 (Color Write)
-                            // 使用 min 避免 clamp 下溢出的分支，转为整数
-                            uint32_t R = (uint32_t)(std::min(c.x, 1.0f) * 255.0f);
-                            uint32_t G = (uint32_t)(std::min(c.y, 1.0f) * 255.0f);
-                            uint32_t B = (uint32_t)(std::min(c.z, 1.0f) * 255.0f);
-                            
-                            m_colorBufferPtr[pix] = (255 << 24) | (B << 16) | (G << 8) | R;
+                            m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                         }
                     }
                 }

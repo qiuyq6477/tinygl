@@ -8,7 +8,11 @@ add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
 # 注意路径是相对于当前 CMakeLists.txt 的
 add_library(tinygl_framework STATIC 
     framework/platform.cpp
-    core/context.cpp
+    core/gl_texture.cpp
+    core/gl_buffer.cpp
+    core/gl_clip.cpp
+    core/gl_util.cpp
+    core/tinygl.cpp
 )
 
 # 这里的 include 目录需要暴露给链接此库的目标
