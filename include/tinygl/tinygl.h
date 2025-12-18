@@ -25,7 +25,18 @@
 #include "core/gl_buffer.h"
 #include "core/gl_shader.h"
 #include "core/geometry.h"
-class SoftRenderContext {
+
+#if defined(_WIN32)
+    #ifdef TINYGL_EXPORTS
+        #define TINYGL_API __declspec(dllexport)
+    #else
+        #define TINYGL_API __declspec(dllimport)
+    #endif
+#else
+    #define TINYGL_API __attribute__((visibility("default")))
+#endif
+
+class TINYGL_API SoftRenderContext {
 private:
     std::unordered_map<GLuint, BufferObject> buffers;
     std::unordered_map<GLuint, VertexArrayObject> vaos;
