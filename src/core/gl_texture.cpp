@@ -43,6 +43,19 @@ TextureObject* SoftRenderContext::getTexture(GLuint unit) {
     return (it != textures.end()) ? &it->second : nullptr;
 }
 
+void SoftRenderContext::glDeleteTextures(GLsizei n, const GLuint* textures_to_delete) {
+    for (GLsizei i = 0; i < n; ++i) {
+        GLuint id = textures_to_delete[i];
+        if (id != 0) {
+            auto it = textures.find(id);
+            if (it != textures.end()) {
+                textures.erase(it);
+                LOG_INFO("Deleted Texture ID: " + std::to_string(id));
+            }
+        }
+    }
+}
+
 void SoftRenderContext::glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei w, GLsizei h, GLint border, GLenum format, GLenum type, const void* p) {
     auto* tex = getTexture(m_activeTextureUnit); if(!tex) return;
 

@@ -101,12 +101,15 @@ public:
     
     GLsizei getWidth() const { return fbWidth; }
     GLsizei getHeight() const { return fbHeight; }
+    const Viewport& glGetViewport() const { return m_viewport; }
 
     // --- Buffers ---
     void glGenBuffers(GLsizei n, GLuint* res);
+    void glDeleteBuffers(GLsizei n, const GLuint* buffers);
     void glBindBuffer(GLenum target, GLuint buffer);
     void glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage);
     void glGenVertexArrays(GLsizei n, GLuint* res);
+    void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
     void glBindVertexArray(GLuint array);
     VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
     void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer);
@@ -116,6 +119,7 @@ public:
 
     // --- Textures ---
     void glGenTextures(GLsizei n, GLuint* res);
+    void glDeleteTextures(GLsizei n, const GLuint* textures);
     void glActiveTexture(GLenum texture);
     void glBindTexture(GLenum target, GLuint texture);
     TextureObject* getTexture(GLuint unit);
@@ -531,7 +535,8 @@ public:
                      (v1.scn.x - v0.scn.x) * (v2.scn.y - v0.scn.y);
         
         // 面积 <= 0 剔除 (假设 CCW)
-        if (area <= 0) return;
+        // 使用 epsilon 避免浮点误差导致的闪烁
+        if (area <= 1e-6f) return;
         float invArea = 1.0f / area;
 
         // 3. 增量系数 Setup

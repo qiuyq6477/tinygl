@@ -41,4 +41,4 @@ endif()
 # ========================================================
 # 先添加 src，因为 demos 依赖于 src 中定义的库
 add_subdirectory(src)
-add_subdirectory(demos)
+add_subdirectory(tests)

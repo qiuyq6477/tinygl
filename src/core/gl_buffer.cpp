@@ -37,6 +37,32 @@ void SoftRenderContext::glGenVertexArrays(GLsizei n, GLuint* res) {
     }
 }
 
+void SoftRenderContext::glDeleteBuffers(GLsizei n, const GLuint* buffers_to_delete) {
+    for (GLsizei i = 0; i < n; ++i) {
+        GLuint id = buffers_to_delete[i];
+        if (id != 0) {
+            auto it = buffers.find(id);
+            if (it != buffers.end()) {
+                buffers.erase(it);
+                LOG_INFO("Deleted Buffer ID: " + std::to_string(id));
+            }
+        }
+    }
+}
+
+void SoftRenderContext::glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
+    for (GLsizei i = 0; i < n; ++i) {
+        GLuint id = arrays[i];
+        if (id != 0) {
+            auto it = vaos.find(id);
+            if (it != vaos.end()) {
+                vaos.erase(it);
+                LOG_INFO("Deleted VAO ID: " + std::to_string(id));
+            }
+        }
+    }
+}
+
 void SoftRenderContext::glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
 
 void SoftRenderContext::glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer) {
