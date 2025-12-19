@@ -1,3 +1,4 @@
+#pragma once
 #include <vector>
 #include <unordered_map>
 #include <iostream>
@@ -18,7 +19,7 @@
 #include "log.h"
 #include "container.h"
 
-#include "third_party/stb_image.h"
+#include "stb_image.h"
 
 #include "core/gl_defs.h"
 #include "core/gl_texture.h"
@@ -35,6 +36,8 @@
 #else
     #define TINYGL_API __attribute__((visibility("default")))
 #endif
+
+namespace tinygl {
 
 class TINYGL_API SoftRenderContext {
 private:
@@ -95,6 +98,9 @@ public:
     void glClear(uint32_t buffersToClear);
     // Get color buffer for external display
     uint32_t* getColorBuffer() { return m_colorBufferPtr; }
+    
+    GLsizei getWidth() const { return fbWidth; }
+    GLsizei getHeight() const { return fbHeight; }
 
     // --- Buffers ---
     void glGenBuffers(GLsizei n, GLuint* res);
@@ -1051,3 +1057,5 @@ public:
         LOG_INFO("Saved PPM to " + std::string(filename));
     }
 };
+
+}

@@ -2,6 +2,9 @@
 
 #include <arm_neon.h>
 #include "tmath.h"
+
+namespace tinygl {
+
 // ==========================================
 // macOS ARM NEON SIMD 包装类
 // ==========================================
@@ -93,3 +96,5 @@ struct SimdMat4 {
         return res;
     }
 };
+
+}

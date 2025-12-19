@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+namespace tinygl {
+
 // Buffer Type for glClear
 enum BufferType {
     COLOR = 1 << 0,
@@ -96,3 +98,5 @@ constexpr float DEPTH_INFINITY  = 1e9f;
 constexpr uint32_t COLOR_BLACK  = 0xFF000000; // AABBGGRR (Alpha=255, RGB=0)
 constexpr uint32_t COLOR_WHITE  = 0xFFFFFFFF;
 constexpr uint32_t COLOR_GREY   = 0xFFAAAAAA;
+
+}

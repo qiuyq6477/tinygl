@@ -8,6 +8,8 @@
 #include "../log.h"
 #include "gl_defs.h"
 
+namespace tinygl {
+
 // Texture
 struct TextureObject {
     GLuint id;
@@ -323,3 +325,5 @@ struct TextureObject {
         return cBase * (1.0f - f) + cNext * f;
     }
 };
+
+}

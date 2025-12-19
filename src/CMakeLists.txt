@@ -7,6 +7,8 @@ add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
 # [库定义] 框架库 (现代 C++ 架构)
 add_library(tinygl_framework SHARED 
     framework/application.cpp
+    framework/ui_renderer.cpp
+    framework/microui.c
     core/gl_texture.cpp
     core/gl_buffer.cpp
     core/gl_clip.cpp
@@ -29,5 +31,9 @@ set_target_properties(tinygl_framework PROPERTIES
     INSTALL_RPATH "@loader_path"
 )
 
-target_include_directories(tinygl_framework PUBLIC ${SDL2_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(tinygl_framework PUBLIC 
+    ${SDL2_INCLUDE_DIRS} 
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include/tinygl/third_party
+)
 target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES})

@@ -1,5 +1,6 @@
 #include <tinygl/tinygl.h>
 
+namespace tinygl {
 
  StaticVector<VOut, 16> SoftRenderContext::clipAgainstPlane(const StaticVector<VOut, 16>& inputVerts, int planeID) {
     StaticVector<VOut, 16> outputVerts;
@@ -111,4 +112,6 @@ StaticVector<VOut, 16> SoftRenderContext::clipLine(const VOut& v0, const VOut& v
     }
     
     return clippedVerts;
+}
+
 }

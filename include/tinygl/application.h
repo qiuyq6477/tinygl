@@ -3,7 +3,8 @@
 #include <string>
 #include <memory>
 #include <SDL2/SDL.h>
-#include "tinygl/tinygl.h"
+#include <tinygl/tinygl.h>
+#include <microui.h>
 
 namespace tinygl {
 
@@ -38,6 +39,9 @@ protected:
     // 更新：每帧调用。dt 为上一帧到现在的秒数。
     virtual void onUpdate(float dt) {}
 
+    // GUI 绘制：每帧调用。在此处调用 microui 函数。
+    virtual void onGUI() {}
+
     // 渲染：每帧调用。在此处提交绘制命令。
     virtual void onRender() {}
 
@@ -52,6 +56,9 @@ protected:
     // 获取渲染上下文
     SoftRenderContext& getContext() { return *m_context; }
     const AppConfig& getConfig() const { return m_config; }
+
+    // 获取 UI 上下文
+    mu_Context* getUIContext() { return &m_uiContext; }
 
     // 获取窗口宽高
     int getWidth() const { return m_config.width; }
@@ -73,6 +80,9 @@ private:
 
     // TinyGL Context
     std::unique_ptr<SoftRenderContext> m_context;
+    
+    // UI Context
+    mu_Context m_uiContext;
 
     // Timing
     uint64_t m_lastTime = 0;

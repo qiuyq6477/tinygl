@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdint>
 
+namespace tinygl {
+
 struct Vec2 { float x, y; };
 struct Vec4 {
     float x, y, z, w;
@@ -129,3 +131,4 @@ struct Mat4 {
     }
 };
 
+}

@@ -1,4 +1,5 @@
 #include "tinygl/application.h"
+#include "tinygl/ui_renderer.h"
 #include <iostream>
 #include <SDL2/SDL.h>
 
@@ -23,6 +24,9 @@ Application::~Application() {
 void Application::run() {
     initSDL();
     
+    // 初始化 UI
+    UIRenderer::init(&m_uiContext);
+
     // 初始化用户资源
     if (!onInit()) {
         std::cerr << "Application onInit failed. Exiting." << std::endl;
@@ -56,6 +60,7 @@ void Application::run() {
         // 2. Event Handling
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            UIRenderer::processInput(&m_uiContext, event);
             if (event.type == SDL_QUIT) {
                 m_isRunning = false;
             }
@@ -63,13 +68,21 @@ void Application::run() {
             onEvent(event);
         }
 
-        // 3. Update
+        // 3. GUI Logic Preparation
+        mu_begin(&m_uiContext);
+        onGUI();
+        mu_end(&m_uiContext);
+
+        // 4. Update
         onUpdate(dt);
 
-        // 4. Render (User submits draw calls to SoftRenderContext)
+        // 5. Render (User submits draw calls to SoftRenderContext)
         onRender();
 
-        // 5. Present (Blit SoftRenderContext buffer to SDL Window)
+        // 6. Render UI Overlay
+        UIRenderer::render(&m_uiContext, *m_context);
+
+        // 7. Present (Blit SoftRenderContext buffer to SDL Window)
         uint32_t* buffer = m_context->getColorBuffer();
         if (buffer) {
             // Update Texture

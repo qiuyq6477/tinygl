@@ -8,6 +8,8 @@
 #include "gl_defs.h"
 #include "../tmath.h"
 
+namespace tinygl {
+
 // Shader & Program
 struct ShaderContext { 
     Vec4 varyings[MAX_VARYINGS]; 
@@ -181,3 +183,5 @@ struct ShaderBase {
         return Vec4(r, g, b, a);
     }
 };
+
+}

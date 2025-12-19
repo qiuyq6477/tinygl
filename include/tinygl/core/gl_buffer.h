@@ -7,6 +7,8 @@
 #include "../log.h"
 #include "gl_defs.h"
 
+namespace tinygl {
+
 // Buffer
 struct BufferObject {
     std::vector<uint8_t> data;
@@ -47,3 +49,5 @@ struct VertexArrayObject {
     VertexAttribState attributes[MAX_ATTRIBS];
     GLuint elementBufferID = 0;
 };
+
+}

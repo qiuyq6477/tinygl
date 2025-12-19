@@ -1,5 +1,6 @@
 #include <tinygl/tinygl.h>
 
+namespace tinygl {
 
 // --- Textures ---
 void SoftRenderContext::glGenTextures(GLsizei n, GLuint* res) {
@@ -144,4 +145,6 @@ void SoftRenderContext::glTexParameterfv(GLenum target, GLenum pname, const GLfl
             glTexParameterf(target, pname, params[0]);
             break;
     }
+}
+
 }

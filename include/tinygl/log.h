@@ -2,6 +2,8 @@
 #include <iostream>
 #include <string>
 
+namespace tinygl {
+
 enum LogLevel { INFO, WARN, ERRR };
 
 class Logger {
@@ -19,3 +21,5 @@ public:
 #define LOG_INFO(msg) Logger::log(INFO, __FUNCTION__, msg)
 #define LOG_WARN(msg) Logger::log(WARN, __FUNCTION__, msg)
 #define LOG_ERROR(msg) Logger::log(ERRR, __FUNCTION__, msg)
+
+}

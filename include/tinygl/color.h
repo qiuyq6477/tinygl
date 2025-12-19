@@ -3,7 +3,7 @@
 #include <algorithm> // for std::clamp
 #include <cmath>     // for std::round or type casting
 
-
+using namespace tinygl;
 namespace ColorUtils {
 
     // 内部常量：颜色位移定义 (AABBGGRR 格式, Little Endian)

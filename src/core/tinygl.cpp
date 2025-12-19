@@ -2,6 +2,8 @@
 #include <tinygl/tinygl.h>
 #include <algorithm> // for std::clamp, std::fill_n
 
+namespace tinygl {
+
 void SoftRenderContext::glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {
     m_viewport.x = x;
     m_viewport.y = y;
@@ -34,4 +36,6 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
     if (buffersToClear & BufferType::DEPTH) {
         std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
     }
+}
+
 }

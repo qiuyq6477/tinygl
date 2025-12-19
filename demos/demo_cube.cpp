@@ -1,6 +1,7 @@
 #include <tinygl/application.h>
 #include <vector>
 #include <iostream>
+#include <cstdio> // for sprintf
 
 using namespace tinygl;
 
@@ -17,6 +18,7 @@ struct Vertex {
 struct CubeShader : public ShaderBase {
     TextureObject* texture = nullptr;
     SimdMat4 mvp; 
+    Vec4 tintColor = {1.0f, 1.0f, 1.0f, 1.0f};
 
     // Vertex Shader
     inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
@@ -38,7 +40,8 @@ struct CubeShader : public ShaderBase {
         if (texture) {
             texColor = texture->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
         }
-        return mix(inCtx.varyings[0], texColor, 0.5);
+        // Combine interpolated vertex color, texture color, and global tint
+        return mix(inCtx.varyings[0], texColor, 0.5f) * tintColor;
     }
 };
 
@@ -123,8 +126,38 @@ protected:
         }
     }
 
+    void onGUI() override {
+        mu_Context* ctx = getUIContext();
+        if (mu_begin_window(ctx, "Settings", mu_rect(10, 10, 200, 240))) {
+            mu_layout_row(ctx, 1, (int[]) { -1 }, 0);
+            
+            mu_label(ctx, "Rotation Speed (deg/s):");
+            mu_slider_ex(ctx, &m_speed, 0, 360, 0, "%.0f", MU_OPT_ALIGNCENTER);
+            
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Current Angle: %.1f", m_rotationAngle);
+            mu_label(ctx, buf);
+            
+            mu_label(ctx, "Tint Color (RGB):");
+            mu_layout_row(ctx, 3, (int[]) { 60, 60, 60 }, 0);
+            mu_slider(ctx, &m_colorR, 0, 1);
+            mu_slider(ctx, &m_colorG, 0, 1);
+            mu_slider(ctx, &m_colorB, 0, 1);
+            
+            // Revert layout
+            mu_layout_row(ctx, 1, (int[]) { -1 }, 0);
+            
+            // Preview color
+            mu_Rect r = mu_layout_next(ctx);
+            mu_draw_rect(ctx, r, mu_color(m_colorR*255, m_colorG*255, m_colorB*255, 255));
+
+            mu_end_window(ctx);
+        }
+    }
+
     void onUpdate(float dt) override {
-        m_rotationAngle += 45.0f * dt;
+        m_rotationAngle += m_speed * dt;
+        if (m_rotationAngle > 360.0f) m_rotationAngle -= 360.0f;
     }
 
     void onRender() override {
@@ -133,6 +166,7 @@ protected:
 
         CubeShader shader;
         shader.texture = ctx.getTextureObject(m_tex);
+        shader.tintColor = {m_colorR, m_colorG, m_colorB, 1.0f};
 
         Mat4 model = Mat4::Translate(0, 0, -3.0f) * Mat4::RotateY(m_rotationAngle) * Mat4::RotateX(m_rotationAngle * 0.5f);
         Mat4 proj = Mat4::Perspective(90.0f, (float)getWidth()/getHeight(), 0.1f, 100.0f);
@@ -146,6 +180,10 @@ private:
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0, m_tex = 0;
     uint32_t m_cubeIndices[36];
     float m_rotationAngle = 0.0f;
+    float m_speed = 45.0f;
+    float m_colorR = 1.0f;
+    float m_colorG = 1.0f;
+    float m_colorB = 1.0f;
 };
 
 // ==========================================

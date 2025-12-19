@@ -1,5 +1,7 @@
 #include <tinygl/tinygl.h>
 
+namespace tinygl {
+
 // --- Buffers ---
 void SoftRenderContext::glGenBuffers(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
@@ -133,4 +135,6 @@ Vec4 SoftRenderContext::fetchAttribute(const VertexAttribState& attr, int vertex
     }
     
     return Vec4(raw[0], raw[1], raw[2], raw[3]);
+}
+
 }

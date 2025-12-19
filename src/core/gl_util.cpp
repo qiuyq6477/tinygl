@@ -1,5 +1,7 @@
 #include <tinygl/tinygl.h>
 
+namespace tinygl {
+
 VOut SoftRenderContext::lerpVertex(const VOut& a, const VOut& b, float t) {
     VOut res;
     // 1. 插值位置 (Clip Space)
@@ -115,4 +117,6 @@ void SoftRenderContext::transformToScreen(VOut& v) {
     v.scn.y = m_viewport.y + (1.0f - v.pos.y * rhw) * 0.5f * m_viewport.h;
     v.scn.z = v.pos.z * rhw;
     v.scn.w = rhw; // 存储 1/w 用于透视插值
+}
+
 }
