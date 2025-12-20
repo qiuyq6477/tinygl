@@ -13,40 +13,65 @@ namespace tinygl {
 // Texture
 struct TextureObject {
     // 主采样入口
-    Vec4 sample(float u, float v, float lod = 0.0f) const {
+    // rho_param: 纹理坐标在屏幕空间的变化率模长 (du/dx, dv/dx 等的综合)
+    Vec4 sample(float u, float v, float rho = 0.0f) const {
         if (mipLevels.empty()) return {1, 0, 1, 1};
 
-        lod = std::clamp(lod + lodBias, minLOD, maxLOD);
+        float level = 0.0f;
+        
+        // 如果 rho > 0，说明启用了动态 LOD 计算
+        if (rho > 0.0f) {
+            // Level = log2( rho * size )
+            float size = (float)std::max(mipLevels[0].width, mipLevels[0].height);
+            level = std::log2(rho * size);
+        }
+        
+        level += lodBias;
+        level = std::clamp(level, minLOD, maxLOD);
+        
         float maxLevel = (float)static_cast<int>(mipLevels.size()) - 1;
         
-        // 放大过滤 (LOD <= 0)
-        if (lod <= 0.0f) {
+        // 放大过滤 (Level < 0) -> Magnification
+        if (level <= 0.0f) {
             if (magFilter == GL_NEAREST) {
                 const auto& info = mipLevels[0];
                 return getTexel(0, (int)(applyWrap(u, wrapS) * info.width), (int)(applyWrap(v, wrapT) * info.height));
             }
+            // Linear Magnification
             return sampleBilinear(u, v, 0);
         }
         
-        // 缩小过滤 (LOD > 0)
-        lod = std::clamp(lod, 0.0f, maxLevel);
+        // 缩小过滤 (Level > 0) -> Minification
+        level = std::clamp(level, 0.0f, maxLevel);
 
         if (minFilter == GL_NEAREST) return getTexel(0, (int)(applyWrap(u, wrapS) * mipLevels[0].width), (int)(applyWrap(v, wrapT) * mipLevels[0].height));
         if (minFilter == GL_LINEAR) return sampleBilinear(u, v, 0);
         
         if (minFilter == GL_NEAREST_MIPMAP_NEAREST) {
-            int level = (int)std::round(lod);
-            const auto& info = mipLevels[level];
-            return getTexel(level, (int)(applyWrap(u, wrapS) * info.width), (int)(applyWrap(v, wrapT) * info.height));
+            int lvl = (int)std::round(level);
+            const auto& info = mipLevels[lvl];
+            return getTexel(lvl, (int)(applyWrap(u, wrapS) * info.width), (int)(applyWrap(v, wrapT) * info.height));
         }
         if (minFilter == GL_LINEAR_MIPMAP_NEAREST) {
-            return sampleBilinear(u, v, (int)std::round(lod));
+            return sampleBilinear(u, v, (int)std::round(level));
+        }
+        if (minFilter == GL_NEAREST_MIPMAP_LINEAR) {
+            // 层级间插值，层级内 Nearest
+            int l0 = (int)std::floor(level);
+            int l1 = std::min(l0 + 1, (int)maxLevel);
+            float f = level - (float)l0;
+            
+            const auto& i0 = mipLevels[l0];
+            const auto& i1 = mipLevels[l1];
+            Vec4 c0 = getTexel(l0, (int)(applyWrap(u, wrapS) * i0.width), (int)(applyWrap(v, wrapT) * i0.height));
+            Vec4 c1 = getTexel(l1, (int)(applyWrap(u, wrapS) * i1.width), (int)(applyWrap(v, wrapT) * i1.height));
+            return mix(c0, c1, f);
         }
 
         // 三线性过滤 (Default: GL_LINEAR_MIPMAP_LINEAR)
-        int l0 = (int)std::floor(lod);
+        int l0 = (int)std::floor(level);
         int l1 = std::min(l0 + 1, (int)maxLevel);
-        float f = lod - (float)l0;
+        float f = level - (float)l0;
         return mix(sampleBilinear(u, v, l0), sampleBilinear(u, v, l1), f);
     }
 
@@ -142,17 +167,6 @@ struct TextureObject {
 
         return mix(mix(c00, c10, s), mix(c01, c11, s), t);
     }
-
-    Vec4 sampleNearest(float u, float v) const {
-        if (mipLevels.empty()) return {1,0,1,1};
-        const auto& info = mipLevels[0];
-        // 快速位运算仅适用于 POT 且 REPEAT
-        uint32_t x = ((int)(u * info.width)) & (info.width - 1);
-        uint32_t y = ((int)(v * info.height)) & (info.height - 1);
-        uint32_t p = data[info.offset + y * info.width + x];
-        constexpr float k = 1.0f / 255.0f;
-        return Vec4((p&0xFF)*k, ((p>>8)&0xFF)*k, ((p>>16)&0xFF)*k, ((p>>24)&0xFF)*k);
-    }
     
     bool checkBorder(float uv, GLenum wrapMode) const {
         if (wrapMode == GL_CLAMP_TO_BORDER) {
@@ -170,7 +184,7 @@ struct TextureObject {
             case GL_CLAMP_TO_EDGE: 
                 return std::clamp(val, 0.0f, 1.0f); 
             case GL_CLAMP_TO_BORDER:
-                return std::clamp(val, 0.0f, 1.0f);
+                return val;
             default: return val - std::floor(val);
         }
     }

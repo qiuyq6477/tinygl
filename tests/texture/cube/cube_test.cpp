@@ -35,7 +35,7 @@ struct CubeShader {
         Vec4 fragment(const ShaderContext& inCtx) {
             Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
             if (texture) {
-                texColor = texture->sampleNearest(inCtx.varyings[0].x, inCtx.varyings[0].y);
+                texColor = texture->sample(inCtx.varyings[0].x, inCtx.varyings[0].y);
             }
             return mix(inCtx.varyings[1], texColor, 0.5f) * tintColor;
         }

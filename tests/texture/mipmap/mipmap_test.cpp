@@ -26,8 +26,7 @@ struct MipmapShader {
 
     Vec4 fragment(const ShaderContext& inCtx) {
         if (texture) {
-            // Sampling using the flattened Mipmap structure
-            return texture->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.lod);
+            return texture->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.rho);
         }
         return {1.0f, 0.0f, 1.0f, 1.0f}; // Error magenta
     }

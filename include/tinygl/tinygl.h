@@ -169,8 +169,7 @@ public:
         * 在每行扫描线起始处，利用梯度公式计算初始属性值。
         * 行内循环利用增量更新 (val += dVal/dX) 快速插值属性，极大提升了内层循环效率。
     * 透视校正：保留了基于 1/w 的透视校正插值逻辑，确保纹理和颜色在 3D 空间中的正确性。
-    * 逻辑优化：移除了每像素的 LOD 计算（强制 LOD=0），进一步优化性能。
-     */
+    */
 
     template <typename ShaderT>
     void rasterizeTriangleScanline(ShaderT& shader, const VOut& v0_in, const VOut& v1_in, const VOut& v2_in) {
@@ -290,7 +289,6 @@ public:
 
             int pixOffset = y * fbWidth + xs;
             ShaderContext fsIn;
-            fsIn.lod = 0;
 
             for (int x = xs; x < xe; ++x) {
                 if (zInv > 0) {
@@ -459,7 +457,6 @@ public:
 
                             // 4. 属性插值 (Attribute Interpolation)
                             ShaderContext fsIn;
-                            fsIn.lod = 0.0f; // [优化] 强制关闭每像素 LOD 计算，极大提升性能
 
                             // 展开循环以利用 CPU 流水线 (编译器通常会自动展开)
                             // for (int k = 0; k < MAX_VARYINGS; ++k) {
@@ -588,7 +585,7 @@ public:
             float* pDepth = depthBuffer.data() + pixelOffset;
             // [优化] 将 fsIn 提到循环外，避免每次循环都构造 memset
             ShaderContext fsIn; 
-            fsIn.lod = 0; 
+            fsIn.rho = 0; 
             for (int x = minX; x <= maxX; ++x) {
                 // 位运算优化符号检查: (w0 | w1 | w2) >= 0
                 // 注意：需要确保 float 的符号位逻辑，这里用 union cast 或简单的 if
@@ -628,6 +625,25 @@ public:
                                 res.store(fsIn.varyings[k]);
                             }
 
+                            // --- LOD Calculation (Dynamic Per-Pixel) ---
+                            // Refactored to use helper function
+                            // Precompute d(1/w)/dx once per triangle
+                            float dADX = A0 * invArea; float dBDX = A1 * invArea; float dGDX = A2 * invArea;
+                            float dADY = B0 * invArea; float dBDY = B1 * invArea; float dGDY = B2 * invArea;
+                            
+                            float dZwDX = dADX * v0.scn.w + dBDX * v1.scn.w + dGDX * v2.scn.w; // d(1/w)/dx
+                            float dZwDY = dADY * v0.scn.w + dBDY * v1.scn.w + dGDY * v2.scn.w; // d(1/w)/dy
+                            
+                            // For Varying 0 (UV):
+                            Vec4 uv0 = v0.ctx.varyings[0] * v0.scn.w;
+                            Vec4 uv1 = v1.ctx.varyings[0] * v1.scn.w;
+                            Vec4 uv2 = v2.ctx.varyings[0] * v2.scn.w;
+                            
+                            Vec4 dUVwDX = uv0 * dADX + uv1 * dBDX + uv2 * dGDX;
+                            Vec4 dUVwDY = uv0 * dADY + uv1 * dBDY + uv2 * dGDY;
+                            
+                            fsIn.rho = computeRho(z, dUVwDX, dUVwDY, dZwDX, dZwDY, fsIn.varyings[0].x, fsIn.varyings[0].y);
+
                             // 内联调用 Fragment Shader
                             Vec4 fColor = shader.fragment(fsIn);
                             *pColor = ColorUtils::FloatToUint32(fColor);
@@ -642,6 +658,24 @@ public:
             // Y轴增量
             w0_row += B0; w1_row += B1; w2_row += B2;
         }
+    }
+
+    // Helper for LOD calculation
+    // Computes the maximum rate of change (rho) of UV coordinates in screen space
+    inline float computeRho(float z, const Vec4& dUVwDX, const Vec4& dUVwDY, float dZwDX, float dZwDY, float u, float v) {
+        // Chain rule for perspective correct interpolation derivatives:
+        // du/dx = z * ( d(u/w)/dx - u * d(1/w)/dx )
+        float dudx = z * (dUVwDX.x - u * dZwDX);
+        float dvdx = z * (dUVwDX.y - v * dZwDX);
+        float dudy = z * (dUVwDY.x - u * dZwDY);
+        float dvdy = z * (dUVwDY.y - v * dZwDY);
+        
+        // rho = max( length(du/dx, dv/dx), length(du/dy, dv/dy) )
+        // Using squared lengths to avoid one sqrt if possible, but log2 needs linear scale.
+        // sqrt(max(lenSqX, lenSqY))
+        float rhoX2 = dudx*dudx + dvdx*dvdx;
+        float rhoY2 = dudy*dudy + dvdy*dvdy;
+        return std::sqrt(std::max(rhoX2, rhoY2));
     }
 
     // 模板化的线段光栅化 (Bresenham)
@@ -687,7 +721,6 @@ public:
 
                         // 属性插值
                         ShaderContext fsIn;
-                        fsIn.lod = 0;
 
                         // 利用 SIMD 批量插值 Varyings
                         // 插值公式: val = (val0 * w0 * (1-t) + val1 * w1 * t) * z
@@ -736,7 +769,6 @@ public:
             
             // 准备 Shader 上下文
             ShaderContext fsIn = v.ctx; 
-            fsIn.lod = 0; // 点没有 LOD 概念
 
             // 调用 Fragment Shader
             Vec4 fColor = shader.fragment(fsIn);

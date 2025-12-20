@@ -13,8 +13,7 @@ namespace tinygl {
 // Shader & Program
 struct ShaderContext { 
     Vec4 varyings[MAX_VARYINGS]; 
-    float lod = 0.0f; // [新增]
-    // [新增] 构造函数强制清零，防止 NaN 传染
+    float rho = 0.0f; // 纹理导数模长 ( UV单位 / 屏幕像素 ) (UV Span per Screen Pixel)
     ShaderContext() {
         std::memset(varyings, 0, sizeof(varyings));
     }

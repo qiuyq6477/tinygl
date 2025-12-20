@@ -44,12 +44,12 @@ struct TextureShader {
 
         Vec4 texColor1 = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
         if (texture1) {
-            texColor1 = texture1->sampleNearest(uv.x, uv.y);
+            texColor1 = texture1->sample(uv.x, uv.y);
         }
 
         Vec4 texColor2 = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
         if (texture2) {
-            texColor2 = texture2->sampleNearest(uv.x, uv.y);
+            texColor2 = texture2->sample(uv.x, uv.y);
         }
         // 合并颜色
         return mix(texColor1, texColor2, opacity);
