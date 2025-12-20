@@ -1,0 +1,1 @@
+add_tinygl_test(test_basic_quad2 quad2_test.cpp)
