@@ -12,7 +12,7 @@ struct Vertex {
     float uv[2];
 };
 
-struct CubeShader : public ShaderBase {
+struct CubeShader {
     TextureObject* texture = nullptr;
     SimdMat4 mvp; 
     Vec4 tintColor = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -35,7 +35,7 @@ struct CubeShader : public ShaderBase {
         Vec4 fragment(const ShaderContext& inCtx) {
             Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
             if (texture) {
-                texColor = texture->sampleNearestFast(inCtx.varyings[0].x, inCtx.varyings[0].y);
+                texColor = texture->sampleNearest(inCtx.varyings[0].x, inCtx.varyings[0].y);
             }
             return mix(inCtx.varyings[1], texColor, 0.5f) * tintColor;
         }

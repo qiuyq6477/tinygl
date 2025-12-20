@@ -151,7 +151,7 @@ public:
 
     void destroy(SoftRenderContext& ctx) override {
         ctx.glDeleteBuffers(1, &vbo);
-        ctx.glDeleteVertexArrays(1, &vao);
+        ctx.glDeleteBuffers(1, &ebo);
         ctx.glDeleteBuffers(1, &vbo_instance);
     }
 
@@ -190,7 +190,6 @@ public:
 
 private:
     GLuint vbo = 0;
-    GLuint vao = 0;
     GLuint ebo = 0;
     GLuint vbo_instance = 0;
     int INSTANCE_COUNT = 100;

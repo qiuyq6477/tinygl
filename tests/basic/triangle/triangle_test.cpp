@@ -4,7 +4,7 @@
 
 using namespace tinygl;
 
-struct TriangleShader : public ShaderBase {
+struct TriangleShader {
     float scale = 1.0f;
     
     Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {

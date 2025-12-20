@@ -4,7 +4,7 @@
 
 using namespace tinygl;
 
-struct GradientShader : ShaderBase {
+struct GradientShader {
     // 顶点着色器
     // attribs[0]: 位置 (x, y, z)
     // attribs[1]: 颜色 (r, g, b)

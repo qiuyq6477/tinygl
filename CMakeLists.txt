@@ -18,11 +18,15 @@ if(MSVC)
     add_compile_options(/O2 /Oi /Ot /GL)
 else()
     # macOS/Linux (Clang/GCC) 编译器优化
-    # -O3: 最高级别通用优化
-    # -march=native: 告诉编译器针对当前机器的 CPU (Apple Silicon 或 x86) 生成专用指令，这对 SIMD 至关重要
-    # -ffast-math: 允许编译器牺牲微小的浮点精度换取速度 (图形学常用)
-    # -funroll-loops: 激进的循环展开
+    # -O3: 最高级别通用优化                                                                                                                                                                                                │
+    # -march=native: 告诉编译器针对当前机器的 CPU (Apple Silicon 或 x86) 生成专用指令，这对 SIMD 至关重要                                                                                                                  │
+    # -ffast-math: 允许编译器牺牲微小的浮点精度换取速度 (图形学常用)                                                                                                                                                       │
+    # -funroll-loops: 激进的循环展开                                  
     add_compile_options(-O3 -march=native -ffast-math -funroll-loops)
+    
+    # [Debug] Enable AddressSanitizer
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address)
     
     # [可选] 如果你需要调试性能问题，可以开启 debug info 但保留优化
     # set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -march=native")

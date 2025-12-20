@@ -2,7 +2,15 @@
 
 namespace tinygl {
 
-// --- Textures ---
+
+// ==========================================
+// TextureObject
+// ==========================================
+
+
+// ==========================================
+// SoftRenderContext
+// ==========================================
 void SoftRenderContext::glGenTextures(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
         res[i] = m_nextID++;
@@ -76,18 +84,35 @@ void SoftRenderContext::glTexImage2D(GLenum target, GLint level, GLint internalf
     tex->width = w; 
     tex->height = h;
 
-    // Resize levels vector if necessary to accommodate this level
-    if (level >= static_cast<GLint>(tex->levels.size())) {
-        tex->levels.resize(level + 1);
+    // Handle level metadata
+    if (level >= static_cast<int>(tex->mipLevels.size())) {
+        tex->mipLevels.resize(level + 1);
     }
-    // Initialize this specific mipmap level
-    tex->levels[level].resize(w * h);
     
-    // Phase 2: Format and Type Conversion
+    // Calculate new size needed
+    size_t sizeNeeded = w * h;
+    
+    // Simplification: Assume Level 0 is uploaded first and resets the buffer.
+    if (level == 0) {
+        tex->data.resize(sizeNeeded);
+        tex->mipLevels[0] = {0, w, h};
+        // Clear other levels if they existed from previous usage
+        tex->mipLevels.resize(1); 
+    } else {
+        // Appending a level
+        size_t currentEnd = tex->data.size();
+        tex->data.resize(currentEnd + sizeNeeded);
+        tex->mipLevels[level] = {currentEnd, w, h};
+    }
+
+    // Convert and Copy Data
     if (p) {
-        if (!convertToInternalFormat(p, w, h, format, type, tex->levels[level])) {
+        std::vector<uint32_t> temp;
+        if (convertToInternalFormat(p, w, h, format, type, temp)) {
+            size_t offset = tex->mipLevels[level].offset;
+            std::memcpy(tex->data.data() + offset, temp.data(), sizeNeeded * sizeof(uint32_t));
+        } else {
             LOG_ERROR("glTexImage2D: Failed to convert source pixel data.");
-            return;
         }
     }
 }
@@ -157,6 +182,20 @@ void SoftRenderContext::glTexParameterfv(GLenum target, GLenum pname, const GLfl
             // 如果用户传的是标量参数的指针形式
             glTexParameterf(target, pname, params[0]);
             break;
+    }
+}
+
+void SoftRenderContext::glGenerateMipmap(GLenum target) {
+    if (target != GL_TEXTURE_2D) {
+        LOG_WARN("glGenerateMipmap: Only GL_TEXTURE_2D is supported.");
+        return;
+    }
+    
+    TextureObject* tex = getTexture(m_activeTextureUnit);
+    if (tex) {
+        tex->generateMipmaps();
+    } else {
+        LOG_WARN("glGenerateMipmap: No texture bound to active unit.");
     }
 }
 

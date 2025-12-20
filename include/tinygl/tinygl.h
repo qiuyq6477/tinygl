@@ -129,6 +129,7 @@ public:
     void glTexParameterf(GLenum target, GLenum pname, GLfloat param); // Float Scalar 版本
     void glTexParameteriv(GLenum target, GLenum pname, const GLint* params); // nt Vector 版本
     void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params); // Float Vector 版本 (关键：Border Color)
+    void glGenerateMipmap(GLenum target); // 生成 Mipmap
 
     // --- util ---
     // 线性插值辅助函数 (Linear Interpolation)

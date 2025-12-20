@@ -12,17 +12,28 @@ struct Vertex {
     float uv[2];
 };
 
-struct TextureShader : ShaderBase {
+struct TextureShader {
     TextureObject* texture1 = nullptr;
     TextureObject* texture2 = nullptr;
+    Vec2 uvScale = {1.0f, 1.0f};
+    Vec2 uvOffset = {0.0f, 0.0f};
+    float opacity = 0.5f;
+
     // Vertex Shader
     // attribs[0]: Pos
-    // attribs[1]: UV
+    // attribs[1]: Color
+    // attribs[2]: UV
     Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
-        // 传递 UV 给 Fragment Shader
-        ctx.varyings[0] = attribs[1];
-        ctx.varyings[1] = attribs[2];
-        // 直接返回 Clip Space 坐标
+        ctx.varyings[0] = attribs[1]; // Color
+        
+        // Transform UV
+        Vec4 originalUV = attribs[2];
+        Vec4 transformedUV;
+        transformedUV.x = originalUV.x * uvScale.x + uvOffset.x;
+        transformedUV.y = originalUV.y * uvScale.y + uvOffset.y;
+        
+        ctx.varyings[1] = transformedUV;
+        
         return attribs[0];
     }
 
@@ -33,24 +44,24 @@ struct TextureShader : ShaderBase {
 
         Vec4 texColor1 = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
         if (texture1) {
-            texColor1 = texture1->sampleNearestFast(uv.x, uv.y);
+            texColor1 = texture1->sampleNearest(uv.x, uv.y);
         }
 
         Vec4 texColor2 = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
         if (texture2) {
-            texColor2 = texture2->sampleNearestFast(uv.x, uv.y);
+            texColor2 = texture2->sampleNearest(uv.x, uv.y);
         }
         // 合并颜色
-        return mix(texColor1, texColor2, 0.5);
+        return mix(texColor1, texColor2, opacity);
     }
 };
 
 class Texture1Test : public ITestCase {
 public:
     void init(SoftRenderContext& ctx) override {
-        // 一个简单的 Quad (4个顶点)
-        // 格式: [位置 X, Y, Z] [UV U, V]
-        // 注意：为了演示 GL_REPEAT，我将 UV 设置为了 2.0，这意味着图片会重复两次
+        // ... (Mesh Setup code remains same, skipping for brevity in replacement if possible, 
+        // but since I'm replacing the class, I must include it)
+        
         float vertices[] = {
             // positions          // colors           // texture coords
             -0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 0.0f,   0.0f, 1.0f,  // top left 
@@ -63,7 +74,6 @@ public:
             2, 0, 3
         };
 
-        // 1. Mesh Setup
         ctx.glGenBuffers(1, &vbo);
         ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
         ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
@@ -72,19 +82,14 @@ public:
         ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-        // 2. Attributes
         GLsizei stride = 8 * sizeof(float);
-        // Pos
         ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)0);
         ctx.glEnableVertexAttribArray(0);
-        // Color
         ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, stride, (void*)(3 * sizeof(float)));
         ctx.glEnableVertexAttribArray(1);
-        // UV
         ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6 * sizeof(float)));
         ctx.glEnableVertexAttribArray(2);
 
-        // 3. Load Texture
         loadTexture(ctx, "texture/texture1/assets/container.jpg" , GL_TEXTURE0, tex1);
         loadTexture(ctx, "texture/texture1/assets/awesomeface.png" , GL_TEXTURE1, tex2);
     }
@@ -97,12 +102,62 @@ public:
     }
 
     void onGui(mu_Context* ctx, const Rect& rect) override {
-       
+        mu_label(ctx, "Texture Parameters");
+        
+        mu_label(ctx, "Wrap Mode:");
+        if (mu_button(ctx, m_wrapMode == GL_REPEAT ? "[Repeat]" : "Repeat")) m_wrapMode = GL_REPEAT;
+        if (mu_button(ctx, m_wrapMode == GL_MIRRORED_REPEAT ? "[Mirrored]" : "Mirrored")) m_wrapMode = GL_MIRRORED_REPEAT;
+        if (mu_button(ctx, m_wrapMode == GL_CLAMP_TO_EDGE ? "[Clamp]" : "Clamp")) m_wrapMode = GL_CLAMP_TO_EDGE;
+
+        mu_label(ctx, "Filter Mode:");
+        if (mu_button(ctx, m_filterMode == GL_NEAREST ? "[Nearest]" : "Nearest")) m_filterMode = GL_NEAREST;
+        if (mu_button(ctx, m_filterMode == GL_LINEAR ? "[Linear]" : "Linear")) m_filterMode = GL_LINEAR;
+
+        mu_label(ctx, "UV Scale:");
+        mu_slider(ctx, &m_uvScaleX, 0.1f, 5.0f);
+        mu_slider(ctx, &m_uvScaleY, 0.1f, 5.0f);
+
+        mu_label(ctx, "UV Offset:");
+        mu_slider(ctx, &m_uvOffsetX, -2.0f, 2.0f);
+        mu_slider(ctx, &m_uvOffsetY, -2.0f, 2.0f);
+
+        mu_label(ctx, "Mix Opacity:");
+        mu_slider(ctx, &m_opacity, 0.0f, 1.0f);
     }
 
     void onRender(SoftRenderContext& ctx) override {
+        // Apply Texture Parameters
+        for (GLuint t : {tex1, tex2}) {
+            ctx.glActiveTexture(GL_TEXTURE0); // Temporarily assume texture unit doesn't matter for bind only, but param needs bind
+            // Actually implementation of glActiveTexture sets unit, glBindTexture binds to that unit.
+            // But glTexParameteri operates on ACTIVE unit.
+            
+            // To set params for tex1, we must bind it.
+            // But tex1 might be intended for Unit 0, tex2 for Unit 1.
+            // Let's preserve units.
+        }
+        
+        // Set params for Texture Unit 0 (tex1)
+        ctx.glActiveTexture(GL_TEXTURE0);
+        ctx.glBindTexture(GL_TEXTURE_2D, tex1);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapMode);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapMode);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filterMode);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filterMode);
+
+        // Set params for Texture Unit 1 (tex2)
+        ctx.glActiveTexture(GL_TEXTURE1);
+        ctx.glBindTexture(GL_TEXTURE_2D, tex2);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapMode);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapMode);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filterMode);
+        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filterMode);
+
         shader.texture1 = ctx.getTextureObject(tex1);
         shader.texture2 = ctx.getTextureObject(tex2);
+        shader.uvScale = {m_uvScaleX, m_uvScaleY};
+        shader.uvOffset = {m_uvOffsetX, m_uvOffsetY};
+        shader.opacity = m_opacity;
 
         ctx.glDrawElements(shader, GL_TRIANGLES, 6, GL_UNSIGNED_INT, (void*)0);
     }
@@ -153,6 +208,15 @@ public:
 
 private:
     GLuint vbo = 0, ebo = 0, tex1 = 0, tex2 = 0;
+    
+    // UI State
+    GLint m_wrapMode = GL_REPEAT;
+    GLint m_filterMode = GL_LINEAR;
+    float m_uvScaleX = 1.0f;
+    float m_uvScaleY = 1.0f;
+    float m_uvOffsetX = 0.0f;
+    float m_uvOffsetY = 0.0f;
+    float m_opacity = 0.5f;
 
     TextureShader shader;
 };

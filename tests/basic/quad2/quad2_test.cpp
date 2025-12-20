@@ -4,7 +4,7 @@
 
 using namespace tinygl;
 
-struct BilinearShader : ShaderBase {
+struct BilinearShader {
     // 定义 4 个角的颜色
     const Vec4 cTL = {1.0f, 0.0f, 0.0f, 1.0f}; // 红
     const Vec4 cTR = {0.0f, 1.0f, 0.0f, 1.0f}; // 绿

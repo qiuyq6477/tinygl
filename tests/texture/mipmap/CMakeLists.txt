@@ -1,0 +1,1 @@
+add_tinygl_test(test_texture_mipmap mipmap_test.cpp)
