@@ -5,6 +5,9 @@ define_property(GLOBAL PROPERTY TINYGL_TEST_LIBS
     FULL_DOCS "List of tinygl test case libraries to link into test_runner"
 )
 
+# Find SDL2 (Required for camera test which uses SDL directly)
+find_package(SDL2 REQUIRED)
+
 # Helper function to register a test
 function(add_tinygl_test target_name)
     add_library(${target_name} STATIC ${ARGN})
@@ -35,7 +38,7 @@ get_property(TEST_LIBS GLOBAL PROPERTY TINYGL_TEST_LIBS)
 add_executable(test_runner test_runner.cpp)
 
 # Link the core framework first
-target_link_libraries(test_runner PRIVATE tinygl_framework)
+target_link_libraries(test_runner PRIVATE tinygl_framework ${SDL2_LIBRARIES})
 
 # Link test libraries with platform-specific flags to force the linker
 # to include all object files from the static libs. This is crucial for
