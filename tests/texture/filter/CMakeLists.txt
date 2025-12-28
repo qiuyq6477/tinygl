@@ -1,0 +1,1 @@
+add_tinygl_test(test_texture_filter filter_test.cpp)
