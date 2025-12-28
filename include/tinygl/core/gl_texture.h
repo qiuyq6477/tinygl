@@ -26,12 +26,14 @@ struct WrapPolicy {
     static float apply(float coord) { return coord - std::floor(coord); } // Default to Repeat
     static int applyInt(int coord, int size) { return (coord % size + size) % size; }
     static bool checkBorder(float coord) { return false; }
+    static bool checkBorderInt(int coord, int size) { return false; }
 };
 
 template <> struct WrapPolicy<GL_REPEAT> {
     static float apply(float coord) { return coord - std::floor(coord); }
     static int applyInt(int coord, int size) { return (coord % size + size) % size; }
     static bool checkBorder(float coord) { return false; }
+    static bool checkBorderInt(int coord, int size) { return false; }
 };
 
 template <> struct WrapPolicy<GL_MIRRORED_REPEAT> {
@@ -42,18 +44,21 @@ template <> struct WrapPolicy<GL_MIRRORED_REPEAT> {
         return std::clamp(coord, 0, size - 1); 
     }
     static bool checkBorder(float coord) { return false; }
+    static bool checkBorderInt(int coord, int size) { return false; }
 };
 
 template <> struct WrapPolicy<GL_CLAMP_TO_EDGE> {
     static float apply(float coord) { return std::clamp(coord, 0.0f, 1.0f); }
     static int applyInt(int coord, int size) { return std::clamp(coord, 0, size - 1); }
     static bool checkBorder(float coord) { return false; }
+    static bool checkBorderInt(int coord, int size) { return false; }
 };
 
 template <> struct WrapPolicy<GL_CLAMP_TO_BORDER> {
     static float apply(float coord) { return coord; }
     static int applyInt(int coord, int size) { return coord; } // 超出边界的逻辑由调用者 checkBorder 决定
     static bool checkBorder(float coord) { return coord < 0.0f || coord > 1.0f; }
+    static bool checkBorderInt(int coord, int size) { return coord < 0 || coord >= size; }
 };
 
 // --- 2. 过滤策略 (Filter Policies) ---
@@ -124,12 +129,35 @@ struct TextureObject {
 // 模版实现细节 (Template Implementations)
 // ==========================================
 
-// 辅助：获取 Texel
+// 辅助：获取 Texel (4x4 Tiled Layout Optimization)
 inline Vec4 getTexelRaw(const TextureObject& obj, int level, int x, int y) {
     if (level < 0 || level >= static_cast<int>(obj.mipLevels.size())) return {0,0,0,1};
     const auto& info = obj.mipLevels[level];
-    // 这里不再做 Clamp，假设调用者已经处理好了 Wrap
-    uint32_t p = obj.data[info.offset + y * info.width + x];
+    
+    // 4x4 Tiling Addressing
+    // Ensure we don't access out of bounds if the texture wasn't padded (though we should pad it)
+    // Assuming data is stored in 4x4 tiles.
+    
+    // Number of blocks per row
+    int blocksPerRow = (info.width + 3) / 4;
+    
+    int bx = x / 4;
+    int by = y / 4;
+    int lx = x % 4;
+    int ly = y % 4;
+    
+    // Block Index
+    int blockIdx = by * blocksPerRow + bx;
+    
+    // Pixel Index: Block Start + (ly * 4 + lx)
+    // Each block is 16 pixels
+    size_t pixelIdx = blockIdx * 16 + (ly * 4 + lx);
+    
+    // Safety check (optional in release, but good for stability if padding logic fails)
+    // Note: The data vector size should be sufficient for the padded dimensions.
+    // We trust glTexImage2D allocated enough.
+    
+    uint32_t p = obj.data[info.offset + pixelIdx];
     constexpr float k = 1.0f / 255.0f;
     return Vec4((p&0xFF)*k, ((p>>8)&0xFF)*k, ((p>>16)&0xFF)*k, ((p>>24)&0xFF)*k);
 }
@@ -139,6 +167,11 @@ Vec4 FilterPolicy<MinFilter, MagFilter, TWrapS, TWrapT>::getTexel(const TextureO
     // 处理 Wrap (Integer domain)
     int wx = TWrapS::applyInt(x, obj.mipLevels[level].width);
     int wy = TWrapT::applyInt(y, obj.mipLevels[level].height);
+
+    if (TWrapS::checkBorderInt(wx, obj.mipLevels[level].width) || 
+        TWrapT::checkBorderInt(wy, obj.mipLevels[level].height)) {
+        return obj.borderColor;
+    }
     return getTexelRaw(obj, level, wx, wy);
 }
 
@@ -163,10 +196,16 @@ Vec4 FilterPolicy<MinFilter, MagFilter, TWrapS, TWrapT>::sampleBilinear(const Te
     int y0w = TWrapT::applyInt(y0, h);
     int y1w = TWrapT::applyInt(y0 + 1, h);
 
-    Vec4 c00 = getTexelRaw(obj, level, x0w, y0w);
-    Vec4 c10 = getTexelRaw(obj, level, x1w, y0w);
-    Vec4 c01 = getTexelRaw(obj, level, x0w, y1w);
-    Vec4 c11 = getTexelRaw(obj, level, x1w, y1w);
+    // Check borders for all 4 samples
+    bool b00 = TWrapS::checkBorderInt(x0w, w) || TWrapT::checkBorderInt(y0w, h);
+    bool b10 = TWrapS::checkBorderInt(x1w, w) || TWrapT::checkBorderInt(y0w, h);
+    bool b01 = TWrapS::checkBorderInt(x0w, w) || TWrapT::checkBorderInt(y1w, h);
+    bool b11 = TWrapS::checkBorderInt(x1w, w) || TWrapT::checkBorderInt(y1w, h);
+
+    Vec4 c00 = b00 ? obj.borderColor : getTexelRaw(obj, level, x0w, y0w);
+    Vec4 c10 = b10 ? obj.borderColor : getTexelRaw(obj, level, x1w, y0w);
+    Vec4 c01 = b01 ? obj.borderColor : getTexelRaw(obj, level, x0w, y1w);
+    Vec4 c11 = b11 ? obj.borderColor : getTexelRaw(obj, level, x1w, y1w);
 
     return mix(mix(c00, c10, s), mix(c01, c11, s), t);
 }

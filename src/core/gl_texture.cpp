@@ -12,7 +12,6 @@ void TextureObject::generateMipmaps() {
     
     int currentLevel = 0;
     while (true) {
-        size_t srcOffset = mipLevels[currentLevel].offset;
         int srcW = mipLevels[currentLevel].width;
         int srcH = mipLevels[currentLevel].height;
 
@@ -20,47 +19,55 @@ void TextureObject::generateMipmaps() {
 
         int nextW = std::max(1, srcW / 2);
         int nextH = std::max(1, srcH / 2);
-        size_t nextSize = nextW * nextH;
+        
+        // Calculate size for Tiled Storage (aligned to 4x4)
+        int blocksX = (nextW + 3) / 4;
+        int blocksY = (nextH + 3) / 4;
+        size_t nextSize = blocksX * blocksY * 16;
         
         size_t newOffset = data.size();
         data.resize(newOffset + nextSize);
         
-        // Push back first, then access references carefully
+        // Push back first
         mipLevels.push_back({newOffset, nextW, nextH});
 
-        const uint32_t* srcPtr = data.data() + srcOffset;
         uint32_t* dstPtr = data.data() + newOffset;
+
+        // Helper for Tiled Index
+        auto getTiledAddr = [](int x, int y, int w) -> size_t {
+            int bx = x / 4; int by = y / 4;
+            int lx = x % 4; int ly = y % 4;
+            int blocksW = (w + 3) / 4;
+            return (by * blocksW + bx) * 16 + (ly * 4 + lx);
+        };
 
         for (int y = 0; y < nextH; ++y) {
             for (int x = 0; x < nextW; ++x) {
                 int srcX = x * 2;
                 int srcY = y * 2;
                 
-                int x0 = srcX;
-                int x1 = std::min(srcX + 1, srcW - 1);
-                int y0 = srcY;
-                int y1 = std::min(srcY + 1, srcH - 1);
+                // Read from Source (already tiled) using getTexelRaw
+                // getTexelRaw handles the Tiled addressing of the source level
+                Vec4 c00 = getTexelRaw(*this, currentLevel, srcX, srcY);
+                Vec4 c10 = getTexelRaw(*this, currentLevel, std::min(srcX + 1, srcW - 1), srcY);
+                Vec4 c01 = getTexelRaw(*this, currentLevel, srcX, std::min(srcY + 1, srcH - 1));
+                Vec4 c11 = getTexelRaw(*this, currentLevel, std::min(srcX + 1, srcW - 1), std::min(srcY + 1, srcH - 1));
 
-                uint32_t c00 = srcPtr[y0 * srcW + x0];
-                uint32_t c10 = srcPtr[y0 * srcW + x1];
-                uint32_t c01 = srcPtr[y1 * srcW + x0];
-                uint32_t c11 = srcPtr[y1 * srcW + x1];
-
-                auto unpack = [](uint32_t c, int shift) { return (c >> shift) & 0xFF; };
-                auto avg = [&](int shift) {
-                    return (unpack(c00, shift) + unpack(c10, shift) + unpack(c01, shift) + unpack(c11, shift)) / 4;
-                };
-
-                uint32_t R = avg(0);
-                uint32_t G = avg(8);
-                uint32_t B = avg(16);
-                uint32_t A = avg(24);
-                dstPtr[y * nextW + x] = (A << 24) | (B << 16) | (G << 8) | R;
+                Vec4 avg = (c00 + c10 + c01 + c11) * 0.25f;
+                
+                uint32_t R = (uint32_t)(avg.x * 255.0f);
+                uint32_t G = (uint32_t)(avg.y * 255.0f);
+                uint32_t B = (uint32_t)(avg.z * 255.0f);
+                uint32_t A = (uint32_t)(avg.w * 255.0f);
+                
+                // Write to Dest (needs Tiled addressing)
+                size_t destIdx = getTiledAddr(x, y, nextW);
+                dstPtr[destIdx] = (A << 24) | (B << 16) | (G << 8) | R;
             }
         }
         currentLevel++;
     }
-    LOG_INFO("Generated " + std::to_string(mipLevels.size()) + " mipmap levels.");
+    LOG_INFO("Generated " + std::to_string(mipLevels.size()) + " mipmap levels (Tiled).");
 }
 
 // 辅助宏：检查 MagFilter 并赋值
@@ -216,8 +223,11 @@ void SoftRenderContext::glTexImage2D(GLenum target, GLint level, GLint internalf
         tex->mipLevels.resize(level + 1);
     }
     
-    // Calculate new size needed
-    size_t sizeNeeded = w * h;
+    // Calculate new size needed with 4x4 tiling alignment
+    // Even if user provides w,h, we store in blocks of 4x4
+    int blocksX = (w + 3) / 4;
+    int blocksY = (h + 3) / 4;
+    size_t sizeNeeded = blocksX * blocksY * 16;
     
     // Simplification: Assume Level 0 is uploaded first and resets the buffer.
     if (level == 0) {
@@ -232,12 +242,39 @@ void SoftRenderContext::glTexImage2D(GLenum target, GLint level, GLint internalf
         tex->mipLevels[level] = {currentEnd, w, h};
     }
 
-    // Convert and Copy Data
+    // Convert and Copy Data with SWIZZLING
     if (p) {
         std::vector<uint32_t> temp;
+        // Convert input to linear uint32_t buffer first
         if (convertToInternalFormat(p, w, h, format, type, temp)) {
             size_t offset = tex->mipLevels[level].offset;
-            std::memcpy(tex->data.data() + offset, temp.data(), sizeNeeded * sizeof(uint32_t));
+            uint32_t* destBase = tex->data.data() + offset;
+            
+            // Swizzle Loop
+            // Iterate over destination blocks
+            for (int by = 0; by < blocksY; ++by) {
+                for (int bx = 0; bx < blocksX; ++bx) {
+                    // Block Base Index in Destination
+                    int blockIdx = by * blocksX + bx;
+                    uint32_t* blockPtr = destBase + blockIdx * 16;
+                    
+                    // Iterate pixels in block
+                    for (int ly = 0; ly < 4; ++ly) {
+                        for (int lx = 0; lx < 4; ++lx) {
+                            int srcX = bx * 4 + lx;
+                            int srcY = by * 4 + ly;
+                            
+                            // Check bounds
+                            if (srcX < w && srcY < h) {
+                                blockPtr[ly * 4 + lx] = temp[srcY * w + srcX];
+                            } else {
+                                // Padding (transparent black)
+                                blockPtr[ly * 4 + lx] = 0;
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             LOG_ERROR("glTexImage2D: Failed to convert source pixel data.");
         }

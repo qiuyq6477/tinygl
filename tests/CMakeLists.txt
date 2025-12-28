@@ -1,4 +1,7 @@
 
+# Enable testing for this directory and below
+enable_testing()
+
 # Define a property to collect all test libraries
 define_property(GLOBAL PROPERTY TINYGL_TEST_LIBS
     BRIEF_DOCS "List of tinygl test case libraries"

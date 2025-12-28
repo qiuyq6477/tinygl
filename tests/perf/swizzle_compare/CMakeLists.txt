@@ -1,0 +1,4 @@
+add_executable(swizzle_compare_bench swizzle_compare.cpp)
+target_link_libraries(swizzle_compare_bench PRIVATE tinygl_framework)
+
+add_test(NAME SwizzleBenchmark COMMAND swizzle_compare_bench)
