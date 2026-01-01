@@ -1,7 +1,7 @@
-#include "tinygl/ui_renderer.h"
-#include "tinygl/color.h"
-#include "tinygl/log.h"
-#include "tinygl/atlas.inl" 
+#include "tinygl/framework/ui_renderer.h"
+#include <tinygl/base/log.h>
+#include <vector>
+#include "tinygl/framework/atlas.inl" 
 
 #include <iostream>
 #include <algorithm>

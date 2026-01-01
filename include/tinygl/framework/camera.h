@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tinygl/tmath.h"
+#include "tinygl/base/tmath.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cmath>

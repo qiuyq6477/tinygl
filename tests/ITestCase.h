@@ -1,7 +1,8 @@
 #pragma once
-
 #include <tinygl/tinygl.h>
-#include <microui.h>
+#include <tinygl/framework/application.h>
+#include <tinygl/third_party/microui.h>
+#include <tinygl/framework/camera.h>
 #include <SDL2/SDL.h>
 
 struct Rect {

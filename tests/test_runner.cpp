@@ -1,6 +1,5 @@
-#include <tinygl/application.h>
+#include <tinygl/framework/application.h>
 #include <tinygl/tinygl.h>
-#include <microui.h>
 #include "ITestCase.h"
 #include "test_registry.h"
 #include <iostream>

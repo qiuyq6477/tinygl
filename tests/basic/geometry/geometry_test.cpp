@@ -2,7 +2,7 @@
 #include "../../test_registry.h"
 #include <tinygl/core/geometry.h>
 #include <tinygl/core/gl_shader.h>
-#include <tinygl/camera.h>
+#include <tinygl/framework/camera.h>
 #include <vector>
 #include <cmath>
 #include <cstdio>

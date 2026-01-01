@@ -1,5 +1,5 @@
-#include "tinygl/application.h"
-#include "tinygl/ui_renderer.h"
+#include "tinygl/framework/application.h"
+#include "tinygl/framework/ui_renderer.h"
 #include <iostream>
 #include <SDL2/SDL.h>
 

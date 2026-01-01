@@ -1,10 +1,10 @@
 #pragma once
-
 #include <vector>
+#include <iostream>
 #include <cmath>
-#include <cstring>
 #include <algorithm>
-#include "../tmath.h"
+#include <array>
+#include "tinygl/base/tmath.h"
 #include "gl_defs.h"
 
 namespace tinygl {

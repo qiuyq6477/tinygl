@@ -1,5 +1,6 @@
-#include <tinygl/tinygl.h> 
-#include <tinygl/application.h>
+#include <tinygl/tinygl.h>
+#include <tinygl/framework/application.h>
+#include <tinygl/framework/camera.h>
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
 // 实例数据结构 (Instance Data)

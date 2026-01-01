@@ -12,14 +12,14 @@
 #include <iomanip>
 #include <random>
 #include <arm_neon.h>
-#include "tmath.h"
-#include "math_simd.h"
-#include "color.h"
-#include "colors.h"
-#include "log.h"
-#include "container.h"
+#include "base/tmath.h"
+#include "base/math_simd.h"
+#include "base/color.h"
+#include "base/colors.h"
+#include "base/log.h"
+#include "base/container.h"
 
-#include "stb_image.h"
+#include "third_party/stb_image.h"
 
 #include "core/gl_defs.h"
 #include "core/gl_texture.h"

@@ -1,10 +1,10 @@
 #pragma once
-
-#include <string>
-#include <memory>
-#include <SDL2/SDL.h>
 #include <tinygl/tinygl.h>
-#include <microui.h>
+#include <tinygl/framework/ui_renderer.h>
+#include <SDL2/SDL.h>
+#include <iostream>
+#include <string>
+#include <tinygl/third_party/microui.h>
 
 namespace tinygl {
 
@@ -15,7 +15,7 @@ struct AppConfig {
     bool resizable = false;
 };
 
-class TINYGL_API Application {
+class Application {
 public:
     Application(const AppConfig& config);
     virtual ~Application();

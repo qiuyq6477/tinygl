@@ -1,12 +1,14 @@
 #pragma once
 #include <vector>
-#include <unordered_map>
 #include <string>
-#include <functional>
+#include <iostream>
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
+#include <memory>
+#include "tinygl/base/tmath.h"
 #include "gl_defs.h"
-#include "../tmath.h"
+#include "gl_texture.h"
 
 namespace tinygl {
 
