@@ -47,6 +47,13 @@ protected:
     }
 
     void onEvent(const SDL_Event& event) override {
+        mu_Context* ctx = getUIContext();
+        if (ctx->hover_root != nullptr) {
+            if (event.type == SDL_MOUSEWHEEL || event.type == SDL_MOUSEBUTTONDOWN) {
+                return;
+            }
+        }
+
         if (m_currentTest) {
             m_currentTest->onEvent(event);
         }

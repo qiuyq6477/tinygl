@@ -1,0 +1,1 @@
+add_tinygl_test(blinn_phong_test blinn_phong_test.cpp)
