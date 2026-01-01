@@ -68,18 +68,41 @@ Strictly adhere to **Conventional Commits**:
 *   Example: `feat(renderer): add support for glScissor`
 
 ### Adding a New Test
-1.  Create a new directory in `tests/<category>/<test_name>`.
-2.  Add a `CMakeLists.txt`:
+
+1.  **Directory Structure:** Create a new directory in `tests/<category>/<test_name>`.
+2.  **Build Configuration:** Add a `CMakeLists.txt`:
     ```cmake
     add_tinygl_test(test_name_lib test_source.cpp)
     ```
-3.  Implement the test class inheriting from `ITestCase`.
-4.  Register the test using the macro (typically found in `test_registry.h` or similar pattern).
+3.  **Implementation:** Implement the test class inheriting from `ITestCase`.
+4.  **Registration:** Register the test using the `TestRegistrar` helper at the end of your cpp file:
+    ```cpp
+    static TestRegistrar registry("Category", "TestName", []() { return new MyTest(); });
+    ```
+
+#### Camera Integration (Mandatory)
+All 3D test cases must include a camera to allow user navigation.
+1.  **Include:** `#include <tinygl/camera.h>`
+2.  **Member:** Add `tinygl::Camera camera;` to your class.
+3.  **Event:** Forward events in `onEvent`: `camera.ProcessEvent(e);`
+4.  **Update:** Update camera physics in `onUpdate`: `camera.Update(dt);`
+5.  **Render:** Use `camera.GetViewMatrix()` and `camera.GetProjectionMatrix()` to compute MVP matrices.
+
+#### Lifecycle Methods & Responsibilities
+*   `init(ctx)`: **Setup.** Create resources like VAOs, VBOs, Textures, and Shaders. Called once when the test is selected.
+*   `destroy(ctx)`: **Cleanup.** Delete OpenGL resources. Called when switching tests or closing.
+*   `onEvent(e)`: **Input.** Handle SDL events (key presses, mouse movement). **Pass events to `camera` here.**
+*   `onUpdate(dt)`: **Logic.** Update simulation state, rotation angles, camera position, and animations. **Do NOT put logic or state updates in `onRender`.**
+*   `onRender(ctx)`: **Draw.** Execute rendering commands (`glClear`, `glUseProgram`, `glDraw*`). Compute matrices here but rely on state updated in `onUpdate`.
+*   `onGui(ctx, rect)`: **UI.** Render debug UI (sliders, buttons) using MicroUI. Use this to tweak parameters in real-time.
 
 ### Coding Style
 *   **Standard:** Modern C++20.
 *   **Formatting:** Follow existing indentation (looks like 4 spaces).
-*   **Naming:** snake_case for files, mixedCamelCase or snake_case for functions (check local context).
+*   **Naming:** 
+    *   Files: `snake_case`.
+    *   Functions: `mixedCamelCase` or `snake_case` (follow local context).
+    *   Variables: **NEVER** use `m_` prefix for any variables, including class members. Prefer `camelCase` or `snake_case` based on existing patterns in the file.
 
 ## Key Files & Directories
 

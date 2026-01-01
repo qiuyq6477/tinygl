@@ -1,0 +1,1 @@
+add_tinygl_test(test_basic_geometry geometry_test.cpp)
