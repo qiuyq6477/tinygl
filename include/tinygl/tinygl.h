@@ -73,10 +73,13 @@ private:
 
     Viewport m_viewport;
     GLenum m_polygonMode = GL_FILL; // 默认填充
-    
+    GLenum m_cullFaceMode = GL_BACK; // Default cull back faces
+    GLenum m_frontFace = GL_CCW;     // Default counter-clockwise is front
+
     // Capabilities
     std::unordered_map<GLenum, GLboolean> m_capabilities = {
-        {GL_DEPTH_TEST, GL_TRUE} // Default enabled for backward compatibility
+        {GL_DEPTH_TEST, GL_TRUE}, // Default enabled for backward compatibility
+        {GL_CULL_FACE, GL_FALSE}  // Default disabled
     };
     GLenum m_depthFunc = GL_LESS;
 
@@ -133,6 +136,14 @@ public:
     void glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
     // 设置多边形模式 API
     void glPolygonMode(GLenum face, GLenum mode);
+
+    void glCullFace(GLenum mode) {
+        m_cullFaceMode = mode;
+    }
+
+    void glFrontFace(GLenum mode) {
+        m_frontFace = mode;
+    }
 
     void glEnable(GLenum cap) {
         m_capabilities[cap] = GL_TRUE;
@@ -583,19 +594,40 @@ public:
         // 2. 面积计算 (Backface Culling)
         float area = (v1.scn.y - v0.scn.y) * (v2.scn.x - v0.scn.x) - 
                      (v1.scn.x - v0.scn.x) * (v2.scn.y - v0.scn.y);
+
+        // Determine Face Orientation
+        // In this implementation: Positive Area = CCW, Negative Area = CW
+        bool isCCW = area > 0;
         
-        // 面积 <= 0 剔除 (假设 CCW)
+        if (m_capabilities[GL_CULL_FACE]) {
+            bool isFront = (m_frontFace == GL_CCW) ? isCCW : !isCCW;
+            
+            if (m_cullFaceMode == GL_FRONT_AND_BACK) return;
+            if (m_cullFaceMode == GL_FRONT && isFront) return;
+            if (m_cullFaceMode == GL_BACK && !isFront) return;
+        }
+
+        // Setup vertex references (handle winding for rasterizer math)
+        // If area is negative (CW), we swap v1 and v2 effectively for the math to ensure positive area
+        bool swap = area < 0;
+        const VOut& tv0 = v0;
+        const VOut& tv1 = swap ? v2 : v1;
+        const VOut& tv2 = swap ? v1 : v2;
+        
+        if (swap) area = -area;
+
+        // 面积 <= 0 剔除 (Degenerate)
         // 使用 epsilon 避免浮点误差导致的闪烁
         if (area <= 1e-6f) return;
         float invArea = 1.0f / area;
 
         // 3. 增量系数 Setup
-        // Edge 0: v1 -> v2
-        float A0 = v2.scn.y - v1.scn.y; float B0 = v1.scn.x - v2.scn.x;
-        // Edge 1: v2 -> v0
-        float A1 = v0.scn.y - v2.scn.y; float B1 = v2.scn.x - v0.scn.x;
-        // Edge 2: v0 -> v1
-        float A2 = v1.scn.y - v0.scn.y; float B2 = v0.scn.x - v1.scn.x;
+        // Edge 0: tv1 -> tv2
+        float A0 = tv2.scn.y - tv1.scn.y; float B0 = tv1.scn.x - tv2.scn.x;
+        // Edge 1: tv2 -> tv0
+        float A1 = tv0.scn.y - tv2.scn.y; float B1 = tv2.scn.x - tv0.scn.x;
+        // Edge 2: tv0 -> tv1
+        float A2 = tv1.scn.y - tv0.scn.y; float B2 = tv0.scn.x - tv1.scn.x;
 
         // 4. [关键优化] 预计算透视修正后的 Varyings
         // 原理：在三角形 Setup 阶段，先计算好 (Attr * 1/w_clip)
@@ -606,15 +638,15 @@ public:
         Simd4f preVar2[MAX_VARYINGS];
 
         // 广播 1/w_clip 到 SIMD 寄存器
-        Simd4f w0_vec(v0.scn.w);
-        Simd4f w1_vec(v1.scn.w);
-        Simd4f w2_vec(v2.scn.w);
+        Simd4f w0_vec(tv0.scn.w);
+        Simd4f w1_vec(tv1.scn.w);
+        Simd4f w2_vec(tv2.scn.w);
 
         // 循环展开预处理所有 Varyings
         for (int k = 0; k < MAX_VARYINGS; ++k) {
-            preVar0[k] = Simd4f::load(v0.ctx.varyings[k]) * w0_vec;
-            preVar1[k] = Simd4f::load(v1.ctx.varyings[k]) * w1_vec;
-            preVar2[k] = Simd4f::load(v2.ctx.varyings[k]) * w2_vec;
+            preVar0[k] = Simd4f::load(tv0.ctx.varyings[k]) * w0_vec;
+            preVar1[k] = Simd4f::load(tv1.ctx.varyings[k]) * w1_vec;
+            preVar2[k] = Simd4f::load(tv2.ctx.varyings[k]) * w2_vec;
         }
 
         // 5. 初始权重计算 (Pixel Center)
@@ -623,9 +655,9 @@ public:
         auto edgeFunc = [](float ax, float ay, float bx, float by, float px, float py) {
             return (by - ay) * (px - ax) - (bx - ax) * (py - ay);
         };
-        float w0_row = edgeFunc(v1.scn.x, v1.scn.y, v2.scn.x, v2.scn.y, startX, startY);
-        float w1_row = edgeFunc(v2.scn.x, v2.scn.y, v0.scn.x, v0.scn.y, startX, startY);
-        float w2_row = edgeFunc(v0.scn.x, v0.scn.y, v1.scn.x, v1.scn.y, startX, startY);
+        float w0_row = edgeFunc(tv1.scn.x, tv1.scn.y, tv2.scn.x, tv2.scn.y, startX, startY);
+        float w1_row = edgeFunc(tv2.scn.x, tv2.scn.y, tv0.scn.x, tv0.scn.y, startX, startY);
+        float w2_row = edgeFunc(tv0.scn.x, tv0.scn.y, tv1.scn.x, tv1.scn.y, startX, startY);
 
         // 6. 像素遍历循环
         for (int y = minY; y <= maxY; ++y) {
@@ -648,7 +680,7 @@ public:
                     float gamma = w2 * invArea;
 
                     // 透视校正深度 1/w_view
-                    float zInv = alpha * v0.scn.w + beta * v1.scn.w + gamma * v2.scn.w;
+                    float zInv = alpha * tv0.scn.w + beta * tv1.scn.w + gamma * tv2.scn.w;
                     
                     // 深度测试
                     if (zInv > 1e-6f) { // 避免除以0
@@ -682,13 +714,13 @@ public:
                             float dADX = A0 * invArea; float dBDX = A1 * invArea; float dGDX = A2 * invArea;
                             float dADY = B0 * invArea; float dBDY = B1 * invArea; float dGDY = B2 * invArea;
                             
-                            float dZwDX = dADX * v0.scn.w + dBDX * v1.scn.w + dGDX * v2.scn.w; // d(1/w)/dx
-                            float dZwDY = dADY * v0.scn.w + dBDY * v1.scn.w + dGDY * v2.scn.w; // d(1/w)/dy
+                            float dZwDX = dADX * tv0.scn.w + dBDX * tv1.scn.w + dGDX * tv2.scn.w; // d(1/w)/dx
+                            float dZwDY = dADY * tv0.scn.w + dBDY * tv1.scn.w + dGDY * tv2.scn.w; // d(1/w)/dy
                             
                             // For Varying 0 (UV):
-                            Vec4 uv0 = v0.ctx.varyings[0] * v0.scn.w;
-                            Vec4 uv1 = v1.ctx.varyings[0] * v1.scn.w;
-                            Vec4 uv2 = v2.ctx.varyings[0] * v2.scn.w;
+                            Vec4 uv0 = tv0.ctx.varyings[0] * tv0.scn.w;
+                            Vec4 uv1 = tv1.ctx.varyings[0] * tv1.scn.w;
+                            Vec4 uv2 = tv2.ctx.varyings[0] * tv2.scn.w;
                             
                             Vec4 dUVwDX = uv0 * dADX + uv1 * dBDX + uv2 * dGDX;
                             Vec4 dUVwDY = uv0 * dADY + uv1 * dBDY + uv2 * dGDY;

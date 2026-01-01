@@ -128,6 +128,26 @@ public:
             if (mu_button(ctx, m_depthFunc == GL_ALWAYS ? "[ALWAYS]" : "ALWAYS")) m_depthFunc = GL_ALWAYS;
         }
         
+        mu_label(ctx, "Cull Face Settings");
+        if (mu_header_ex(ctx, "Cull Face Enable", MU_OPT_EXPANDED)) {
+             int enable = m_cullFaceEnabled ? 1 : 0;
+             if (mu_checkbox(ctx, "Enabled", &enable)) {
+                 m_cullFaceEnabled = enable != 0;
+             }
+        }
+        
+        if (m_cullFaceEnabled) {
+            if (mu_header_ex(ctx, "Cull Mode", MU_OPT_EXPANDED)) {
+                if (mu_button(ctx, m_cullFaceMode == GL_BACK ? "[BACK]" : "BACK")) m_cullFaceMode = GL_BACK;
+                if (mu_button(ctx, m_cullFaceMode == GL_FRONT ? "[FRONT]" : "FRONT")) m_cullFaceMode = GL_FRONT;
+                if (mu_button(ctx, m_cullFaceMode == GL_FRONT_AND_BACK ? "[FRONT_AND_BACK]" : "FRONT_AND_BACK")) m_cullFaceMode = GL_FRONT_AND_BACK;
+            }
+            if (mu_header_ex(ctx, "Front Face", MU_OPT_EXPANDED)) {
+                if (mu_button(ctx, m_frontFace == GL_CCW ? "[CCW]" : "CCW")) m_frontFace = GL_CCW;
+                if (mu_button(ctx, m_frontFace == GL_CW ? "[CW]" : "CW")) m_frontFace = GL_CW;
+            }
+        }
+
         mu_label(ctx, "Description:");
         mu_label(ctx, "Rotating cube with per-face colors.");
         mu_label(ctx, "Toggle depth test to see the difference.");
@@ -143,6 +163,14 @@ public:
             ctx.glDisable(GL_DEPTH_TEST);
         }
         ctx.glDepthFunc(m_depthFunc);
+
+        if (m_cullFaceEnabled) {
+            ctx.glEnable(GL_CULL_FACE);
+        } else {
+            ctx.glDisable(GL_CULL_FACE);
+        }
+        ctx.glCullFace(m_cullFaceMode);
+        ctx.glFrontFace(m_frontFace);
 
         // Calculate aspect ratio from current viewport
         const auto& vp = ctx.glGetViewport();
@@ -160,6 +188,9 @@ private:
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0;
     bool m_depthTestEnabled = true;
     GLenum m_depthFunc = GL_LESS;
+    bool m_cullFaceEnabled = false;
+    GLenum m_cullFaceMode = GL_BACK;
+    GLenum m_frontFace = GL_CCW;
     float m_rotationAngle = 0.0f;
     DepthShader shader;
 };

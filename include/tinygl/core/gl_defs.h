@@ -34,6 +34,7 @@ const GLboolean GL_TRUE = 1;
 const GLboolean GL_FALSE = 0;
 
 const GLenum GL_DEPTH_TEST = 0x0B71;
+const GLenum GL_CULL_FACE = 0x0B44;
 
 const GLenum GL_NEVER = 0x0200;
 const GLenum GL_LESS = 0x0201;
@@ -52,7 +53,12 @@ const GLenum GL_TRIANGLES = 0x0004;
 const GLenum GL_TRIANGLE_STRIP = 0x0005;
 const GLenum GL_TRIANGLE_FAN = 0x0006;
 
+const GLenum GL_FRONT = 0x0404;
+const GLenum GL_BACK = 0x0405;
 const GLenum GL_FRONT_AND_BACK = 0x0408;
+const GLenum GL_CW = 0x0900;
+const GLenum GL_CCW = 0x0901;
+
 const GLenum GL_FILL = 0x1B02;
 const GLenum GL_LINE = 0x1B01;
 const GLenum GL_POINT = 0x1B00;
