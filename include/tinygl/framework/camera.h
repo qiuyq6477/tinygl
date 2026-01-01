@@ -1,9 +1,9 @@
 #pragma once
 
-#include "tinygl/base/tmath.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cmath>
+#include <tinygl/base/tmath.h>
 
 namespace tinygl {
 

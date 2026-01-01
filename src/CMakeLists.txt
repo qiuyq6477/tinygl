@@ -1,5 +1,6 @@
 # 查找 SDL2
 find_package(SDL2 REQUIRED)
+find_package(assimp REQUIRED)
 
 # 定义平台宏
 add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
@@ -9,6 +10,8 @@ add_library(tinygl_framework SHARED
     framework/application.cpp
     framework/ui_renderer.cpp
     framework/microui.c
+    framework/mesh.cpp
+    framework/model.cpp
     core/gl_texture.cpp
     core/gl_buffer.cpp
     core/gl_clip.cpp
@@ -35,4 +38,4 @@ target_include_directories(tinygl_framework PUBLIC
     ${SDL2_INCLUDE_DIRS} 
     ${CMAKE_SOURCE_DIR}/include
 )
-target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES})
+target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES} PUBLIC assimp::assimp)

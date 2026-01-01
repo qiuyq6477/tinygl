@@ -25,8 +25,8 @@ else()
     add_compile_options(-O3 -march=native -ffast-math -funroll-loops)
     
     # [Debug] Enable AddressSanitizer
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
-    add_link_options(-fsanitize=address)
+    # add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    # add_link_options(-fsanitize=address)
     
     # [可选] 如果你需要调试性能问题，可以开启 debug info 但保留优化
     # set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -march=native")
