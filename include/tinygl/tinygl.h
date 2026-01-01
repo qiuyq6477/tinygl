@@ -39,6 +39,16 @@
 
 namespace tinygl {
 
+// 辅助：计算平面梯度的结构
+struct Gradients {
+    float dfdx, dfdy;
+};
+
+struct Viewport {
+    GLint x, y;
+    GLsizei w, h;
+};
+
 class TINYGL_API SoftRenderContext {
 private:
     std::unordered_map<GLuint, BufferObject> buffers;
@@ -63,6 +73,37 @@ private:
 
     Viewport m_viewport;
     GLenum m_polygonMode = GL_FILL; // 默认填充
+    
+    // Capabilities
+    std::unordered_map<GLenum, GLboolean> m_capabilities = {
+        {GL_DEPTH_TEST, GL_TRUE} // Default enabled for backward compatibility
+    };
+    GLenum m_depthFunc = GL_LESS;
+
+    // Depth Test Helper
+    // Returns true if the fragment passes the depth test.
+    // Automatically updates the depth buffer if the test passes and Depth Test is enabled.
+    inline bool checkDepth(float z, float& currentDepth) {
+        if (!m_capabilities[GL_DEPTH_TEST]) return true; // If disabled, always pass, but DO NOT update depth
+        
+        bool pass = false;
+        switch (m_depthFunc) {
+            case GL_NEVER:      pass = false; break;
+            case GL_LESS:       pass = z < currentDepth; break;
+            case GL_EQUAL:      pass = std::abs(z - currentDepth) < EPSILON; break;
+            case GL_LEQUAL:     pass = z <= currentDepth; break;
+            case GL_GREATER:    pass = z > currentDepth; break;
+            case GL_NOTEQUAL:   pass = std::abs(z - currentDepth) > EPSILON; break;
+            case GL_GEQUAL:     pass = z >= currentDepth; break;
+            case GL_ALWAYS:     pass = true; break;
+            default:            pass = z < currentDepth; break;
+        }
+
+        if (pass) {
+            currentDepth = z;
+        }
+        return pass;
+    }
 public:
     SoftRenderContext(GLsizei width, GLsizei height) {
         fbWidth = width;
@@ -92,6 +133,19 @@ public:
     void glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
     // 设置多边形模式 API
     void glPolygonMode(GLenum face, GLenum mode);
+
+    void glEnable(GLenum cap) {
+        m_capabilities[cap] = GL_TRUE;
+    }
+
+    void glDisable(GLenum cap) {
+        m_capabilities[cap] = GL_FALSE;
+    }
+
+    void glDepthFunc(GLenum func) {
+        m_depthFunc = func;
+    }
+
     // --- State Management ---
     void glClearColor(float r, float g, float b, float a);
     // Clear buffer function
@@ -110,7 +164,7 @@ public:
     void glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage);
     void glGenVertexArrays(GLsizei n, GLuint* res);
     void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
-    void glBindVertexArray(GLuint array);
+    void glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
     VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
     void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer);
     void glEnableVertexAttribArray(GLuint index);
@@ -293,9 +347,7 @@ public:
             for (int x = xs; x < xe; ++x) {
                 if (zInv > 0) {
                     float z = 1.0f / zInv;
-                    if (z < depthBuffer[pixOffset]) {
-                        depthBuffer[pixOffset] = z;
-
+                    if (checkDepth(z, depthBuffer[pixOffset])) {
                         // Recover Attributes
                         for(int k=0; k<MAX_VARYINGS; ++k) {
                             fsIn.varyings[k].x = runVar[k].x * z;
@@ -601,8 +653,7 @@ public:
                     // 深度测试
                     if (zInv > 1e-6f) { // 避免除以0
                         float z = 1.0f / zInv;
-                        if (z < *pDepth) {
-                            *pDepth = z;
+                        if (checkDepth(z, *pDepth)) {
                             
                             // 广播 z 到 SIMD 寄存器，用于最后的透视恢复
                             Simd4f z_vec(z);
@@ -716,8 +767,7 @@ public:
                     float z = 1.0f / zInv; // 恢复真实深度
                     int pix = y0 * fbWidth + x0;
                     
-                    if (z < depthBuffer[pix]) {
-                        depthBuffer[pix] = z;
+                    if (checkDepth(z, depthBuffer[pix])) {
 
                         // 属性插值
                         ShaderContext fsIn;
@@ -764,8 +814,7 @@ public:
         // 这里的逻辑假设 v.scn.z 是已经透视除法后的深度值
         float z = v.scn.z; // 或者 1.0f/v.scn.w 取决于你的深度缓冲存什么
 
-        if (z < depthBuffer[pix]) {
-            depthBuffer[pix] = z;
+        if (checkDepth(z, depthBuffer[pix])) {
             
             // 准备 Shader 上下文
             ShaderContext fsIn = v.ctx; 

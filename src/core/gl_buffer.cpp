@@ -63,8 +63,6 @@ void SoftRenderContext::glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
     }
 }
 
-void SoftRenderContext::glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
-
 void SoftRenderContext::glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer) {
     if (index >= MAX_ATTRIBS) return;
     if (m_boundArrayBuffer == 0) {

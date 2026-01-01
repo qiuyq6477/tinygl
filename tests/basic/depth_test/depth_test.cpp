@@ -1,46 +1,35 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
 #include <tinygl/tinygl.h>
-#include <tinygl/camera.h>
+#include <cstdio>
 
 using namespace tinygl;
 
-struct CameraShader {
-    Mat4 model;
-    Mat4 view;
-    Mat4 projection;
+struct DepthShader {
+    SimdMat4 mvp;
 
-    Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
-        Vec4 pos = attribs[0]; // Position
-        Vec4 color = attribs[1]; // Color
-
-        outCtx.varyings[0] = color;
+    // Vertex Shader
+    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+        outCtx.varyings[0] = attribs[1]; // Color
         
-        // MVP transform
-        Vec4 worldPos = model * pos;
-        Vec4 viewPos = view * worldPos;
-        Vec4 clipPos = projection * viewPos;
+        float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, 1.0f};
+        Simd4f pos = Simd4f::load(posArr);
+        Simd4f res = mvp.transformPoint(pos);
         
-        return clipPos;
+        float outArr[4];
+        res.store(outArr);
+        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
+    // Fragment Shader: Output Color
     Vec4 fragment(const ShaderContext& inCtx) {
         return inCtx.varyings[0];
     }
 };
 
-class CameraTest : public ITestCase {
+class DepthTest : public ITestCase {
 public:
-    Camera m_camera;
-    GLuint m_vao = 0;
-    GLuint m_vbo = 0;
-    CameraShader m_shader;
-
     void init(SoftRenderContext& ctx) override {
-        // Init Camera
-        m_camera = Camera(Vec4(0, 0, 3, 1));
-
-        // Cube Vertices (Pos + Color)
         float vertices[] = {
             // Front face (Red)
             -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
@@ -103,47 +92,76 @@ public:
         // Color
         ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, 6*sizeof(float), (void*)(3*sizeof(float)));
         ctx.glEnableVertexAttribArray(1);
-
-        ctx.glEnable(GL_DEPTH_TEST);
     }
 
     void destroy(SoftRenderContext& ctx) override {
-        ctx.glDeleteBuffers(1, &m_vbo);
         ctx.glDeleteVertexArrays(1, &m_vao);
-    }
-
-    void onEvent(const SDL_Event& e) override {
-        m_camera.ProcessEvent(e);
+        ctx.glDeleteBuffers(1, &m_vbo);
+        ctx.glDeleteBuffers(1, &m_ebo);
     }
 
     void onUpdate(float dt) override {
-        m_camera.Update(dt);
+        m_rotationAngle += 45.0f * dt;
+        if (m_rotationAngle > 720.0f) m_rotationAngle -= 720.0f;
     }
 
     void onGui(mu_Context* ctx, const Rect& rect) override {
-        mu_layout_row(ctx, 1, (int[]) { -1 }, 0);
-        mu_label(ctx, "Controls:");
-        mu_label(ctx, "Pan: MMB Drag");
-        mu_label(ctx, "Orbit: Alt + LMB Drag");
-        mu_label(ctx, "Zoom: Wheel or Alt+RMB");
-        mu_label(ctx, "Fly: RMB Hold + WASDQE");
-        mu_label(ctx, "Speed: Hold Shift");
+        mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+        mu_label(ctx, "Depth Settings");
         
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Pos: %.1f %.1f %.1f", m_camera.position.x, m_camera.position.y, m_camera.position.z);
-        mu_label(ctx, buf);
+        if (mu_header_ex(ctx, "Depth Test Enable", MU_OPT_EXPANDED)) {
+             int enable = m_depthTestEnabled ? 1 : 0;
+             if (mu_checkbox(ctx, "Enabled", &enable)) {
+                 m_depthTestEnabled = enable != 0;
+             }
+        }
+
+        if (mu_header_ex(ctx, "Depth Function", MU_OPT_EXPANDED)) {
+            // Radio buttons for functions
+            if (mu_button(ctx, m_depthFunc == GL_NEVER ? "[NEVER]" : "NEVER")) m_depthFunc = GL_NEVER;
+            if (mu_button(ctx, m_depthFunc == GL_LESS ? "[LESS]" : "LESS")) m_depthFunc = GL_LESS;
+            if (mu_button(ctx, m_depthFunc == GL_EQUAL ? "[EQUAL]" : "EQUAL")) m_depthFunc = GL_EQUAL;
+            if (mu_button(ctx, m_depthFunc == GL_LEQUAL ? "[LEQUAL]" : "LEQUAL")) m_depthFunc = GL_LEQUAL;
+            if (mu_button(ctx, m_depthFunc == GL_GREATER ? "[GREATER]" : "GREATER")) m_depthFunc = GL_GREATER;
+            if (mu_button(ctx, m_depthFunc == GL_NOTEQUAL ? "[NOTEQUAL]" : "NOTEQUAL")) m_depthFunc = GL_NOTEQUAL;
+            if (mu_button(ctx, m_depthFunc == GL_GEQUAL ? "[GEQUAL]" : "GEQUAL")) m_depthFunc = GL_GEQUAL;
+            if (mu_button(ctx, m_depthFunc == GL_ALWAYS ? "[ALWAYS]" : "ALWAYS")) m_depthFunc = GL_ALWAYS;
+        }
+        
+        mu_label(ctx, "Description:");
+        mu_label(ctx, "Rotating cube with per-face colors.");
+        mu_label(ctx, "Toggle depth test to see the difference.");
     }
 
     void onRender(SoftRenderContext& ctx) override {
         ctx.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
         ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        m_shader.model = Mat4::Identity();
-        m_shader.view = m_camera.GetViewMatrix();
-        m_shader.projection = m_camera.GetProjectionMatrix();
+        if (m_depthTestEnabled) {
+            ctx.glEnable(GL_DEPTH_TEST);
+        } else {
+            ctx.glDisable(GL_DEPTH_TEST);
+        }
+        ctx.glDepthFunc(m_depthFunc);
 
-        ctx.glDrawArrays(m_shader, GL_TRIANGLES, 0, 36);
+        // Calculate aspect ratio from current viewport
+        const auto& vp = ctx.glGetViewport();
+        float aspect = (float)vp.w / (float)vp.h;
+        
+        Mat4 model = Mat4::Translate(0, 0, -5.0f) * Mat4::RotateY(m_rotationAngle) * Mat4::RotateX(m_rotationAngle * 0.5f);
+        Mat4 proj = Mat4::Perspective(45.0f, aspect, 0.1f, 100.0f);
+        Mat4 mvp = proj * Mat4::Identity() * model;
+        shader.mvp.load(mvp);
+        
+        ctx.glDrawArrays(shader, GL_TRIANGLES, 0, 36);
     }
+
+private:
+    GLuint m_vao = 0, m_vbo = 0, m_ebo = 0;
+    bool m_depthTestEnabled = true;
+    GLenum m_depthFunc = GL_LESS;
+    float m_rotationAngle = 0.0f;
+    DepthShader shader;
 };
 
-static TestRegistrar registrar("Basic", "Camera", []() { return new CameraTest(); });
+static TestRegistrar registrar("Basic", "DepthTest", []() { return new DepthTest(); });

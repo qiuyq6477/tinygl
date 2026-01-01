@@ -30,6 +30,20 @@ const GLenum GL_UNSIGNED_BYTE = 0x1401;
 const GLenum GL_UNSIGNED_SHORT = 0x1403;
 const GLenum GL_UNSIGNED_INT = 0x1405;
 
+const GLboolean GL_TRUE = 1;
+const GLboolean GL_FALSE = 0;
+
+const GLenum GL_DEPTH_TEST = 0x0B71;
+
+const GLenum GL_NEVER = 0x0200;
+const GLenum GL_LESS = 0x0201;
+const GLenum GL_EQUAL = 0x0202;
+const GLenum GL_LEQUAL = 0x0203;
+const GLenum GL_GREATER = 0x0204;
+const GLenum GL_NOTEQUAL = 0x0205;
+const GLenum GL_GEQUAL = 0x0206;
+const GLenum GL_ALWAYS = 0x0207;
+
 const GLenum GL_POINTS = 0x0000;
 const GLenum GL_LINES = 0x0001;
 const GLenum GL_LINE_LOOP = 0x0002;
