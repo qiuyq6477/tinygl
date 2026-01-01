@@ -270,7 +270,7 @@ public:
 
         // Draw
         ctx.glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        ctx.glClear(tinygl::BufferType::COLOR | tinygl::BufferType::DEPTH); 
+        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
         
         ctx.glDrawElements(m_shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);
 

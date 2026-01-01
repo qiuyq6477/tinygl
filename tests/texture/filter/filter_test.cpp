@@ -138,7 +138,7 @@ public:
 
     void onRender(SoftRenderContext& ctx) override {
         ctx.glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-        ctx.glClear(BufferType::COLOR | BufferType::DEPTH);
+        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         ctx.glActiveTexture(GL_TEXTURE0);
         ctx.glBindTexture(GL_TEXTURE_2D, m_textureId);

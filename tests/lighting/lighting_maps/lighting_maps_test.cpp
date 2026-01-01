@@ -349,7 +349,7 @@ public:
 
     void onRender(SoftRenderContext& ctx) override {
         ctx.glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        ctx.glClear(BufferType::COLOR | BufferType::DEPTH);
+        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         m_shader.view = m_camera.GetViewMatrix();
         m_shader.projection = m_camera.GetProjectionMatrix();

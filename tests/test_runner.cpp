@@ -64,7 +64,7 @@ protected:
         
         // Clear the entire screen first (background color)
         ctx.glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        ctx.glClear(BufferType::COLOR | BufferType::DEPTH);
+        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Calculate layout
         int totalWidth = getWidth();

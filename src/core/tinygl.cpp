@@ -24,7 +24,7 @@ void SoftRenderContext::glClearColor(float r, float g, float b, float a) {
 
 
 void SoftRenderContext::glClear(uint32_t buffersToClear) {
-    if (buffersToClear & BufferType::COLOR) {
+    if (buffersToClear & GL_COLOR_BUFFER_BIT) {
         uint8_t R = (uint8_t)(std::clamp(m_clearColor.x, 0.0f, 1.0f) * 255);
         uint8_t G = (uint8_t)(std::clamp(m_clearColor.y, 0.0f, 1.0f) * 255);
         uint8_t B = (uint8_t)(std::clamp(m_clearColor.z, 0.0f, 1.0f) * 255);
@@ -33,7 +33,7 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
         // Use std::fill_n on the pointer
         std::fill_n(m_colorBufferPtr, fbWidth * fbHeight, clearColorInt);
     }
-    if (buffersToClear & BufferType::DEPTH) {
+    if (buffersToClear & GL_DEPTH_BUFFER_BIT) {
         std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
     }
 }

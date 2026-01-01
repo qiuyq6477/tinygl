@@ -40,10 +40,14 @@ The project is divided into three main components:
 ### Build Commands
 
 ```bash
-mkdir -p build
-cd build
-cmake ..
-make -j$(nproc)
+# 1. Create a build directory
+mkdir -p build && cd build
+
+# 2. Configure (using Ninja)
+cmake -G Ninja ..
+
+# 3. Build
+ninja
 ```
 
 ### Running Tests

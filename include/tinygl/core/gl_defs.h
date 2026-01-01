@@ -4,11 +4,10 @@
 namespace tinygl {
 
 // Buffer Type for glClear
-enum BufferType {
-    COLOR = 1 << 0,
-    DEPTH = 1 << 1,
-    STENCIL = 1 << 2, // Not implemented
-};
+using GLbitfield = uint32_t;
+const GLbitfield GL_COLOR_BUFFER_BIT = 0x00004000;
+const GLbitfield GL_DEPTH_BUFFER_BIT = 0x00000100;
+const GLbitfield GL_STENCIL_BUFFER_BIT = 0x00000400;
 
 // ==========================================
 // 资源定义

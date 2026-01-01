@@ -19,7 +19,7 @@
 | API | 状态 | 说明 |
 |-----|------|------|
 | `glGenBuffers` | ✅ | 创建缓冲区对象 |
-| `glDeleteBuffers` | ❌ | 删除缓冲区 |
+| `glDeleteBuffers` | ✅  | 删除缓冲区 |
 | `glBindBuffer` | ✅ | 绑定缓冲区到目标 |
 | `glBufferData` | ✅ | 上传缓冲区数据 |
 | `glBufferSubData` | ❌ | 部分更新缓冲区 |
@@ -33,7 +33,7 @@
 | API | 状态 | 说明 |
 |-----|------|------|
 | `glGenVertexArrays` | ✅ | 创建 VAO |
-| `glDeleteVertexArrays` | ❌ | 删除 VAO |
+| `glDeleteVertexArrays` | ✅ | 删除 VAO |
 | `glBindVertexArray` | ✅ | 绑定 VAO |
 | `glVertexAttribPointer` | ✅ | 设置顶点属性指针 |
 | `glEnableVertexAttribArray` | ✅ | 启用顶点属性 |

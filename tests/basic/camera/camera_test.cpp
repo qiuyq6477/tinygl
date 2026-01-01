@@ -136,10 +136,8 @@ public:
 
     void onRender(SoftRenderContext& ctx) override {
         ctx.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-        ctx.glClear(BufferType::COLOR | BufferType::DEPTH);
+        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Update Shader Uniforms
-        m_shader.model = Mat4::Identity();
         m_shader.view = m_camera.GetViewMatrix();
         m_shader.projection = m_camera.GetProjectionMatrix();
 
