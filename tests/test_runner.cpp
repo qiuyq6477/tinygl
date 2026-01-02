@@ -1,8 +1,8 @@
+#include <iostream>
 #include <tinygl/framework/application.h>
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include "ITestCase.h"
 #include "test_registry.h"
-#include <iostream>
 
 using namespace tinygl;
 

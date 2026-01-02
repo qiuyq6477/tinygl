@@ -1,4 +1,4 @@
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include <vector>
 #include <chrono>
 #include <iostream>

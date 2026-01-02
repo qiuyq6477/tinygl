@@ -1,7 +1,7 @@
-#include "tinygl/framework/application.h"
-#include "tinygl/framework/ui_renderer.h"
 #include <iostream>
 #include <SDL2/SDL.h>
+#include <tinygl/framework/application.h>
+#include <tinygl/framework/ui_renderer.h>
 
 #ifdef _WIN32
     #include <direct.h>

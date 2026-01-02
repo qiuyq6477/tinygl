@@ -1,6 +1,6 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include <vector>
 #include <cstdio>
 
@@ -90,8 +90,8 @@ public:
         ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6 * sizeof(float)));
         ctx.glEnableVertexAttribArray(2);
 
-        loadTexture(ctx, "texture/texture1/assets/container.jpg" , GL_TEXTURE0, tex1);
-        loadTexture(ctx, "texture/texture1/assets/awesomeface.png" , GL_TEXTURE1, tex2);
+        tinygl::LoadTextureFromFile(ctx, "texture/texture1/assets/container.jpg" , GL_TEXTURE0, tex1);
+        tinygl::LoadTextureFromFile(ctx, "texture/texture1/assets/awesomeface.png" , GL_TEXTURE1, tex2);
     }
 
     void destroy(SoftRenderContext& ctx) override {

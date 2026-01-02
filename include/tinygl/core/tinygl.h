@@ -9,23 +9,18 @@
 #include <algorithm>
 #include <string>
 #include <memory>
-#include <iomanip>
-#include <random>
-#include <arm_neon.h>
-#include "base/tmath.h"
-#include "base/math_simd.h"
-#include "base/color.h"
-#include "base/colors.h"
-#include "base/log.h"
-#include "base/container.h"
 
-#include "third_party/stb_image.h"
+#include "gl_defs.h"
+#include "gl_texture.h"
+#include "gl_buffer.h"
+#include "gl_shader.h"
 
-#include "core/gl_defs.h"
-#include "core/gl_texture.h"
-#include "core/gl_buffer.h"
-#include "core/gl_shader.h"
-#include "core/geometry.h"
+#include "../base/tmath.h"
+#include "../base/math_simd.h"
+#include "../base/color.h"
+#include "../base/colors.h"
+#include "../base/log.h"
+#include "../base/container.h"
 
 #if defined(_WIN32)
     #ifdef TINYGL_EXPORTS

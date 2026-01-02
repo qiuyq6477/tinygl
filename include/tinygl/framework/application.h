@@ -2,7 +2,7 @@
 #include <SDL2/SDL.h>
 #include <iostream>
 #include <string>
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include <tinygl/framework/ui_renderer.h>
 #include <tinygl/third_party/microui.h>
 namespace tinygl {

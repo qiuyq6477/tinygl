@@ -1,13 +1,13 @@
-#include "tinygl/tinygl.h"
-#include "tinygl/framework/application.h"
-#include "tinygl/framework/camera.h"
-#include "tinygl/framework/model.h"
-#include "../ITestCase.h"
-#include "../test_registry.h"
-#include "tinygl/third_party/microui.h"
 #include <filesystem>
 #include <vector>
 #include <string>
+#include <tinygl/third_party/microui.h>
+#include <tinygl/core/tinygl.h>
+#include <tinygl/framework/application.h>
+#include <tinygl/framework/camera.h>
+#include <tinygl/framework/model.h>
+#include "../ITestCase.h"
+#include "../test_registry.h"
 
 using namespace tinygl;
 namespace fs = std::filesystem;

@@ -1,6 +1,6 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include <vector>
 #include <cstdio>
 
@@ -138,7 +138,7 @@ public:
         mu_label(ctx, "Rotation Angle");
         mu_slider(ctx, &m_rotationAngle, 0.0f, 720.0f);
         char buf[64];
-        sprintf(buf, "Angle: %.1f", m_rotationAngle);
+        snprintf(buf, sizeof(buf), "Angle: %.1f", m_rotationAngle);
         mu_label(ctx, buf);
 
         mu_label(ctx, "Tint Color");

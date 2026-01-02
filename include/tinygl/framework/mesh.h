@@ -2,8 +2,8 @@
 
 #include <vector>
 #include <string>
-#include "tinygl/base/tmath.h"
-#include "tinygl/tinygl.h"
+#include <tinygl/base/tmath.h>
+#include <tinygl/core/tinygl.h>
 
 namespace tinygl {
 

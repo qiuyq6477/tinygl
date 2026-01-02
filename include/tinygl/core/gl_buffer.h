@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <iostream>
 #include <cstdint>
-#include "tinygl/base/log.h"
+#include "../base/log.h"
 #include "gl_defs.h"
 
 namespace tinygl {

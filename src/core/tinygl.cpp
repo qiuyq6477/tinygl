@@ -1,7 +1,5 @@
-#define STB_IMAGE_IMPLEMENTATION
-#include <tinygl/tinygl.h>
 #include <algorithm> // for std::clamp, std::fill_n
-
+#include <tinygl/core/tinygl.h>
 namespace tinygl {
 
 void SoftRenderContext::glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {

@@ -1,4 +1,4 @@
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include <tinygl/framework/application.h>
 #include <tinygl/framework/camera.h>
 #include "../../ITestCase.h"

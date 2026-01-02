@@ -7,11 +7,13 @@ add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
 
 # [库定义] 框架库 (现代 C++ 架构)
 add_library(tinygl_framework SHARED 
+    third_party/microui.c
+    third_party/stb_image.cpp
     framework/application.cpp
     framework/ui_renderer.cpp
-    framework/microui.c
     framework/mesh.cpp
     framework/model.cpp
+    framework/load_texture.cpp
     core/gl_texture.cpp
     core/gl_buffer.cpp
     core/gl_clip.cpp

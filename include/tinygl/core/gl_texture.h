@@ -4,8 +4,8 @@
 #include <cmath>
 #include <string>
 #include <iostream>
-#include "tinygl/base/tmath.h"
-#include "tinygl/base/log.h"
+#include "../base/tmath.h"
+#include "../base/log.h"
 #include "gl_defs.h"
 
 namespace tinygl {

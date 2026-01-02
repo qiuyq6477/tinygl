@@ -9,8 +9,8 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include "tinygl/framework/mesh.h"
-#include "tinygl/tinygl.h"
+#include <tinygl/framework/mesh.h>
+#include <tinygl/core/tinygl.h>
 
 namespace tinygl {
 

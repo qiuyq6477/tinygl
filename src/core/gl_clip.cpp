@@ -1,4 +1,4 @@
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 
 namespace tinygl {
 

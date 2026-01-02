@@ -4,8 +4,8 @@
 #include <cmath>
 #include <algorithm>
 #include <array>
-#include "tinygl/base/tmath.h"
-#include "gl_defs.h"
+#include <tinygl/base/tmath.h>
+#include <tinygl/core/gl_defs.h>
 
 namespace tinygl {
 

@@ -13,7 +13,7 @@
 
 The project is divided into three main components:
 
-1.  **Core Renderer (`include/tinygl/tinygl.h`):**
+1.  **Core Renderer (`include/tinygl/core/tinygl.h`):**
     *   A header-only, template-heavy software rasterizer.
     *   Implements the graphics pipeline: Vertex Processing -> Clipping -> Rasterization -> Fragment Processing.
     *   State management mimics OpenGL (VAOs, Textures, Buffers).
@@ -106,7 +106,7 @@ All 3D test cases must include a camera to allow user navigation.
 
 ## Key Files & Directories
 
-*   `include/tinygl/tinygl.h`: **The Brain.** The software rasterizer implementation.
+*   `include/tinygl/core/tinygl.h`: **The Brain.** The software rasterizer implementation.
 *   `src/framework/application.cpp`: Main application loop and SDL integration.
 *   `tests/test_runner.cpp`: Entry point for the test suite.
 *   `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.

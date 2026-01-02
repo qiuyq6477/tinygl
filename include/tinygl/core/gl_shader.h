@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <memory>
-#include "tinygl/base/tmath.h"
+#include "../base/tmath.h"
 #include "gl_defs.h"
 #include "gl_texture.h"
 

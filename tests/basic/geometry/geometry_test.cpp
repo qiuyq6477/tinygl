@@ -1,6 +1,6 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/geometry.h>
+#include <tinygl/framework/geometry.h>
 #include <tinygl/core/gl_shader.h>
 #include <tinygl/framework/camera.h>
 #include <vector>

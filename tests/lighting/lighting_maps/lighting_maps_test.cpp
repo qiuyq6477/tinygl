@@ -1,6 +1,6 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/tinygl.h>
+#include <tinygl/core/tinygl.h>
 #include <tinygl/framework/camera.h>
 #include <vector>
 #include <cmath>
@@ -210,10 +210,10 @@ public:
 
         // Load Textures 
         ctx.glGenTextures(1, &m_diffuseTex);
-        loadTexture(ctx, "lighting/lighting_maps/assets/container2.png", GL_TEXTURE0, m_diffuseTex); 
+        tinygl::LoadTextureFromFile(ctx, "lighting/lighting_maps/assets/container2.png", GL_TEXTURE0, m_diffuseTex); 
 
         ctx.glGenTextures(1, &m_specularTex);
-        loadTexture(ctx, "lighting/lighting_maps/assets/container2_specular.png", GL_TEXTURE1, m_specularTex); 
+        tinygl::LoadTextureFromFile(ctx, "lighting/lighting_maps/assets/container2_specular.png", GL_TEXTURE1, m_specularTex); 
 
         // Setup Geometry
         setupCube(ctx);
