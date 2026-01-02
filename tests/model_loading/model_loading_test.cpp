@@ -5,8 +5,12 @@
 #include "../ITestCase.h"
 #include "../test_registry.h"
 #include "tinygl/third_party/microui.h"
+#include <filesystem>
+#include <vector>
+#include <string>
 
 using namespace tinygl;
+namespace fs = std::filesystem;
 
 // Simple Blinn-Phong Shader
 struct ModelShader {
@@ -95,8 +99,10 @@ public:
     SoftRenderContext* m_ctx = nullptr;
     
     // UI State
-    char pathBuf[256] = "model_loading/assets/backpack.obj";
-    std::string loadStatus = "Ready";
+    std::string loadStatus = "Select a model";
+    std::vector<std::string> modelKeys;
+    int selectedModelIdx = -1;
+    float modelScale = 10.0f;
 
     ModelLoadingTest() : camera(Vec4(0, 0, 3, 1)) {}
 
@@ -106,6 +112,23 @@ public:
         
         // Enable Depth Test
         ctx.glEnable(GL_DEPTH_TEST);
+
+        // Scan for models
+        scanModels();
+    }
+
+    void scanModels() {
+        modelKeys.clear();
+        std::string assetsPath = "model_loading/assets";
+        if (fs::exists(assetsPath) && fs::is_directory(assetsPath)) {
+            for (const auto& entry : fs::directory_iterator(assetsPath)) {
+                if (entry.is_directory()) {
+                    modelKeys.push_back(entry.path().filename().string());
+                }
+            }
+        } else {
+            loadStatus = "Error: Assets dir not found";
+        }
     }
 
     void destroy(SoftRenderContext& ctx) override {
@@ -129,7 +152,7 @@ public:
         ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (currentModel) {
-            shader.model = Mat4::Identity(); 
+            shader.model = Mat4::Translate(0.0f, -0.5f, 0.0f) * Mat4::Scale(modelScale, modelScale, modelScale); 
             shader.view = camera.GetViewMatrix();
             shader.projection = camera.GetProjectionMatrix();
             shader.viewPos = camera.position;
@@ -143,16 +166,25 @@ public:
     void onGui(mu_Context* mu_ctx, const Rect& rect) override {
             mu_layout_row(mu_ctx, 1, (int[]) { -1 }, 0);
             
-            mu_label(mu_ctx, "Model Path:");
-            mu_textbox(mu_ctx, pathBuf, sizeof(pathBuf));
+            mu_label(mu_ctx, "Select Model:");
 
-            if (mu_button(mu_ctx, "Load Model")) {
-                if (m_ctx) loadModel(pathBuf, *m_ctx);
+            if (modelKeys.empty()) {
+                mu_text(mu_ctx, "No models found in assets/");
+            } else {
+                for (int i = 0; i < (int)modelKeys.size(); ++i) {
+                    if (mu_button(mu_ctx, modelKeys[i].c_str())) {
+                        selectedModelIdx = i;
+                        if (m_ctx) loadModelByKey(modelKeys[i], *m_ctx);
+                    }
+                }
             }
 
             mu_text(mu_ctx, loadStatus.c_str());
 
             if (currentModel) {
+                mu_label(mu_ctx, "Model Scale:");
+                mu_slider(mu_ctx, &modelScale, 0.01f, 10.0f);
+
                 mu_label(mu_ctx, "Model Stats:");
                 
                 char buf[128];
@@ -187,6 +219,11 @@ public:
     }
 
 private:
+    void loadModelByKey(const std::string& key, SoftRenderContext& ctx) {
+        std::string path = "model_loading/assets/" + key + "/" + key + ".obj";
+        loadModel(path, ctx);
+    }
+
     void loadModel(const std::string& path, SoftRenderContext& ctx) {
         if (currentModel) {
             delete currentModel;
@@ -197,7 +234,7 @@ private:
             loadStatus = "Loading...";
             currentModel = new Model(path, ctx);
             if (currentModel->meshes.empty()) {
-                loadStatus = "Failed: No meshes found (Check path/file)";
+                loadStatus = "Failed: No meshes found";
                 delete currentModel;
                 currentModel = nullptr;
             } else {
