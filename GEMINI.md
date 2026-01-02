@@ -4,38 +4,38 @@
 
 **tinygl** is a C++20 software rendering project that implements a subset of the OpenGL 1.x API. It features a header-only software rasterizer and a minimal application framework.
 
-*   **Language:** C++20
-*   **Build System:** CMake
-*   **Dependencies:** SDL2
-*   **Core Feature:** Programmable pipeline via C++ lambdas, SIMD optimizations (ARM NEON/x86), and `glDraw*` emulation.
+* **Language:** C++20
+* **Build System:** CMake
+* **Dependencies:** SDL2
+* **Core Feature:** Programmable pipeline via C++ lambdas, SIMD optimizations (ARM NEON/x86), and `glDraw*` emulation.
 
 ## Architecture
 
 The project is divided into three main components:
 
-1.  **Core Renderer (`include/tinygl/core/tinygl.h`):**
-    *   A header-only, template-heavy software rasterizer.
-    *   Implements the graphics pipeline: Vertex Processing -> Clipping -> Rasterization -> Fragment Processing.
-    *   State management mimics OpenGL (VAOs, Textures, Buffers).
+1. **Core Renderer (`include/tinygl/core/tinygl.h`):**
+    * A header-only, template-heavy software rasterizer.
+    * Implements the graphics pipeline: Vertex Processing -> Clipping -> Rasterization -> Fragment Processing.
+    * State management mimics OpenGL (VAOs, Textures, Buffers).
 
-2.  **Framework (`src/framework` & `src/core`):**
-    *   Compiled as a shared library: `tinygl_framework`.
-    *   Handles window creation, input management (via SDL2), and UI rendering (MicroUI).
-    *   Provides the `Application` base class.
+2. **Framework (`src/framework` & `src/core`):**
+    * Compiled as a shared library: `tinygl_framework`.
+    * Handles window creation, input management (via SDL2), and UI rendering (MicroUI).
+    * Provides the `Application` base class.
 
-3.  **Tests & Demos (`tests/`):**
-    *   A single executable `test_runner` runs all registered test cases.
-    *   Test cases are static libraries that self-register using a global registry pattern.
-    *   Tests verify specific OpenGL features (e.g., `glDrawArrays`, Texturing, Mipmaps).
+3. **Tests & Demos (`tests/`):**
+    * A single executable `test_runner` runs all registered test cases.
+    * Test cases are static libraries that self-register using a global registry pattern.
+    * Tests verify specific OpenGL features (e.g., `glDrawArrays`, Texturing, Mipmaps).
 
 ## Building and Running
 
 ### Prerequisites
-*   C++20 Compiler (Clang, GCC, or MSVC)
-*   CMake 3.10+
-*   SDL2 (Development libraries)
-    *   macOS: `brew install sdl2`
-    *   Ubuntu: `sudo apt-get install libsdl2-dev`
+* C++20 Compiler (Clang, GCC, or MSVC)
+* CMake 3.10+
+* SDL2 (Development libraries)
+    * macOS: `brew install sdl2`
+    * Ubuntu: `sudo apt-get install libsdl2-dev`
 
 ### Build Commands
 
@@ -63,51 +63,51 @@ The primary executable is `test_runner` located in `tests/`:
 
 ### Git Commit Guidelines
 Strictly adhere to **Conventional Commits**:
-*   Format: `<type>(<scope>): <subject>`
-*   Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
-*   Example: `feat(renderer): add support for glScissor`
+* Format: `<type>(<scope>): <subject>`
+* Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+* Example: `feat(renderer): add support for glScissor`
 
 ### Adding a New Test
 
-1.  **Directory Structure:** Create a new directory in `tests/<category>/<test_name>`.
-2.  **Build Configuration:** Add a `CMakeLists.txt`:
+1. **Directory Structure:** Create a new directory in `tests/<category>/<test_name>`.
+2. **Build Configuration:** Add a `CMakeLists.txt`:
     ```cmake
     add_tinygl_test(test_name_lib test_source.cpp)
     ```
-3.  **Implementation:** Implement the test class inheriting from `ITestCase`.
-4.  **Registration:** Register the test using the `TestRegistrar` helper at the end of your cpp file:
+3. **Implementation:** Implement the test class inheriting from `ITestCase`.
+4. **Registration:** Register the test using the `TestRegistrar` helper at the end of your cpp file:
     ```cpp
     static TestRegistrar registry("Category", "TestName", []() { return new MyTest(); });
     ```
 
 #### Camera Integration (Mandatory)
 All 3D test cases must include a camera to allow user navigation.
-1.  **Include:** `#include <tinygl/camera.h>`
-2.  **Member:** Add `tinygl::Camera camera;` to your class.
-3.  **Event:** Forward events in `onEvent`: `camera.ProcessEvent(e);`
-4.  **Update:** Update camera physics in `onUpdate`: `camera.Update(dt);`
-5.  **Render:** Use `camera.GetViewMatrix()` and `camera.GetProjectionMatrix()` to compute MVP matrices.
+1. **Include:** `#include <tinygl/camera.h>`
+2. **Member:** Add `tinygl::Camera camera;` to your class.
+3. **Event:** Forward events in `onEvent`: `camera.ProcessEvent(e);`
+4. **Update:** Update camera physics in `onUpdate`: `camera.Update(dt);`
+5. **Render:** Use `camera.GetViewMatrix()` and `camera.GetProjectionMatrix()` to compute MVP matrices.
 
 #### Lifecycle Methods & Responsibilities
-*   `init(ctx)`: **Setup.** Create resources like VAOs, VBOs, Textures, and Shaders. Called once when the test is selected.
-*   `destroy(ctx)`: **Cleanup.** Delete OpenGL resources. Called when switching tests or closing.
-*   `onEvent(e)`: **Input.** Handle SDL events (key presses, mouse movement). **Pass events to `camera` here.**
-*   `onUpdate(dt)`: **Logic.** Update simulation state, rotation angles, camera position, and animations. **Do NOT put logic or state updates in `onRender`.**
-*   `onRender(ctx)`: **Draw.** Execute rendering commands (`glClear`, `glUseProgram`, `glDraw*`). Compute matrices here but rely on state updated in `onUpdate`.
-*   `onGui(ctx, rect)`: **UI.** Render debug UI (sliders, buttons) using MicroUI. Use this to tweak parameters in real-time.
+* `init(ctx)`: **Setup.** Create resources like VAOs, VBOs, Textures, and Shaders. Called once when the test is selected.
+* `destroy(ctx)`: **Cleanup.** Delete OpenGL resources. Called when switching tests or closing.
+* `onEvent(e)`: **Input.** Handle SDL events (key presses, mouse movement). **Pass events to `camera` here.**
+* `onUpdate(dt)`: **Logic.** Update simulation state, rotation angles, camera position, and animations. **Do NOT put logic or state updates in `onRender`.**
+* `onRender(ctx)`: **Draw.** Execute rendering commands (`glClear`, `glUseProgram`, `glDraw*`). Compute matrices here but rely on state updated in `onUpdate`.
+* `onGui(ctx, rect)`: **UI.** Render debug UI (sliders, buttons) using MicroUI. Use this to tweak parameters in real-time.
 
 ### Coding Style
-*   **Standard:** Modern C++20.
-*   **Formatting:** Follow existing indentation (looks like 4 spaces).
-*   **Naming:** 
-    *   Files: `snake_case`.
-    *   Functions: `mixedCamelCase` or `snake_case` (follow local context).
-    *   Variables: **NEVER** use `m_` prefix for any variables, including class members. Prefer `camelCase` or `snake_case` based on existing patterns in the file.
+* **Standard:** Modern C++20.
+* **Formatting:** Follow existing indentation (looks like 4 spaces).
+* **Naming:** 
+    * Files: `snake_case`.
+    * Functions: `mixedCamelCase` or `snake_case` (follow local context).
+    * Variables: **NEVER** use `m_` prefix for any variables, including class members. Prefer `camelCase` or `snake_case` based on existing patterns in the file.
 
 ## Key Files & Directories
 
-*   `include/tinygl/core/tinygl.h`: **The Brain.** The software rasterizer implementation.
-*   `src/framework/application.cpp`: Main application loop and SDL integration.
-*   `tests/test_runner.cpp`: Entry point for the test suite.
-*   `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.
-*   `CMakeLists.txt`: Root build configuration.
+* `include/tinygl/core/tinygl.h`: **The Brain.** The software rasterizer implementation.
+* `src/framework/application.cpp`: Main application loop and SDL integration.
+* `tests/test_runner.cpp`: Entry point for the test suite.
+* `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.
+* `CMakeLists.txt`: Root build configuration.

@@ -7,7 +7,9 @@ This project implements a complete graphics pipeline (Vertex Processing -> Clipp
 ## Features
 
 - **`tinygl.h` Renderer**: A header-only library with a programmable pipeline (using C++ lambdas for Shaders).
-- **Core Pipeline**: Support for `GL_TRIANGLES`, `GL_LINES`, and `GL_POINTS` with perspective-correct interpolation.
+- **Core Pipeline**: Support for `GL_TRIANGLES`, `GL_LINES`, `GL_POINTS` and other primitives with perspective-correct interpolation.
+- **Instancing**: Support for `glDrawArraysInstanced`, `glDrawElementsInstanced` and `glVertexAttribDivisor`.
+- **Render State**: Support for `glPolygonMode` (Fill/Line/Point), `glCullFace`, `glDepthFunc`, etc.
 - **Advanced Texturing**: 
   - **4x4 Tiled/Swizzled Layout**: Optimized for cache locality during rasterization.
   - **Mipmapping**: Automatic mipmap generation (Box filter).

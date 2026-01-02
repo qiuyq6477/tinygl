@@ -6,9 +6,9 @@
 
 ## 📊 概览
 
-- **已实现**：核心绘制管线、基础纹理、顶点处理
+- **已实现**：核心绘制管线、基础纹理、顶点处理、基础状态管理、实例化绘制
 - **部分实现**：纹理参数、Mipmap 生成
-- **未实现**：着色器编译、高级状态管理、DSA (Direct State Access)
+- **未实现**：着色器编译、DSA (Direct State Access)、帧缓冲对象 (FBO)
 
 ---
 
@@ -39,9 +39,28 @@
 | `glEnableVertexAttribArray` | ✅ | 启用顶点属性 |
 | `glDisableVertexAttribArray` | ❌ | 禁用顶点属性 |
 | `glVertexAttribIPointer` | ❌ | 整数属性指针 |
-| `glVertexAttribDivisor` | ❌ | 实例化属性分频 |
+| `glVertexAttribDivisor` | ✅ | 实例化属性分频 |
 
 **实现位置**：`vc/tinygl.h` 中 `VertexArrayObject` 和相关方法
+
+### 渲染状态管理 (Render State)
+
+| API | 状态 | 说明 |
+|-----|------|------|
+| `glEnable` / `glDisable` | ✅ | 启用/禁用功能（深度测试、背面剔除等） |
+| `glDepthFunc` | ✅ | 设置深度测试函数 (GL_LESS, GL_ALWAYS 等) |
+| `glCullFace` / `glFrontFace` | ✅ | 背面剔除控制 (GL_BACK/GL_FRONT, CCW/CW) |
+| `glPolygonMode` | ✅ | 多边形填充模式 (FILL, LINE, POINT) |
+| `glDepthMask` | ❌ | 控制深度写入 |
+| `glColorMask` | ❌ | 颜色写入掩码 |
+| `glBlendFunc` | ❌ | 颜色混合 |
+
+### 视口与裁剪 (Viewport & Scissor)
+
+| API | 状态 | 说明 |
+|-----|------|------|
+| `glViewport` | ✅ | 设置视口 |
+| `glScissor` | ❌ | 裁剪矩形 |
 
 ### 纹理管理 (Texture Management)
 
@@ -85,14 +104,20 @@
 |-----|------|------|
 | `glDrawElements` | ✅ | 使用索引绘制（模板实现） |
 | `glDrawArrays` | ✅ | 直接绘制（模板实现） |
+| `glDrawArraysInstanced` | ✅ | 实例化绘制 |
+| `glDrawElementsInstanced` | ✅ | 索引实例化绘制 |
 | `glDrawElementsBaseVertex` | ❌ | 带基础顶点偏移的索引绘制 |
 | `glDrawElementsIndirect` | ❌ | 间接绘制 |
-| `glDrawArraysInstanced` | ❌ | 实例化绘制 |
+| `glDrawArraysInstancedBaseInstance` | ❌ | 带基础实例的实例化 |
 
 **支持的图元类型**：
 - ✅ `GL_TRIANGLES`
 - ✅ `GL_LINES`
 - ✅ `GL_POINTS`
+- ✅ `GL_TRIANGLE_STRIP`
+- ✅ `GL_TRIANGLE_FAN`
+- ✅ `GL_LINE_STRIP`
+- ✅ `GL_LINE_LOOP`
 
 **支持的索引类型**：
 - ✅ `GL_UNSIGNED_INT`
@@ -174,19 +199,19 @@
 | 透视除法 | ✅ | w 分量除法 |
 | 视口变换 | ✅ | NDC 到屏幕空间转换 |
 | 三角形光栅化 | ✅ | 边界函数法（扫描线优化） |
-| 深度测试 | ✅ | 简单的 z < depthBuffer[pix] 测试 |
-| 背面剔除 | ✅ | CCW 环绕顺序（硬编码） |
+| 深度测试 | ✅ | `z < depthBuffer[pix]` 测试 (可配置函数) |
+| 背面剔除 | ✅ | 可配置 `glCullFace` |
 | 线条光栅化 | ✅ | Bresenham 算法 |
 | 点光栅化 | ✅ | 单像素绘制 |
 | 属性插值 | ✅ | 透视校正的重心坐标插值 |
 | 深度线性化 | ✅ | 1/w 透视修正 |
+| 多边形模式 | ✅ | 支持 FILL, LINE, POINT |
 
 **未实现的光栅化特性**：
 - ❌ 多重采样抗锯齿 (MSAA)
 - ❌ 颜色混合 (`glBlendFunc`)
 - ❌ 颜色掩码 (`glColorMask`)
 - ❌ 模板测试
-- ❌ 多边形模式（仅支持填充）
 - ❌ 线宽控制 (`glLineWidth`)
 - ❌ 点大小控制 (`glPointSize`)
 
@@ -195,30 +220,6 @@
 ---
 
 ## ❌ 未实现的 API
-
-### 渲染状态管理 (Render State)
-
-| API | 优先级 | 说明 |
-|-----|--------|------|
-| `glEnable` / `glDisable` | 🔴 高 | 启用/禁用功能（深度测试、混合、背面剔除等） |
-| `glDepthFunc` | 🔴 高 | 设置深度测试函数（当前仅 `GL_LESS`) |
-| `glDepthMask` | 🟠 中 | 控制深度写入 |
-| `glDepthRange` | 🟡 低 | 深度范围映射 |
-| `glColorMask` | 🟠 中 | 颜色写入掩码 |
-| `glBlendFunc` / `glBlendEquation` | 🔴 高 | 颜色混合 |
-| `glBlendColor` | 🟠 中 | 混合常数颜色 |
-| `glCullFace` / `glFrontFace` | 🟠 中 | 背面剔除控制（当前硬编码 CCW） |
-| `glPolygonMode` | 🟠 中 | 多边形填充模式（仅支持 FILL） |
-| `glLineWidth` | 🟡 低 | 线宽 |
-| `glPointSize` | 🟡 低 | 点大小 |
-
-### 视口与裁剪
-
-| API | 优先级 | 说明 |
-|-----|--------|------|
-| `glViewport` | 🟠 中 | 设置视口（当前硬编码 0,0,W,H） |
-| `glScissor` | 🟠 中 | 裁剪矩形 |
-| `glScissorIndexed` | 🟡 低 | 多视口裁剪 |
 
 ### 模板测试 (Stencil Test)
 
@@ -266,7 +267,6 @@
 | `glGetAttribLocation` | 🔴 高 | 获取属性位置 |
 | `glVertexAttribIPointer` | 🟠 中 | 整数属性指针 |
 | `glVertexAttribLPointer` | 🟠 中 | 双精度属性指针 |
-| `glVertexAttribDivisor` | 🟠 中 | 实例化分频 |
 | `glDisableVertexAttribArray` | 🟡 低 | 禁用属性 |
 
 ### 纹理高级特性
@@ -352,14 +352,6 @@
 | `glDrawArraysIndirect` | 🟠 中 | 间接数组绘制 |
 | `glMultiDrawElementsIndirect` | 🟡 低 | 多间接绘制 |
 
-### 实例化 (Instancing)
-
-| API | 优先级 | 说明 |
-|-----|--------|------|
-| `glDrawArraysInstanced` | 🟠 中 | 实例化绘制 |
-| `glDrawElementsInstanced` | 🟠 中 | 索引实例化绘制 |
-| `glDrawArraysInstancedBaseInstance` | 🟡 低 | 带基础实例的实例化 |
-
 ### 多重采样 (MSAA)
 
 | API | 优先级 | 说明 |
@@ -435,20 +427,19 @@
 ### 第一阶段：核心扩展
 1. **帧缓冲对象** - 离屏渲染支持
 2. **着色器编译** - 运行时 GLSL 编译
-3. **状态管理** - `glEnable`, `glDisable`, 深度函数等
+3. **状态管理** - 完善状态查询 `glGet*`
 4. **Uniform 系统** - `glGetUniformLocation`, `glUniform*`
 
 ### 第二阶段：质量改进
 1. **纹理高级特性** - `glTexSubImage2D`, 3D 纹理
-2. **视口与裁剪** - 动态视口设置，裁剪矩形
+2. **裁剪增强** - 裁剪矩形 `glScissor`
 3. **混合与掩码** - 颜色混合，写入掩码
 4. **采样器对象** - 独立采样器管理
 
 ### 第三阶段：高级功能
-1. **实例化** - `glDrawArraysInstanced`
-2. **间接绘制** - `glDrawElementsIndirect`
-3. **多重采样** - MSAA 支持
-4. **计算着色器** - 通用计算支持
+1. **间接绘制** - `glDrawElementsIndirect`
+2. **多重采样** - MSAA 支持
+3. **计算着色器** - 通用计算支持
 
 ---
 
@@ -471,4 +462,4 @@
 
 ---
 
-**最后更新**：2025-12-07
+**最后更新**：2026-01-02
