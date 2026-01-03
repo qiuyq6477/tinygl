@@ -63,6 +63,8 @@ private:
     uint32_t* m_colorBufferPtr = nullptr; // Pointer to the active color buffer (internal or external)
 
     std::vector<float> depthBuffer;
+    std::vector<uint8_t> stencilBuffer; // 8-bit Stencil Buffer
+
     std::vector<uint32_t> m_indexCache;
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
@@ -72,31 +74,90 @@ private:
     GLenum m_frontFace = GL_CCW;     // Default counter-clockwise is front
     GLboolean m_depthMask = GL_TRUE; // Default depth writing enabled
 
+    // Stencil State
+    GLenum m_stencilFunc = GL_ALWAYS;
+    GLint m_stencilRef = 0;
+    GLuint m_stencilValueMask = 0xFFFFFFFF;
+    GLuint m_stencilWriteMask = 0xFFFFFFFF;
+    GLenum m_stencilFail = GL_KEEP;
+    GLenum m_stencilPassDepthFail = GL_KEEP;
+    GLenum m_stencilPassDepthPass = GL_KEEP;
+    GLint m_clearStencil = 0;
+
     // Capabilities
     std::unordered_map<GLenum, GLboolean> m_capabilities = {
         {GL_DEPTH_TEST, GL_TRUE}, // Default enabled for backward compatibility
-        {GL_CULL_FACE, GL_FALSE}  // Default disabled
+        {GL_CULL_FACE, GL_FALSE}, // Default disabled
+        {GL_STENCIL_TEST, GL_FALSE}
     };
     GLenum m_depthFunc = GL_LESS;
+
+    // Stencil Op Helper
+    inline void applyStencilOp(GLenum op, uint8_t& val) {
+        uint8_t newVal = val;
+        switch (op) {
+            case GL_KEEP: return;
+            case GL_ZERO: newVal = 0; break;
+            case GL_REPLACE: newVal = (uint8_t)(m_stencilRef & 0xFF); break;
+            case GL_INCR: if (newVal < 255) newVal++; break;
+            case GL_DECR: if (newVal > 0) newVal--; break;
+            case GL_INVERT: newVal = ~newVal; break;
+            case GL_INCR_WRAP: newVal++; break;
+            case GL_DECR_WRAP: newVal--; break;
+            default: return;
+        }
+        val = (val & ~m_stencilWriteMask) | (newVal & m_stencilWriteMask);
+    }
+
+    inline bool checkStencil(uint8_t stencilVal) {
+        if (!m_capabilities[GL_STENCIL_TEST]) return true;
+
+        uint8_t val = stencilVal & m_stencilValueMask;
+        uint8_t ref = m_stencilRef & m_stencilValueMask;
+        
+        switch (m_stencilFunc) {
+            case GL_NEVER: return false;
+            case GL_LESS: return ref < val;
+            case GL_LEQUAL: return ref <= val;
+            case GL_GREATER: return ref > val;
+            case GL_GEQUAL: return ref >= val;
+            case GL_EQUAL: return ref == val;
+            case GL_NOTEQUAL: return ref != val;
+            case GL_ALWAYS: return true;
+            default: return true;
+        }
+    }
+
+    // Stencil Test Helper
+    // Returns true if the fragment passes the stencil test.
+    // DOES NOT update stencil buffer (that depends on depth result).
+    inline bool checkStencil(int x, int y) {
+        if (!m_capabilities[GL_STENCIL_TEST]) return true;
+        int idx = y * fbWidth + x;
+        return checkStencil(stencilBuffer[idx]);
+    }
+
+    inline bool testDepth(float z, float currentDepth) {
+        if (!m_capabilities[GL_DEPTH_TEST]) return true; // If disabled, always pass, but DO NOT update depth
+        
+        switch (m_depthFunc) {
+            case GL_NEVER:      return false;
+            case GL_LESS:       return z < currentDepth;
+            case GL_EQUAL:      return std::abs(z - currentDepth) < EPSILON;
+            case GL_LEQUAL:     return z <= currentDepth;
+            case GL_GREATER:    return z > currentDepth;
+            case GL_NOTEQUAL:   return std::abs(z - currentDepth) > EPSILON;
+            case GL_GEQUAL:     return z >= currentDepth;
+            case GL_ALWAYS:     return true;
+            default:            return z < currentDepth;
+        }
+    }
 
     // Depth Test Helper
     // Returns true if the fragment passes the depth test.
     // Automatically updates the depth buffer if the test passes and Depth Test is enabled.
     inline bool checkDepth(float z, float& currentDepth) {
-        if (!m_capabilities[GL_DEPTH_TEST]) return true; // If disabled, always pass, but DO NOT update depth
-        
-        bool pass = false;
-        switch (m_depthFunc) {
-            case GL_NEVER:      pass = false; break;
-            case GL_LESS:       pass = z < currentDepth; break;
-            case GL_EQUAL:      pass = std::abs(z - currentDepth) < EPSILON; break;
-            case GL_LEQUAL:     pass = z <= currentDepth; break;
-            case GL_GREATER:    pass = z > currentDepth; break;
-            case GL_NOTEQUAL:   pass = std::abs(z - currentDepth) > EPSILON; break;
-            case GL_GEQUAL:     pass = z >= currentDepth; break;
-            case GL_ALWAYS:     pass = true; break;
-            default:            pass = z < currentDepth; break;
-        }
+        bool pass = testDepth(z, currentDepth);
 
         if (pass && m_depthMask) {
             currentDepth = z;
@@ -115,7 +176,10 @@ public:
         m_colorBufferPtr = colorBuffer.data();               // Default to internal buffer
 
         // 【Fix 1】: Depth 初始化为极大值，确保 z=1.0 的物体能通过测试
-        depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY);       
+        depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY); 
+        // Stencil Init
+        stencilBuffer.resize(fbWidth * fbHeight, 0);
+
         LOG_INFO("Context Initialized (" + std::to_string(fbWidth) + "x" + std::to_string(fbHeight) + ")");
     }
 
@@ -143,6 +207,23 @@ public:
     
     void glDepthMask(GLboolean flag){
         m_depthMask = flag;
+    }
+
+    void glStencilFunc(GLenum func, GLint ref, GLuint mask){
+        m_stencilFunc = func;
+        m_stencilRef = ref;
+        m_stencilValueMask = mask;
+    }
+    void glStencilOp(GLenum fail, GLenum zfail, GLenum zpass){
+        m_stencilFail = fail;
+        m_stencilPassDepthFail = zfail;
+        m_stencilPassDepthPass = zpass;
+    }
+    void glStencilMask(GLuint mask){
+        m_stencilWriteMask = mask;
+    }
+    void glClearStencil(GLint s){
+        m_clearStencil = s;
     }
 
     void glEnable(GLenum cap) {
@@ -667,6 +748,8 @@ public:
             uint32_t pixelOffset = y * fbWidth + minX;
             uint32_t* pColor = m_colorBufferPtr + pixelOffset;
             float* pDepth = depthBuffer.data() + pixelOffset;
+            uint8_t* pStencil = stencilBuffer.data() + pixelOffset;
+
             // [优化] 将 fsIn 提到循环外，避免每次循环都构造 memset
             ShaderContext fsIn; 
             fsIn.rho = 0; 
@@ -685,7 +768,23 @@ public:
                     // 深度测试
                     if (zInv > 1e-6f) { // 避免除以0
                         float z = 1.0f / zInv;
-                        if (checkDepth(z, *pDepth)) {
+                        
+                        bool stencilPassed = true;
+                        if (m_capabilities[GL_STENCIL_TEST]) {
+                            if (!checkStencil(*pStencil)) {
+                                applyStencilOp(m_stencilFail, *pStencil);
+                                stencilPassed = false;
+                            } else {
+                                if (!testDepth(z, *pDepth)) {
+                                    applyStencilOp(m_stencilPassDepthFail, *pStencil);
+                                    stencilPassed = false;
+                                } else {
+                                    applyStencilOp(m_stencilPassDepthPass, *pStencil);
+                                }
+                            }
+                        }
+
+                        if (stencilPassed && checkDepth(z, *pDepth)) {
                             
                             // 广播 z 到 SIMD 寄存器，用于最后的透视恢复
                             Simd4f z_vec(z);
@@ -736,7 +835,7 @@ public:
                 
                 // X轴增量
                 w0 += A0; w1 += A1; w2 += A2;
-                pColor++; pDepth++;
+                pColor++; pDepth++; pStencil++;
             }
             // Y轴增量
             w0_row += B0; w1_row += B1; w2_row += B2;

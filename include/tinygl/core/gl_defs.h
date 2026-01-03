@@ -34,6 +34,7 @@ const GLboolean GL_TRUE = 1;
 const GLboolean GL_FALSE = 0;
 
 const GLenum GL_DEPTH_TEST = 0x0B71;
+const GLenum GL_STENCIL_TEST = 0x0B90;
 const GLenum GL_CULL_FACE = 0x0B44;
 
 const GLenum GL_NEVER = 0x0200;
@@ -44,6 +45,15 @@ const GLenum GL_GREATER = 0x0204;
 const GLenum GL_NOTEQUAL = 0x0205;
 const GLenum GL_GEQUAL = 0x0206;
 const GLenum GL_ALWAYS = 0x0207;
+
+const GLenum GL_KEEP = 0x1E00;
+const GLenum GL_REPLACE = 0x1E01;
+const GLenum GL_INCR = 0x1E02;
+const GLenum GL_DECR = 0x1E03;
+const GLenum GL_INVERT = 0x150A;
+const GLenum GL_INCR_WRAP = 0x8507;
+const GLenum GL_DECR_WRAP = 0x8508;
+const GLenum GL_ZERO = 0x0;
 
 const GLenum GL_POINTS = 0x0000;
 const GLenum GL_LINES = 0x0001;

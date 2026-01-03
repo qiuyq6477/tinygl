@@ -34,6 +34,9 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
     if ((buffersToClear & GL_DEPTH_BUFFER_BIT) && m_depthMask) {
         std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
     }
+    if (buffersToClear & GL_STENCIL_BUFFER_BIT) {
+        std::fill(stencilBuffer.begin(), stencilBuffer.end(), (uint8_t)(m_clearStencil & 0xFF));
+    }
 }
 
 }
