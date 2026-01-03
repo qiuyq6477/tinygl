@@ -103,6 +103,7 @@ public:
         ctx.glDeleteBuffers(1, &m_vbo);
         ctx.glDeleteBuffers(1, &m_ebo);
         ctx.glDeleteTextures(1, &m_texture);
+        ctx.glDisable(GL_STENCIL_TEST);
     }
 
     void onEvent(const SDL_Event& e) override {
