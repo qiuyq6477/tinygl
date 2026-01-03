@@ -16,9 +16,18 @@ namespace tinygl {
 struct ShaderContext { 
     Vec4 varyings[MAX_VARYINGS]; 
     float rho = 0.0f; // 纹理导数模长 ( UV单位 / 屏幕像素 ) (UV Span per Screen Pixel)
+    
+    // Per-Fragment Operations control
+    bool discarded = false;
+    bool fragDepthWritten = false;
+    float fragDepth = 0.0f;
+
     ShaderContext() {
         std::memset(varyings, 0, sizeof(varyings));
     }
+
+    void discard() { discarded = true; }
+    void setDepth(float z) { fragDepth = z; fragDepthWritten = true; }
 };
 
 // VOut: 顶点着色器的输出，也是裁剪阶段的输入

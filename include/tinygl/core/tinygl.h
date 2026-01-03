@@ -305,360 +305,6 @@ public:
     StaticVector<VOut, 16> clipLine(const VOut& v0, const VOut& v1);
 
     // --- rasterize ---
-    // 纯粹的光栅化三角形逻辑 (Rasterize Triangle) - Scanline Implementation
-    /*
-    * 顶点排序：首先根据 Y 坐标对三个顶点进行排序（Top, Mid, Bottom）。
-    * 梯度计算：基于平面方程预计算 Z (深度) 和所有 Varyings (属性) 随 X 和 Y 的变化率 (d/dx, d/dy)，避免了逐像素的重心坐标计算。
-    * 边缘遍历：利用 Bresenham 思想或斜率步进，计算每一行扫描线的左右边界 (cx_left, cx_right)。
-    * 扫描线填充：
-        * 将三角形分为上半部分（Top-Mid）和下半部分（Mid-Bottom）分别循环。
-        * 在每行扫描线起始处，利用梯度公式计算初始属性值。
-        * 行内循环利用增量更新 (val += dVal/dX) 快速插值属性，极大提升了内层循环效率。
-    * 透视校正：保留了基于 1/w 的透视校正插值逻辑，确保纹理和颜色在 3D 空间中的正确性。
-    */
-
-    template <typename ShaderT>
-    void rasterizeTriangleScanline(ShaderT& shader, const VOut& v0_in, const VOut& v1_in, const VOut& v2_in) {
-        // 1. Backface Culling & Area Calculation (Use original winding)
-        float area = (v1_in.scn.x - v0_in.scn.x) * (v2_in.scn.y - v0_in.scn.y) - 
-                     (v1_in.scn.y - v0_in.scn.y) * (v2_in.scn.x - v0_in.scn.x);
-        
-        // 【Fix】: Invert culling logic.
-        // In screen space (Y-down), standard CCW winding produces a NEGATIVE determinant/area.
-        // So Front Faces have area < 0. We cull if area >= 0.
-        if (area >= 0) return;
-        float invArea = 1.0f / area;
-
-        // 2. Gradient Calculation (Plane Equations)
-        // dVal/dX = [ (val1-val0)*(y2-y0) - (val2-val0)*(y1-y0) ] / Area
-        // dVal/dY = [ (val2-val0)*(x1-x0) - (val1-val0)*(x2-x0) ] / Area
-        auto calcGrad = [&](float val0, float val1, float val2) -> std::pair<float, float> {
-             float t0 = val1 - val0;
-             float t1 = val2 - val0;
-             float ddx = (t0 * (v2_in.scn.y - v0_in.scn.y) - t1 * (v1_in.scn.y - v0_in.scn.y)) * invArea;
-             float ddy = (t1 * (v1_in.scn.x - v0_in.scn.x) - t0 * (v2_in.scn.x - v0_in.scn.x)) * invArea;
-             return {ddx, ddy};
-        };
-
-        // Gradients for Z (1/w)
-        auto [dzdx, dzdy] = calcGrad(v0_in.scn.w, v1_in.scn.w, v2_in.scn.w);
-
-        // Gradients for Varyings (Pre-multiplied by 1/w)
-        struct VaryingGrad { float dx[4], dy[4]; };
-        VaryingGrad dv[MAX_VARYINGS];
-
-        for(int i=0; i<MAX_VARYINGS; ++i) {
-             Vec4 va0 = v0_in.ctx.varyings[i] * v0_in.scn.w;
-             Vec4 va1 = v1_in.ctx.varyings[i] * v1_in.scn.w;
-             Vec4 va2 = v2_in.ctx.varyings[i] * v2_in.scn.w;
-             
-             auto gX = calcGrad(va0.x, va1.x, va2.x); dv[i].dx[0] = gX.first; dv[i].dy[0] = gX.second;
-             auto gY = calcGrad(va0.y, va1.y, va2.y); dv[i].dx[1] = gY.first; dv[i].dy[1] = gY.second;
-             auto gZ = calcGrad(va0.z, va1.z, va2.z); dv[i].dx[2] = gZ.first; dv[i].dy[2] = gZ.second;
-             auto gW = calcGrad(va0.w, va1.w, va2.w); dv[i].dx[3] = gW.first; dv[i].dy[3] = gW.second;
-        }
-
-        // 3. Vertex Sorting (Top to Bottom)
-        const VOut* p[3] = { &v0_in, &v1_in, &v2_in };
-        if (p[0]->scn.y > p[1]->scn.y) std::swap(p[0], p[1]);
-        if (p[0]->scn.y > p[2]->scn.y) std::swap(p[0], p[2]);
-        if (p[1]->scn.y > p[2]->scn.y) std::swap(p[1], p[2]);
-
-        const VOut& vTop = *p[0];
-        const VOut& vMid = *p[1];
-        const VOut& vBot = *p[2];
-
-        // 4. Setup Edges
-        int yStart = (int)std::ceil(vTop.scn.y - 0.5f);
-        int yMid   = (int)std::ceil(vMid.scn.y - 0.5f);
-        int yEnd   = (int)std::ceil(vBot.scn.y - 0.5f);
-
-        if (yStart >= yEnd) return; // Zero height
-
-        // Calculate Edge Slopes (dX/dY)
-        // Guard against div by zero? (yDiff is at least something if yStart < yEnd, but logic below handles blocks)
-        float dyLong = vBot.scn.y - vTop.scn.y;
-        float dyTop  = vMid.scn.y - vTop.scn.y;
-        float dyBot  = vBot.scn.y - vMid.scn.y;
-
-        float dxLong = (vBot.scn.x - vTop.scn.x) / (std::abs(dyLong) < EPSILON ? 1.0f : dyLong);
-        float dxTop  = (vMid.scn.x - vTop.scn.x) / (std::abs(dyTop) < EPSILON ? 1.0f : dyTop);
-        float dxBot  = (vBot.scn.x - vMid.scn.x) / (std::abs(dyBot) < EPSILON ? 1.0f : dyBot);
-
-        // Determine Left/Right
-        // Cross product logic to see if Mid is to the left of Long Edge
-        // (vBot.x - vTop.x)*(vMid.y - vTop.y) - (vBot.y - vTop.y)*(vMid.x - vTop.x)
-        // Note: Y is down in Screen Space? Code says v.scn.y = (1.0 - y)*H. So Y=0 is Top.
-        // Let's rely on X comparison at Mid Y.
-        float xLongAtMid = vTop.scn.x + dxLong * dyTop;
-        bool midIsLeft = vMid.scn.x < xLongAtMid;
-
-        // Current X trackers
-        float cx_left, cx_right;
-        float dLeft, dRight;
-
-        // Initialize X at yStart
-        float dyStart = (yStart + 0.5f) - vTop.scn.y;
-        
-        // We handle two phases: Top Half (yStart -> yMid) and Bottom Half (yMid -> yEnd)
-        // ---------------------------------------------------------
-        // Loop Helper (Macro or Lambda to avoid code duplication)
-        // ---------------------------------------------------------
-        auto processScanline = [&](int y, int xL, int xR) {
-            // Viewport & Boundary Clipping
-            int vy0 = std::max(0, m_viewport.y);
-            int vy1 = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
-            if (y < vy0 || y >= vy1) return;
-
-            int vx0 = std::max(0, m_viewport.x);
-            int vx1 = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-
-            int xs = std::max(vx0, xL);
-            int xe = std::min(vx1, xR);
-            if (xs >= xe) return;
-
-            // Row Start Params
-            float dy = (y + 0.5f) - v0_in.scn.y; // Relative to v0 for gradient calc
-            float dx_start = (xs + 0.5f) - v0_in.scn.x;
-
-            // Initialize running values at start of span
-            float zInv = v0_in.scn.w + dx_start * dzdx + dy * dzdy;
-            Vec4 runVar[MAX_VARYINGS];
-            for(int i=0; i<MAX_VARYINGS; ++i) {
-                // Pre-calc va0
-                Vec4 va0 = v0_in.ctx.varyings[i] * v0_in.scn.w;
-                runVar[i].x = va0.x + dx_start * dv[i].dx[0] + dy * dv[i].dy[0];
-                runVar[i].y = va0.y + dx_start * dv[i].dx[1] + dy * dv[i].dy[1];
-                runVar[i].z = va0.z + dx_start * dv[i].dx[2] + dy * dv[i].dy[2];
-                runVar[i].w = va0.w + dx_start * dv[i].dx[3] + dy * dv[i].dy[3];
-            }
-
-            int pixOffset = y * fbWidth + xs;
-            ShaderContext fsIn;
-
-            for (int x = xs; x < xe; ++x) {
-                if (zInv > 0) {
-                    float z = 1.0f / zInv;
-                    if (checkDepth(z, depthBuffer[pixOffset])) {
-                        // Recover Attributes
-                        for(int k=0; k<MAX_VARYINGS; ++k) {
-                            fsIn.varyings[k].x = runVar[k].x * z;
-                            fsIn.varyings[k].y = runVar[k].y * z;
-                            fsIn.varyings[k].z = runVar[k].z * z;
-                            fsIn.varyings[k].w = runVar[k].w * z;
-                        }
-
-                        // Shading
-                        Vec4 fColor = shader.fragment(fsIn);
-                        m_colorBufferPtr[pixOffset] = ColorUtils::FloatToUint32(fColor);
-                    }
-                }
-                
-                // Increment X
-                zInv += dzdx;
-                for(int k=0; k<MAX_VARYINGS; ++k) {
-                    runVar[k].x += dv[k].dx[0];
-                    runVar[k].y += dv[k].dx[1];
-                    runVar[k].z += dv[k].dx[2];
-                    runVar[k].w += dv[k].dx[3];
-                }
-                pixOffset++;
-            }
-        };
-
-        // --- Phase 1: Top Half ---
-        if (midIsLeft) {
-            dLeft = dxTop; dRight = dxLong;
-            cx_left = vTop.scn.x + dLeft * dyStart;
-            cx_right = vTop.scn.x + dRight * dyStart;
-        } else {
-            dLeft = dxLong; dRight = dxTop;
-            cx_left = vTop.scn.x + dLeft * dyStart;
-            cx_right = vTop.scn.x + dRight * dyStart;
-        }
-
-        for (int y = yStart; y < yMid; ++y) {
-            processScanline(y, (int)std::ceil(cx_left - 0.5f), (int)std::ceil(cx_right - 0.5f));
-            cx_left += dLeft;
-            cx_right += dRight;
-        }
-
-        // --- Phase 2: Bottom Half ---
-        // Need to realign the short edge to start from Mid
-        float dyMid = (yMid + 0.5f) - vMid.scn.y;
-        
-        // If midIsLeft, Left edge switches from Top->Mid to Mid->Bot
-        // Right edge continues Top->Bot
-        if (midIsLeft) {
-            dLeft = dxBot; 
-            // Reset left X to Mid
-            cx_left = vMid.scn.x + dLeft * dyMid;
-            // Right X continues, but to be safe/precise we could leave it
-            // or re-calculate from top? Incrementing is usually fine.
-        } else {
-            dRight = dxBot;
-            // Reset right X to Mid
-            cx_right = vMid.scn.x + dRight * dyMid;
-        }
-
-        for (int y = yMid; y < yEnd; ++y) {
-             processScanline(y, (int)std::ceil(cx_left - 0.5f), (int)std::ceil(cx_right - 0.5f));
-             cx_left += dLeft;
-             cx_right += dRight;
-        }
-    }
-
-    // 纯粹的光栅化三角形逻辑 (Rasterize Triangle)
-    // 输入已经是 Screen Space 的三个顶点
-    template <typename ShaderT>
-    void rasterizeTriangleEdgeFunction(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
-        // 1. 包围盒计算 (Bounding Box)
-        int limitMinX = std::max(0, m_viewport.x);
-        int limitMaxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-        int limitMinY = std::max(0, m_viewport.y);
-        int limitMaxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
-
-        int minX = std::max(limitMinX, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
-        int maxX = std::min(limitMaxX - 1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
-        int minY = std::max(limitMinY, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
-        int maxY = std::min(limitMaxY - 1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
-
-        // 2. 面积计算与背面剔除 (Area & Backface Culling)
-        // 注意：这里使用的是屏幕空间坐标 (x, y)
-        float area = (v1.scn.y - v0.scn.y) * (v2.scn.x - v0.scn.x) - 
-                    (v1.scn.x - v0.scn.x) * (v2.scn.y - v0.scn.y);
-        
-        // 如果面积 <= 0，说明是背面或退化三角形，直接剔除
-        if (area <= 0) return; 
-        float invArea = 1.0f / area;
-
-        // ==========================================
-        // [优化核心]：增量式光栅化设置 (Incremental Setup)
-        // ==========================================
-        
-        // 定义 Edge 函数辅助 Lambda (仅用于初始化起点)
-        auto edgeFunc = [](const Vec4& a, const Vec4& b, float px, float py) {
-            return (b.y - a.y) * (px - a.x) - (b.x - a.x) * (py - a.y);
-        };
-
-        // 计算步进系数 (Stepping Coefficients)
-        // A 代表向右走一步 (x+1) 权重的增量: dEdge/dx = y_b - y_a
-        // B 代表向下走一步 (y+1) 权重的增量: dEdge/dy = x_a - x_b
-        
-        // Edge 0: v1 -> v2 (控制 v0 的权重)
-        float A0 = v2.scn.y - v1.scn.y; 
-        float B0 = v1.scn.x - v2.scn.x;
-        
-        // Edge 1: v2 -> v0 (控制 v1 的权重)
-        float A1 = v0.scn.y - v2.scn.y; 
-        float B1 = v2.scn.x - v0.scn.x;
-        
-        // Edge 2: v0 -> v1 (控制 v2 的权重)
-        float A2 = v1.scn.y - v0.scn.y; 
-        float B2 = v0.scn.x - v1.scn.x;
-
-        // 采样中心偏移 (Pixel Center Offset)
-        float startX = minX + 0.5f;
-        float startY = minY + 0.5f;
-
-        // 计算起始行 (minY, minX) 的初始权重
-        float w0_row = edgeFunc(v1.scn, v2.scn, startX, startY);
-        float w1_row = edgeFunc(v2.scn, v0.scn, startX, startY);
-        float w2_row = edgeFunc(v0.scn, v1.scn, startX, startY);
-
-        // ==========================================
-        // 光栅化循环 (Rasterization Loop)
-        // ==========================================
-        
-        for (int y = minY; y <= maxY; ++y) {
-            // 初始化当前扫描线的权重
-            float w0 = w0_row;
-            float w1 = w1_row;
-            float w2 = w2_row;
-
-            for (int x = minX; x <= maxX; ++x) {
-                // Inside Test: 检查所有权重是否 >= 0
-                // 使用位运算优化符号检查 (或者简单的 if)
-                if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-                    
-                    // 1. 计算重心坐标 (Barycentric Coordinates)
-                    float alpha = w0 * invArea;
-                    float beta  = w1 * invArea;
-                    float gamma = w2 * invArea;
-
-                    // 2. 透视校正深度插值 (Perspective Correct Depth)
-                    // v.scn.w 存储的是 1/w_clip
-                    float zInv = alpha * v0.scn.w + beta * v1.scn.w + gamma * v2.scn.w;
-                    
-                    // 3. 深度测试 (Early Depth Test)
-                    // 只有当 zInv > 0 时才有效 (虽已由 Clip 保证，但安全第一)
-                    if (zInv > 0) {
-                        float z = 1.0f / zInv;
-                        int pix = y * fbWidth + x;
-
-                        if (z < depthBuffer[pix]) {
-                            depthBuffer[pix] = z;
-
-                            // 4. 属性插值 (Attribute Interpolation)
-                            ShaderContext fsIn;
-
-                            // 展开循环以利用 CPU 流水线 (编译器通常会自动展开)
-                            // for (int k = 0; k < MAX_VARYINGS; ++k) {
-                            //     // 插值公式: Interpolated = (Attr0*w0 + Attr1*w1 + Attr2*w2) / zInv
-                            //     // 预先乘好 1/w 部分: var * scn.w
-                            //     fsIn.varyings[k] = (v0.ctx.varyings[k] * v0.scn.w * alpha + 
-                            //                         v1.ctx.varyings[k] * v1.scn.w * beta + 
-                            //                         v2.ctx.varyings[k] * v2.scn.w * gamma) * z;
-                            // }
-                            // 预计算这三个顶点的 varyings 指针，避免 vector 索引开销
-                            const Vec4* var0Ptr = v0.ctx.varyings;
-                            const Vec4* var1Ptr = v1.ctx.varyings;
-                            const Vec4* var2Ptr = v2.ctx.varyings;
-
-                            // 预计算权重因子
-                            float w_alpha = v0.scn.w * alpha * z;
-                            float w_beta  = v1.scn.w * beta * z;
-                            float w_gamma = v2.scn.w * gamma * z;
-
-                            // 手动展开 MAX_VARYINGS 循环 (假设 MAX_VARYINGS = 8)
-                            // 并且手动展开 Vec4 的 x,y,z,w 计算，避免创建 Vec4 临时对象
-                            // 实际上，为了通用性，我们保留 k 循环，但展开内部的 Vec4 运算
-                            for (int k = 0; k < MAX_VARYINGS; ++k) {
-                                // 直接操作 float，不创建 Vec4 对象
-                                float x = var0Ptr[k].x * w_alpha + var1Ptr[k].x * w_beta + var2Ptr[k].x * w_gamma;
-                                float y = var0Ptr[k].y * w_alpha + var1Ptr[k].y * w_beta + var2Ptr[k].y * w_gamma;
-                                float z = var0Ptr[k].z * w_alpha + var1Ptr[k].z * w_beta + var2Ptr[k].z * w_gamma;
-                                float w = var0Ptr[k].w * w_alpha + var1Ptr[k].w * w_beta + var2Ptr[k].w * w_gamma;
-                                
-                                // 仅在赋值时构造一次
-                                fsIn.varyings[k].x = x;
-                                fsIn.varyings[k].y = y;
-                                fsIn.varyings[k].z = z;
-                                fsIn.varyings[k].w = w;
-                            }
-
-                            // 5. 执行 Fragment Shader
-                            // (此时建议 fs 内部已经是优化过的 Lambda，不含哈希查找)
-                            Vec4 fColor = shader.fragment(fsIn);
-                            // 6. 颜色写入 (Color Write)
-                            m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
-                        }
-                    }
-                }
-
-                // [增量] X 轴推进一步 (Move Right)
-                w0 += A0;
-                w1 += A1;
-                w2 += A2;
-            }
-
-            // [增量] Y 轴推进一步 (Move Down)
-            w0_row += B0;
-            w1_row += B1;
-            w2_row += B2;
-        }
-    }
-
     template <typename ShaderT>
     void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
         // 1. 包围盒计算 (Bounding Box)
@@ -752,83 +398,88 @@ public:
 
             // [优化] 将 fsIn 提到循环外，避免每次循环都构造 memset
             ShaderContext fsIn; 
-            fsIn.rho = 0; 
             for (int x = minX; x <= maxX; ++x) {
-                // 位运算优化符号检查: (w0 | w1 | w2) >= 0
-                // 注意：需要确保 float 的符号位逻辑，这里用 union cast 或简单的 if
-                // 现代编译器对 if (f>=0) 优化得很好，我们保持可读性
                 if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
                     float alpha = w0 * invArea;
                     float beta  = w1 * invArea;
                     float gamma = w2 * invArea;
 
-                    // 透视校正深度 1/w_view
                     float zInv = alpha * tv0.scn.w + beta * tv1.scn.w + gamma * tv2.scn.w;
                     
-                    // 深度测试
-                    if (zInv > 1e-6f) { // 避免除以0
+                    if (zInv > 1e-6f) {
                         float z = 1.0f / zInv;
                         
-                        bool stencilPassed = true;
-                        if (m_capabilities[GL_STENCIL_TEST]) {
-                            if (!checkStencil(*pStencil)) {
-                                applyStencilOp(m_stencilFail, *pStencil);
-                                stencilPassed = false;
-                            } else {
-                                if (!testDepth(z, *pDepth)) {
-                                    applyStencilOp(m_stencilPassDepthFail, *pStencil);
-                                    stencilPassed = false;
-                                } else {
-                                    applyStencilOp(m_stencilPassDepthPass, *pStencil);
-                                }
-                            }
+                        // 1. Early-Z Optimization (Read-only)
+                        bool earlyZPass = true;
+                        if (m_capabilities[GL_DEPTH_TEST]) {
+                            earlyZPass = testDepth(z, *pDepth);
                         }
 
-                        if (stencilPassed && checkDepth(z, *pDepth)) {
-                            
-                            // 广播 z 到 SIMD 寄存器，用于最后的透视恢复
+                        if (earlyZPass) {
+                            // 2. Fragment Interpolation
+                            fsIn.discarded = false;
+                            fsIn.fragDepthWritten = false;
+                            fsIn.rho = 0;
+
                             Simd4f z_vec(z);
                             Simd4f alpha_vec(alpha);
                             Simd4f beta_vec(beta);
                             Simd4f gamma_vec(gamma);
 
-                            // [通用型 SIMD 插值]
-                            // 无论 Shader 用了几个 Varying，我们都利用 SIMD 一次处理 4 个分量
-                            // 编译器会自动展开这个循环 (Loop Unrolling)
                             for (int k = 0; k < MAX_VARYINGS; ++k) {
-                                // Interpolated = (PreVar0 * alpha + PreVar1 * beta + PreVar2 * gamma) * z
-                                // 使用 FMA (Fused Multiply-Add) 指令加速
                                 Simd4f res = preVar0[k] * alpha_vec;
                                 res = res.madd(preVar1[k], beta_vec);
                                 res = res.madd(preVar2[k], gamma_vec);
                                 res = res * z_vec;
-                                
-                                // 存储回 ShaderContext
                                 res.store(fsIn.varyings[k]);
                             }
 
-                            // --- LOD Calculation (Dynamic Per-Pixel) ---
-                            // Refactored to use helper function
-                            // Precompute d(1/w)/dx once per triangle
+                            // --- LOD Calculation ---
                             float dADX = A0 * invArea; float dBDX = A1 * invArea; float dGDX = A2 * invArea;
                             float dADY = B0 * invArea; float dBDY = B1 * invArea; float dGDY = B2 * invArea;
-                            
-                            float dZwDX = dADX * tv0.scn.w + dBDX * tv1.scn.w + dGDX * tv2.scn.w; // d(1/w)/dx
-                            float dZwDY = dADY * tv0.scn.w + dBDY * tv1.scn.w + dGDY * tv2.scn.w; // d(1/w)/dy
-                            
-                            // For Varying 0 (UV):
+                            float dZwDX = dADX * tv0.scn.w + dBDX * tv1.scn.w + dGDX * tv2.scn.w;
+                            float dZwDY = dADY * tv0.scn.w + dBDY * tv1.scn.w + dGDY * tv2.scn.w;
                             Vec4 uv0 = tv0.ctx.varyings[0] * tv0.scn.w;
                             Vec4 uv1 = tv1.ctx.varyings[0] * tv1.scn.w;
                             Vec4 uv2 = tv2.ctx.varyings[0] * tv2.scn.w;
-                            
                             Vec4 dUVwDX = uv0 * dADX + uv1 * dBDX + uv2 * dGDX;
                             Vec4 dUVwDY = uv0 * dADY + uv1 * dBDY + uv2 * dGDY;
-                            
                             fsIn.rho = computeRho(z, dUVwDX, dUVwDY, dZwDX, dZwDY, fsIn.varyings[0].x, fsIn.varyings[0].y);
 
-                            // 内联调用 Fragment Shader
+                            // 3. Fragment Shader
                             Vec4 fColor = shader.fragment(fsIn);
-                            *pColor = ColorUtils::FloatToUint32(fColor);
+
+                            // 4. Discard Check
+                            if (!fsIn.discarded) {
+                                float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+
+                                // 5. Late Stencil & Depth Test + Buffer Updates
+                                bool passed = true;
+                                if (m_capabilities[GL_STENCIL_TEST]) {
+                                    if (!checkStencil(*pStencil)) {
+                                        applyStencilOp(m_stencilFail, *pStencil);
+                                        passed = false;
+                                    } else {
+                                        if (!testDepth(finalZ, *pDepth)) {
+                                            applyStencilOp(m_stencilPassDepthFail, *pStencil);
+                                            passed = false;
+                                        } else {
+                                            applyStencilOp(m_stencilPassDepthPass, *pStencil);
+                                        }
+                                    }
+                                }
+
+                                if (passed && m_capabilities[GL_DEPTH_TEST]) {
+                                    if (!testDepth(finalZ, *pDepth)) {
+                                        passed = false;
+                                    }
+                                }
+
+                                if (passed) {
+                                    if (m_depthMask) *pDepth = finalZ;
+                                    *pColor = ColorUtils::FloatToUint32(fColor);
+                                }
+                            }
                         }
                     }
                 }
@@ -898,25 +549,58 @@ public:
                     float z = 1.0f / zInv; // 恢复真实深度
                     int pix = y0 * fbWidth + x0;
                     
-                    if (checkDepth(z, depthBuffer[pix])) {
+                    // 1. Early-Z Optimization
+                    bool earlyZPass = true;
+                    if (m_capabilities[GL_DEPTH_TEST]) {
+                        earlyZPass = testDepth(z, depthBuffer[pix]);
+                    }
 
-                        // 属性插值
+                    if (earlyZPass) {
+                        // 2. Interpolate
                         ShaderContext fsIn;
+                        fsIn.discarded = false;
+                        fsIn.fragDepthWritten = false;
+                        fsIn.rho = 0; // Lines usually don't have well defined Rho without extra math
 
-                        // 利用 SIMD 批量插值 Varyings
-                        // 插值公式: val = (val0 * w0 * (1-t) + val1 * w1 * t) * z
-                        // 预计算权重
                         float w_t0 = v0.scn.w * (1.0f - t) * z;
                         float w_t1 = v1.scn.w * t * z;
 
-                        // 简单循环或 SIMD 处理 Varyings
                         for(int k=0; k<MAX_VARYINGS; ++k) {
                             fsIn.varyings[k] = v0.ctx.varyings[k] * w_t0 + v1.ctx.varyings[k] * w_t1;
                         }
 
-                        // 调用 Fragment Shader
+                        // 3. Shader
                         Vec4 fColor = shader.fragment(fsIn);
-                        m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
+
+                        // 4. Discard & Late-Z
+                        if (!fsIn.discarded) {
+                            float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+                            
+                            // Stencil for Lines? Standard says yes.
+                            bool passed = true;
+                            if (m_capabilities[GL_STENCIL_TEST]) {
+                                if (!checkStencil(stencilBuffer[pix])) {
+                                    applyStencilOp(m_stencilFail, stencilBuffer[pix]);
+                                    passed = false;
+                                } else {
+                                    if (!testDepth(finalZ, depthBuffer[pix])) {
+                                        applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
+                                        passed = false;
+                                    } else {
+                                        applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                                    }
+                                }
+                            }
+
+                            if (passed && m_capabilities[GL_DEPTH_TEST]) {
+                                if (!testDepth(finalZ, depthBuffer[pix])) passed = false;
+                            }
+
+                            if (passed) {
+                                if (m_depthMask) depthBuffer[pix] = finalZ;
+                                m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
+                            }
+                        }
                     }
                 }
             }
@@ -940,19 +624,53 @@ public:
 
         int pix = y * fbWidth + x;
         
-        // 深度测试 (注意：Points 通常没有透视插值问题，但仍需 Z 测试)
         // v.scn.z 存储的是 Z/W (NDC depth range 0-1 if transformed correctly, or clip z)
-        // 这里的逻辑假设 v.scn.z 是已经透视除法后的深度值
-        float z = v.scn.z; // 或者 1.0f/v.scn.w 取决于你的深度缓冲存什么
+        float z = v.scn.z; 
 
-        if (checkDepth(z, depthBuffer[pix])) {
-            
-            // 准备 Shader 上下文
+        // 1. Early-Z
+        bool earlyZPass = true;
+        if (m_capabilities[GL_DEPTH_TEST]) {
+            earlyZPass = testDepth(z, depthBuffer[pix]);
+        }
+
+        if (earlyZPass) {
+            // 2. Setup Context
             ShaderContext fsIn = v.ctx; 
+            fsIn.discarded = false;
+            fsIn.fragDepthWritten = false;
+            fsIn.rho = 0;
 
-            // 调用 Fragment Shader
+            // 3. Shader
             Vec4 fColor = shader.fragment(fsIn);
-            m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
+
+            // 4. Discard & Late-Z
+            if (!fsIn.discarded) {
+                float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+
+                bool passed = true;
+                if (m_capabilities[GL_STENCIL_TEST]) {
+                    if (!checkStencil(stencilBuffer[pix])) {
+                        applyStencilOp(m_stencilFail, stencilBuffer[pix]);
+                        passed = false;
+                    } else {
+                        if (!testDepth(finalZ, depthBuffer[pix])) {
+                            applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
+                            passed = false;
+                        } else {
+                            applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                        }
+                    }
+                }
+
+                if (passed && m_capabilities[GL_DEPTH_TEST]) {
+                    if (!testDepth(finalZ, depthBuffer[pix])) passed = false;
+                }
+
+                if (passed) {
+                    if (m_depthMask) depthBuffer[pix] = finalZ;
+                    m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
+                }
+            }
         }
     }
 
