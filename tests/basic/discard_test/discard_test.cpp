@@ -47,7 +47,7 @@ struct DiscardShader {
 class DiscardTest : public ITestCase {
 public:
     void init(SoftRenderContext& ctx) override {
-        camera = Camera(Vec4(0.0f, 1.0f, 3.0f, 1.0f));
+        camera = Camera({.position = Vec4(0.0f, 1.0f, 3.0f, 1.0f)});
 
         // Create a simple Quad for the grass billboard
         float vertices[] = {

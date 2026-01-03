@@ -104,7 +104,7 @@ public:
     int selectedModelIdx = -1;
     float modelScale = 10.0f;
 
-    ModelLoadingTest() : camera(Vec4(0, 0, 3, 1)) {}
+    ModelLoadingTest() : camera({.position = Vec4(0, 0, 3, 1)}) {}
 
     void init(SoftRenderContext& ctx) override {
         shader.renderCtx = &ctx;

@@ -38,7 +38,7 @@ public:
 
     void init(SoftRenderContext& ctx) override {
         // Init Camera
-        m_camera = Camera(Vec4(0, 0, 3, 1));
+        m_camera = Camera({.position = Vec4(0, 0, 3, 1)});
 
         // Cube Vertices (Pos + Color)
         float vertices[] = {

@@ -45,7 +45,7 @@ class StencilTest : public ITestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // Setup Camera
-        camera = Camera(Vec4(0.0f, 2.0f, 5.0f, 1.0f));
+        camera = Camera({.position = Vec4(0.0f, 2.0f, 5.0f, 1.0f)});
 
         // Create Cube Geometry (Half extend 0.5 -> Size 1.0)
         cubeGeo = geometry::createCube(0.5f);

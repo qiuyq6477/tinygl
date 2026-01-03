@@ -7,6 +7,22 @@
 
 namespace tinygl {
 
+struct CameraCreateInfo {
+    Vec4 position = Vec4(0.0f, 0.0f, 3.0f, 1.0f);
+    Vec4 up = Vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    float yaw = -90.0f;
+    float pitch = 0.0f;
+    
+    float movementSpeed = 2.5f;
+    float mouseSensitivity = 0.1f;
+    float zoomSpeed = 1.0f;
+    float fov = 45.0f;
+    float aspect = 1.33f;
+    float zNear = 0.1f;
+    float zFar = 100.0f;
+    float pivotDistance = 3.0f;
+};
+
 class Camera {
 public:
     // Camera Attributes
@@ -44,14 +60,21 @@ public:
     bool k_a = false, k_d = false;
     bool k_q = false, k_e = false;
 
-    Camera(Vec4 pos = Vec4(0.0f, 0.0f, 3.0f, 1.0f), Vec4 up = Vec4(0.0f, 1.0f, 0.0f, 0.0f), float yaw = -90.0f, float pitch = 0.0f) 
-        : front(Vec4(0.0f, 0.0f, -1.0f, 0.0f)), movementSpeed(2.5f), mouseSensitivity(0.1f), zoomSpeed(1.0f),
-          fov(45.0f), aspect(1.33f), zNear(0.1f), zFar(100.0f), pivotDistance(3.0f)
+    explicit Camera(const CameraCreateInfo& info = {}) 
+        : front(Vec4(0.0f, 0.0f, -1.0f, 0.0f)),
+          movementSpeed(info.movementSpeed),
+          mouseSensitivity(info.mouseSensitivity),
+          zoomSpeed(info.zoomSpeed),
+          fov(info.fov),
+          aspect(info.aspect),
+          zNear(info.zNear),
+          zFar(info.zFar),
+          pivotDistance(info.pivotDistance)
     {
-        this->position = pos;
-        this->worldUp = up;
-        this->yaw = yaw;
-        this->pitch = pitch;
+        this->position = info.position;
+        this->worldUp = info.up;
+        this->yaw = info.yaw;
+        this->pitch = info.pitch;
         updateCameraVectors();
     }
 

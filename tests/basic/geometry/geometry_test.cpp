@@ -102,7 +102,7 @@ class GeometryTest : public ITestCase {
     }
 
 public:
-    GeometryTest() : camera(Vec4(0, 0, 4, 1)) {}
+    GeometryTest() : camera({.position = Vec4(0, 0, 4, 1)}) {}
 
     void init(SoftRenderContext& ctx) override {
         updateGeometry(ctx);
@@ -156,9 +156,8 @@ public:
         GeometryShader shader;
         shader.model = Mat4::RotateY(rotation) * Mat4::RotateX(30.0f);
         
-        float aspect = (float)ctx.getWidth() / (float)ctx.getHeight();
         Mat4 view = camera.GetViewMatrix();
-        Mat4 proj = Mat4::Perspective(camera.fov, aspect, camera.zNear, camera.zFar);
+        Mat4 proj = camera.GetProjectionMatrix();
         shader.mvp = proj * view * shader.model;
         
         ctx.glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
