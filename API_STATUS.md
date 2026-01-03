@@ -51,7 +51,7 @@
 | `glDepthFunc` | ✅ | 设置深度测试函数 (GL_LESS, GL_ALWAYS 等) |
 | `glCullFace` / `glFrontFace` | ✅ | 背面剔除控制 (GL_BACK/GL_FRONT, CCW/CW) |
 | `glPolygonMode` | ✅ | 多边形填充模式 (FILL, LINE, POINT) |
-| `glDepthMask` | ❌ | 控制深度写入 |
+| `glDepthMask` | ✅ | 控制深度写入 |
 | `glColorMask` | ❌ | 颜色写入掩码 |
 | `glBlendFunc` | ❌ | 颜色混合 |
 

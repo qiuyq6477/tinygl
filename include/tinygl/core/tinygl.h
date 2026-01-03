@@ -70,6 +70,7 @@ private:
     GLenum m_polygonMode = GL_FILL; // 默认填充
     GLenum m_cullFaceMode = GL_BACK; // Default cull back faces
     GLenum m_frontFace = GL_CCW;     // Default counter-clockwise is front
+    GLboolean m_depthMask = GL_TRUE; // Default depth writing enabled
 
     // Capabilities
     std::unordered_map<GLenum, GLboolean> m_capabilities = {
@@ -97,7 +98,7 @@ private:
             default:            pass = z < currentDepth; break;
         }
 
-        if (pass) {
+        if (pass && m_depthMask) {
             currentDepth = z;
         }
         return pass;
@@ -138,6 +139,10 @@ public:
 
     void glFrontFace(GLenum mode) {
         m_frontFace = mode;
+    }
+    
+    void glDepthMask(GLboolean flag){
+        m_depthMask = flag;
     }
 
     void glEnable(GLenum cap) {

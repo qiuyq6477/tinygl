@@ -107,12 +107,15 @@ public:
 
     void onGui(mu_Context* ctx, const Rect& rect) override {
         mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
-        mu_label(ctx, "Depth Settings");
-        
-        if (mu_header_ex(ctx, "Depth Test Enable", MU_OPT_EXPANDED)) {
+        if (mu_header_ex(ctx, "Depth Settings", MU_OPT_EXPANDED)) {
              int enable = m_depthTestEnabled ? 1 : 0;
              if (mu_checkbox(ctx, "Enabled", &enable)) {
                  m_depthTestEnabled = enable != 0;
+             }
+             
+             int mask = m_depthMask ? 1 : 0;
+             if (mu_checkbox(ctx, "Depth Mask (Write)", &mask)) {
+                 m_depthMask = mask != 0;
              }
         }
 
@@ -150,11 +153,18 @@ public:
 
         mu_label(ctx, "Description:");
         mu_label(ctx, "Rotating cube with per-face colors.");
-        mu_label(ctx, "Toggle depth test to see the difference.");
+        mu_label(ctx, "Toggle depth test/mask to see effects.");
     }
 
     void onRender(SoftRenderContext& ctx) override {
         ctx.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+        
+        if (m_depthMask) {
+            ctx.glDepthMask(GL_TRUE);
+        } else {
+            ctx.glDepthMask(GL_FALSE);
+        }
+        
         ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (m_depthTestEnabled) {
@@ -187,6 +197,7 @@ public:
 private:
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0;
     bool m_depthTestEnabled = true;
+    bool m_depthMask = true;
     GLenum m_depthFunc = GL_LESS;
     bool m_cullFaceEnabled = false;
     GLenum m_cullFaceMode = GL_BACK;

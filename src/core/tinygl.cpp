@@ -31,7 +31,7 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
         // Use std::fill_n on the pointer
         std::fill_n(m_colorBufferPtr, fbWidth * fbHeight, clearColorInt);
     }
-    if (buffersToClear & GL_DEPTH_BUFFER_BIT) {
+    if ((buffersToClear & GL_DEPTH_BUFFER_BIT) && m_depthMask) {
         std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
     }
 }
