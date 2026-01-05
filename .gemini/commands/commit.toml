@@ -1,0 +1,16 @@
+description = "Generate a Git commit message that adheres to the Conventional Commits specification based on staged code changes."
+
+prompt = """
+You are a senior developer. Please generate a Git Commit message based on the Git Diff changes below.
+
+### Git Commit Guidelines
+Strictly adhere to **Conventional Commits**:
+* Format: `<type>(<scope>): <subject>`
+* Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+* Example: `feat(renderer): add support for glScissor`
+
+### Staged Changes
+```diff
+!{git diff --staged}
+Output the commit message directly without Markdown code blocks or extra explanations. If there are multiple changes, focus on the core logic.
+"""

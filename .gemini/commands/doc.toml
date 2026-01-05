@@ -1,0 +1,10 @@
+description = "为函数或类生成标准文档注释"
+prompt = """
+请为以下代码添加标准的文档注释（Docstring/JSDoc）。
+包含：
+- 功能简述
+- @param 参数说明
+- @return 返回值说明
+- @throws 可能抛出的异常
+- 一个简单的使用示例（Example）。
+"""
