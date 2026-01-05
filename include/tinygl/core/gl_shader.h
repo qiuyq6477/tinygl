@@ -13,6 +13,19 @@
 namespace tinygl {
 
 // ShaderBuiltins: Base class for shaders to emulate GLSL built-in variables
+struct ShaderFragDepth {
+    float value = 0.0f;
+    bool written = false;
+
+    ShaderFragDepth& operator=(float v) {
+        value = v;
+        written = true;
+        return *this;
+    }
+
+    operator float() const { return value; }
+};
+
 struct ShaderBuiltins {
     // --- Vertex Shader Outputs ---
     Vec4 gl_Position;
@@ -25,6 +38,7 @@ struct ShaderBuiltins {
     // --- Fragment Shader Outputs ---
     Vec4 gl_FragColor;
     bool gl_Discard = false;
+    ShaderFragDepth gl_FragDepth;
 
     // Helper to trigger discard
     void discard() { gl_Discard = true; }
@@ -36,16 +50,10 @@ struct ShaderContext {
     float rho = 0.0f; // 纹理导数模长 ( UV单位 / 屏幕像素 ) (UV Span per Screen Pixel)
     
     // Per-Fragment Operations control
-    bool discarded = false;
-    bool fragDepthWritten = false;
-    float fragDepth = 0.0f;
 
     ShaderContext() {
         std::memset(varyings, 0, sizeof(varyings));
     }
-
-    void discard() { discarded = true; }
-    void setDepth(float z) { fragDepth = z; fragDepthWritten = true; }
 };
 
 // VOut: 顶点着色器的输出，也是裁剪阶段的输入

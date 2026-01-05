@@ -421,8 +421,6 @@ public:
 
                         if (earlyZPass) {
                             // 2. Fragment Interpolation
-                            fsIn.discarded = false;
-                            fsIn.fragDepthWritten = false;
                             fsIn.rho = 0;
 
                             Simd4f z_vec(z);
@@ -455,14 +453,14 @@ public:
                             shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, zInv); 
                             shader.gl_FrontFacing = isFront;
                             shader.gl_Discard = false;
+                            shader.gl_FragDepth.written = false;
 
                             shader.fragment(fsIn);
-                            if (shader.gl_Discard) fsIn.discard();
                             Vec4 fColor = shader.gl_FragColor;
 
                             // 4. Discard Check
-                            if (!fsIn.discarded) {
-                                float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+                            if (!shader.gl_Discard) {
+                                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
 
                                 // 5. Late Stencil & Depth Test + Buffer Updates
                                 bool passed = true;
@@ -569,8 +567,6 @@ public:
                     if (earlyZPass) {
                         // 2. Interpolate
                         ShaderContext fsIn;
-                        fsIn.discarded = false;
-                        fsIn.fragDepthWritten = false;
                         fsIn.rho = 0; // Lines usually don't have well defined Rho without extra math
 
                         float w_t0 = v0.scn.w * (1.0f - t) * z;
@@ -585,14 +581,14 @@ public:
                         shader.gl_FragCoord = Vec4(x0 + 0.5f, y0 + 0.5f, z, zInv); 
                         shader.gl_FrontFacing = true;
                         shader.gl_Discard = false;
+                        shader.gl_FragDepth.written = false;
 
                         shader.fragment(fsIn);
-                        if (shader.gl_Discard) fsIn.discard();
                         Vec4 fColor = shader.gl_FragColor;
 
                         // 4. Discard & Late-Z
-                        if (!fsIn.discarded) {
-                            float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+                        if (!shader.gl_Discard) {
+                            float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
                             
                             // Stencil for Lines? Standard says yes.
                             bool passed = true;
@@ -654,8 +650,6 @@ public:
         if (earlyZPass) {
             // 2. Setup Context
             ShaderContext fsIn = v.ctx; 
-            fsIn.discarded = false;
-            fsIn.fragDepthWritten = false;
             fsIn.rho = 0;
 
             // 3. Fragment Shader
@@ -663,14 +657,14 @@ public:
             shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, v.scn.w); 
             shader.gl_FrontFacing = true;
             shader.gl_Discard = false;
+            shader.gl_FragDepth.written = false;
 
             shader.fragment(fsIn);
-            if (shader.gl_Discard) fsIn.discard();
             Vec4 fColor = shader.gl_FragColor;
 
             // 4. Discard & Late-Z
-            if (!fsIn.discarded) {
-                float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+            if (!shader.gl_Discard) {
+                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
 
                 bool passed = true;
                 if (m_capabilities[GL_STENCIL_TEST]) {
