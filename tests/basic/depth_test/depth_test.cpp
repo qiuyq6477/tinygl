@@ -108,15 +108,8 @@ public:
     void onGui(mu_Context* ctx, const Rect& rect) override {
         mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
         if (mu_header_ex(ctx, "Depth Settings", MU_OPT_EXPANDED)) {
-             int enable = m_depthTestEnabled ? 1 : 0;
-             if (mu_checkbox(ctx, "Enabled", &enable)) {
-                 m_depthTestEnabled = enable != 0;
-             }
-             
-             int mask = m_depthMask ? 1 : 0;
-             if (mu_checkbox(ctx, "Depth Mask (Write)", &mask)) {
-                 m_depthMask = mask != 0;
-             }
+             mu_checkbox(ctx, "Enabled", &m_depthTestEnabled);
+             mu_checkbox(ctx, "Depth Mask (Write)", &m_depthMask);
         }
 
         if (mu_header_ex(ctx, "Depth Function", MU_OPT_EXPANDED)) {
@@ -133,10 +126,7 @@ public:
         
         mu_label(ctx, "Cull Face Settings");
         if (mu_header_ex(ctx, "Cull Face Enable", MU_OPT_EXPANDED)) {
-             int enable = m_cullFaceEnabled ? 1 : 0;
-             if (mu_checkbox(ctx, "Enabled", &enable)) {
-                 m_cullFaceEnabled = enable != 0;
-             }
+             mu_checkbox(ctx, "Enabled", &m_cullFaceEnabled);
         }
         
         if (m_cullFaceEnabled) {
@@ -196,10 +186,10 @@ public:
 
 private:
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0;
-    bool m_depthTestEnabled = true;
-    bool m_depthMask = true;
+    int m_depthTestEnabled = 1;
+    int m_depthMask = 1;
     GLenum m_depthFunc = GL_LESS;
-    bool m_cullFaceEnabled = false;
+    int m_cullFaceEnabled = 0;
     GLenum m_cullFaceMode = GL_BACK;
     GLenum m_frontFace = GL_CCW;
     float m_rotationAngle = 0.0f;

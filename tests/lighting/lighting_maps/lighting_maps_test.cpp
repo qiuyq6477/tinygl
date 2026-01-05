@@ -23,7 +23,7 @@ struct Material {
 
 // Light Structures
 struct DirLight {
-    bool enabled = true;
+    int enabled = 1;
     Vec4 direction = {-0.2f, -1.0f, -0.3f, 0.0f};
     Vec4 color = {1.0f, 1.0f, 1.0f, 1.0f};
     float ambient = 0.05f;
@@ -32,7 +32,7 @@ struct DirLight {
 };
 
 struct PointLight {
-    bool enabled = true;
+    int enabled = 1;
     Vec4 position = {0.7f, 0.2f, 2.0f, 1.0f};
     Vec4 color = {1.0f, 0.0f, 0.0f, 1.0f}; // Reddish
     float constant = 1.0f;
@@ -44,7 +44,7 @@ struct PointLight {
 };
 
 struct SpotLight {
-    bool enabled = true;
+    int enabled = 1;
     Vec4 position = {0.0f, 0.0f, 0.0f, 1.0f};
     Vec4 direction = {0.0f, 0.0f, -1.0f, 0.0f};
     Vec4 color = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -308,8 +308,7 @@ public:
         mu_label(ctx, "Lighting Maps Controls");
         
         if (mu_header_ex(ctx, "Directional Light", MU_OPT_EXPANDED)) {
-            int enabled = m_shader.dirLight.enabled;
-            if (mu_checkbox(ctx, "Enabled", &enabled)) m_shader.dirLight.enabled = enabled;
+            mu_checkbox(ctx, "Enabled", &m_shader.dirLight.enabled);
             mu_label(ctx, "Direction");
             mu_slider(ctx, &m_shader.dirLight.direction.x, -1.0f, 1.0f);
             mu_slider(ctx, &m_shader.dirLight.direction.y, -1.0f, 1.0f);
@@ -321,8 +320,7 @@ public:
         }
 
         if (mu_header_ex(ctx, "Point Light", MU_OPT_EXPANDED)) {
-            int enabled = m_shader.pointLight.enabled;
-            if (mu_checkbox(ctx, "Enabled", &enabled)) m_shader.pointLight.enabled = enabled;
+            mu_checkbox(ctx, "Enabled", &m_shader.pointLight.enabled);
             mu_label(ctx, "Position");
             mu_slider(ctx, &m_shader.pointLight.position.x, -5, 5);
             mu_slider(ctx, &m_shader.pointLight.position.y, -5, 5);
@@ -334,8 +332,7 @@ public:
         }
 
         if (mu_header_ex(ctx, "Spot Light", MU_OPT_EXPANDED)) {
-            int enabled = m_shader.spotLight.enabled;
-            if (mu_checkbox(ctx, "Enabled", &enabled)) m_shader.spotLight.enabled = enabled;
+            mu_checkbox(ctx, "Enabled", &m_shader.spotLight.enabled);
             mu_label(ctx, "Cutoff");
             mu_slider(ctx, &m_shader.spotLight.cutOff, 0, 90);
             mu_label(ctx, "Outer Cutoff");
