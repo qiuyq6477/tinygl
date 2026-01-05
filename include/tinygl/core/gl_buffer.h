@@ -13,6 +13,8 @@ namespace tinygl {
 struct BufferObject {
     std::vector<uint8_t> data;
     GLenum usage = GL_STATIC_DRAW; // Default usage
+    bool mapped = false;           // Track if buffer is mapped
+    GLenum mappedAccess = 0;       // Mapping access
     
     template <typename T>
     bool readSafe(size_t offset, T& outValue) const {

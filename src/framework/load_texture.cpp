@@ -42,4 +42,12 @@ bool LoadTextureFromFile(SoftRenderContext& ctx, const char* filename, GLenum te
     }
 }
 
+unsigned char* LoadImageRaw(const char* filename, int* width, int* height, int* channels, int desired_channels) {
+    return stbi_load(filename, width, height, channels, desired_channels);
+}
+
+void FreeImageRaw(void* data) {
+    if(data) stbi_image_free(data);
+}
+
 }

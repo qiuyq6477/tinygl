@@ -14,7 +14,7 @@ find_package(SDL2 REQUIRED)
 # Helper function to register a test
 function(add_tinygl_test target_name)
     add_library(${target_name} STATIC ${ARGN})
-    target_link_libraries(${target_name} PRIVATE tinygl_framework)
+    target_link_libraries(${target_name} PRIVATE tinygl_framework SDL2::SDL2main SDL2::SDL2)
     # Add to global list
     set_property(GLOBAL APPEND PROPERTY TINYGL_TEST_LIBS ${target_name})
 endfunction()
@@ -50,8 +50,8 @@ if (TEST_LIBS)
     if(APPLE)
         # For macOS/iOS linker (ld)
         target_link_libraries(test_runner PRIVATE -Wl,-all_load ${TEST_LIBS})
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        # For GNU ld or lld on Linux
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR MINGW)
+        # For GNU ld or lld on Linux and MinGW
         target_link_libraries(test_runner PRIVATE -Wl,--whole-archive ${TEST_LIBS} -Wl,--no-whole-archive)
     elseif(MSVC)
         # For MSVC linker. The syntax is slightly different for each lib.
@@ -62,4 +62,14 @@ if (TEST_LIBS)
         # Fallback for other systems, might not work as intended.
         target_link_libraries(test_runner PRIVATE ${TEST_LIBS})
     endif()
+endif()
+
+# [Windows] Copy tinygl_framework.dll to test_runner directory
+if(WIN32)
+    add_custom_command(TARGET test_runner POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:tinygl_framework>
+        $<TARGET_FILE_DIR:test_runner>
+        COMMENT "Copying tinygl_framework.dll to test_runner directory..."
+    )
 endif()

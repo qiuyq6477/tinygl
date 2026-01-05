@@ -111,3 +111,38 @@ All 3D test cases must include a camera to allow user navigation.
 * `tests/test_runner.cpp`: Entry point for the test suite.
 * `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.
 * `CMakeLists.txt`: Root build configuration.
+
+## Cross-Platform Development Lessons
+
+### SIMD Portability
+* **Problem:** Hardcoding ARM NEON (`arm_neon.h`) causes build failure on x86 Windows.
+* **Solution:** Use abstraction classes (`Simd4f`) and platform macros (`__ARM_NEON`, `__SSE__`). Always provide an x86 SSE fallback for SIMD code.
+* **Header:** Include `<immintrin.h>` for x86 and `<arm_neon.h>` for ARM.
+
+### DLL Symbol Export (Windows)
+* **Problem:** Windows DLLs hide all symbols by default, causing `undefined reference` errors during linking of tests.
+* **Solution:** Use an export macro (`TINYGL_API`).
+    ```cpp
+    #if defined(_WIN32)
+        #ifdef TINYGL_EXPORTS
+            #define TINYGL_API __declspec(dllexport)
+        #else
+            #define TINYGL_API __declspec(dllimport)
+        #endif
+    #else
+        #define TINYGL_API __attribute__((visibility("default")))
+    #endif
+    ```
+* **Rule:** Every public class, struct, and function in `tinygl_framework` must be marked with `TINYGL_API`.
+
+### C++ Syntax Compatibility
+* **Problem:** C99 array designated initializers (e.g., `[index] = value`) are not standard C++ and fail on strict compilers (MSVC/MinGW GCC).
+* **Solution:**
+    * Use C++ Lambda-based initialization for complex static maps.
+    * Move large data tables (like UI atlases) to `.c` files and compile them as C code.
+
+### Encapsulation & DLL Boundaries
+* **Problem:** Test cases directy calling third-party functions (like `stbi_load`) hidden inside the framework DLL.
+* **Solution:** Create exported wrapper functions in the framework (e.g., `tinygl::LoadImageRaw`) to provide controlled access to private dependencies.
+
+

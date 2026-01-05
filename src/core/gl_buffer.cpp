@@ -28,6 +28,53 @@ void SoftRenderContext::glBufferData(GLenum target, GLsizei size, const void* da
     LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
 }
 
+void SoftRenderContext::glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+    GLuint id = (target == GL_ARRAY_BUFFER) ? m_boundArrayBuffer : getVAO().elementBufferID;
+    if (id == 0 || buffers.find(id) == buffers.end()) {
+        LOG_ERROR("glBufferSubData: Invalid Buffer Binding");
+        return;
+    }
+    BufferObject& buffer = buffers[id];
+    if (offset < 0 || size < 0 || (size_t)(offset + size) > buffer.data.size()) {
+        LOG_ERROR("glBufferSubData: Out of bounds");
+        return;
+    }
+    if (data) {
+        std::memcpy(buffer.data.data() + offset, data, size);
+    }
+}
+
+void* SoftRenderContext::glMapBuffer(GLenum target, GLenum access) {
+    GLuint id = (target == GL_ARRAY_BUFFER) ? m_boundArrayBuffer : getVAO().elementBufferID;
+    if (id == 0 || buffers.find(id) == buffers.end()) {
+        LOG_ERROR("glMapBuffer: Invalid Buffer Binding");
+        return nullptr;
+    }
+    BufferObject& buffer = buffers[id];
+    if (buffer.mapped) {
+        LOG_ERROR("glMapBuffer: Buffer already mapped");
+        return nullptr;
+    }
+    buffer.mapped = true;
+    buffer.mappedAccess = access;
+    return buffer.data.data();
+}
+
+GLboolean SoftRenderContext::glUnmapBuffer(GLenum target) {
+    GLuint id = (target == GL_ARRAY_BUFFER) ? m_boundArrayBuffer : getVAO().elementBufferID;
+    if (id == 0 || buffers.find(id) == buffers.end()) {
+        LOG_ERROR("glUnmapBuffer: Invalid Buffer Binding");
+        return GL_FALSE;
+    }
+    BufferObject& buffer = buffers[id];
+    if (!buffer.mapped) {
+        LOG_ERROR("glUnmapBuffer: Buffer not mapped");
+        return GL_FALSE;
+    }
+    buffer.mapped = false;
+    return GL_TRUE;
+}
+
 // --- VAO ---
 void SoftRenderContext::glGenVertexArrays(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {

@@ -49,17 +49,26 @@ public:
         ctx.glActiveTexture(GL_TEXTURE0); 
         ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
         
-        int width, height, nrChannels;
         // Try to load texture relative to the executable path
-        unsigned char *data = stbi_load("texture/cube/assets/container.jpg", &width, &height, &nrChannels, 0);
-        
-        if (data) {
-            GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-            ctx.glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            stbi_image_free(data);
-            printf("Loaded texture: %dx%d channels: %d\n", width, height, nrChannels);
+        // Use LoadTextureFromFile instead of raw stbi calls
+        // This handles texture creation, binding, and default params
+        if (tinygl::LoadTextureFromFile(ctx, "texture/cube/assets/container.jpg", GL_TEXTURE0, m_tex)) {
+            // Texture loaded successfully, get its dimensions if needed (optional for this test logic)
+            // But LoadTextureFromFile already set up the texture object.
+            // We need to retrieve width/height if we want to print them, 
+            // or just trust it.
+            // Let's retrieve the object to print info.
+            TextureObject* texObj = ctx.getTextureObject(m_tex);
+            if (texObj) {
+                printf("Loaded texture: %dx%d\n", texObj->width, texObj->height);
+            }
         } else {
             printf("Failed to load texture, falling back to checkerboard.\n");
+            // LoadTextureFromFile creates a pink texture on failure, but we want checkerboard.
+            // So we override it.
+            ctx.glActiveTexture(GL_TEXTURE0);
+            ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
+            
             // Generate Checkerboard Pattern
             std::vector<uint32_t> pixels(256 * 256);
             for(int i=0; i<256*256; i++) {

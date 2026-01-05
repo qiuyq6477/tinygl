@@ -20,7 +20,7 @@ struct Material {
     Vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; 
 };
 
-class Mesh {
+class TINYGL_API Mesh {
 public:
     // Mesh Data
     std::vector<Vertex> vertices;

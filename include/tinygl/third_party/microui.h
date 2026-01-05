@@ -12,6 +12,18 @@
 extern "C" {
 #endif
 
+#ifndef MICROUI_API
+  #if defined(_WIN32)
+    #if defined(TINYGL_EXPORTS)
+      #define MICROUI_API __declspec(dllexport)
+    #else
+      #define MICROUI_API __declspec(dllimport)
+    #endif
+  #else
+    #define MICROUI_API __attribute__((visibility("default")))
+  #endif
+#endif
+
 #define MU_VERSION "2.02"
 
 #define MU_COMMANDLIST_SIZE     (256 * 1024)
@@ -217,57 +229,57 @@ struct mu_Context {
 };
 
 
-mu_Vec2 mu_vec2(int x, int y);
-mu_Rect mu_rect(int x, int y, int w, int h);
-mu_Color mu_color(int r, int g, int b, int a);
+MICROUI_API mu_Vec2 mu_vec2(int x, int y);
+MICROUI_API mu_Rect mu_rect(int x, int y, int w, int h);
+MICROUI_API mu_Color mu_color(int r, int g, int b, int a);
 
-void mu_init(mu_Context *ctx);
-void mu_begin(mu_Context *ctx);
-void mu_end(mu_Context *ctx);
-void mu_set_focus(mu_Context *ctx, mu_Id id);
-mu_Id mu_get_id(mu_Context *ctx, const void *data, int size);
-void mu_push_id(mu_Context *ctx, const void *data, int size);
-void mu_pop_id(mu_Context *ctx);
-void mu_push_clip_rect(mu_Context *ctx, mu_Rect rect);
-void mu_pop_clip_rect(mu_Context *ctx);
-mu_Rect mu_get_clip_rect(mu_Context *ctx);
-int mu_check_clip(mu_Context *ctx, mu_Rect r);
-mu_Container* mu_get_current_container(mu_Context *ctx);
-mu_Container* mu_get_container(mu_Context *ctx, const char *name);
-void mu_bring_to_front(mu_Context *ctx, mu_Container *cnt);
+MICROUI_API void mu_init(mu_Context *ctx);
+MICROUI_API void mu_begin(mu_Context *ctx);
+MICROUI_API void mu_end(mu_Context *ctx);
+MICROUI_API void mu_set_focus(mu_Context *ctx, mu_Id id);
+MICROUI_API mu_Id mu_get_id(mu_Context *ctx, const void *data, int size);
+MICROUI_API void mu_push_id(mu_Context *ctx, const void *data, int size);
+MICROUI_API void mu_pop_id(mu_Context *ctx);
+MICROUI_API void mu_push_clip_rect(mu_Context *ctx, mu_Rect rect);
+MICROUI_API void mu_pop_clip_rect(mu_Context *ctx);
+MICROUI_API mu_Rect mu_get_clip_rect(mu_Context *ctx);
+MICROUI_API int mu_check_clip(mu_Context *ctx, mu_Rect r);
+MICROUI_API mu_Container* mu_get_current_container(mu_Context *ctx);
+MICROUI_API mu_Container* mu_get_container(mu_Context *ctx, const char *name);
+MICROUI_API void mu_bring_to_front(mu_Context *ctx, mu_Container *cnt);
 
-int mu_pool_init(mu_Context *ctx, mu_PoolItem *items, int len, mu_Id id);
-int mu_pool_get(mu_Context *ctx, mu_PoolItem *items, int len, mu_Id id);
-void mu_pool_update(mu_Context *ctx, mu_PoolItem *items, int idx);
+MICROUI_API int mu_pool_init(mu_Context *ctx, mu_PoolItem *items, int len, mu_Id id);
+MICROUI_API int mu_pool_get(mu_Context *ctx, mu_PoolItem *items, int len, mu_Id id);
+MICROUI_API void mu_pool_update(mu_Context *ctx, mu_PoolItem *items, int idx);
 
-void mu_input_mousemove(mu_Context *ctx, int x, int y);
-void mu_input_mousedown(mu_Context *ctx, int x, int y, int btn);
-void mu_input_mouseup(mu_Context *ctx, int x, int y, int btn);
-void mu_input_scroll(mu_Context *ctx, int x, int y);
-void mu_input_keydown(mu_Context *ctx, int key);
-void mu_input_keyup(mu_Context *ctx, int key);
-void mu_input_text(mu_Context *ctx, const char *text);
+MICROUI_API void mu_input_mousemove(mu_Context *ctx, int x, int y);
+MICROUI_API void mu_input_mousedown(mu_Context *ctx, int x, int y, int btn);
+MICROUI_API void mu_input_mouseup(mu_Context *ctx, int x, int y, int btn);
+MICROUI_API void mu_input_scroll(mu_Context *ctx, int x, int y);
+MICROUI_API void mu_input_keydown(mu_Context *ctx, int key);
+MICROUI_API void mu_input_keyup(mu_Context *ctx, int key);
+MICROUI_API void mu_input_text(mu_Context *ctx, const char *text);
 
-mu_Command* mu_push_command(mu_Context *ctx, int type, int size);
-int mu_next_command(mu_Context *ctx, mu_Command **cmd);
-void mu_set_clip(mu_Context *ctx, mu_Rect rect);
-void mu_draw_rect(mu_Context *ctx, mu_Rect rect, mu_Color color);
-void mu_draw_box(mu_Context *ctx, mu_Rect rect, mu_Color color);
-void mu_draw_text(mu_Context *ctx, mu_Font font, const char *str, int len, mu_Vec2 pos, mu_Color color);
-void mu_draw_icon(mu_Context *ctx, int id, mu_Rect rect, mu_Color color);
+MICROUI_API mu_Command* mu_push_command(mu_Context *ctx, int type, int size);
+MICROUI_API int mu_next_command(mu_Context *ctx, mu_Command **cmd);
+MICROUI_API void mu_set_clip(mu_Context *ctx, mu_Rect rect);
+MICROUI_API void mu_draw_rect(mu_Context *ctx, mu_Rect rect, mu_Color color);
+MICROUI_API void mu_draw_box(mu_Context *ctx, mu_Rect rect, mu_Color color);
+MICROUI_API void mu_draw_text(mu_Context *ctx, mu_Font font, const char *str, int len, mu_Vec2 pos, mu_Color color);
+MICROUI_API void mu_draw_icon(mu_Context *ctx, int id, mu_Rect rect, mu_Color color);
 
-void mu_layout_row(mu_Context *ctx, int items, const int *widths, int height);
-void mu_layout_width(mu_Context *ctx, int width);
-void mu_layout_height(mu_Context *ctx, int height);
-void mu_layout_begin_column(mu_Context *ctx);
-void mu_layout_end_column(mu_Context *ctx);
-void mu_layout_set_next(mu_Context *ctx, mu_Rect r, int relative);
-mu_Rect mu_layout_next(mu_Context *ctx);
+MICROUI_API void mu_layout_row(mu_Context *ctx, int items, const int *widths, int height);
+MICROUI_API void mu_layout_width(mu_Context *ctx, int width);
+MICROUI_API void mu_layout_height(mu_Context *ctx, int height);
+MICROUI_API void mu_layout_begin_column(mu_Context *ctx);
+MICROUI_API void mu_layout_end_column(mu_Context *ctx);
+MICROUI_API void mu_layout_set_next(mu_Context *ctx, mu_Rect r, int relative);
+MICROUI_API mu_Rect mu_layout_next(mu_Context *ctx);
 
-void mu_draw_control_frame(mu_Context *ctx, mu_Id id, mu_Rect rect, int colorid, int opt);
-void mu_draw_control_text(mu_Context *ctx, const char *str, mu_Rect rect, int colorid, int opt);
-int mu_mouse_over(mu_Context *ctx, mu_Rect rect);
-void mu_update_control(mu_Context *ctx, mu_Id id, mu_Rect rect, int opt);
+MICROUI_API void mu_draw_control_frame(mu_Context *ctx, mu_Id id, mu_Rect rect, int colorid, int opt);
+MICROUI_API void mu_draw_control_text(mu_Context *ctx, const char *str, mu_Rect rect, int colorid, int opt);
+MICROUI_API int mu_mouse_over(mu_Context *ctx, mu_Rect rect);
+MICROUI_API void mu_update_control(mu_Context *ctx, mu_Id id, mu_Rect rect, int opt);
 
 #define mu_button(ctx, label)             mu_button_ex(ctx, label, 0, MU_OPT_ALIGNCENTER)
 #define mu_textbox(ctx, buf, bufsz)       mu_textbox_ex(ctx, buf, bufsz, 0)
@@ -278,24 +290,24 @@ void mu_update_control(mu_Context *ctx, mu_Id id, mu_Rect rect, int opt);
 #define mu_begin_window(ctx, title, rect) mu_begin_window_ex(ctx, title, rect, 0)
 #define mu_begin_panel(ctx, name)         mu_begin_panel_ex(ctx, name, 0)
 
-void mu_text(mu_Context *ctx, const char *text);
-void mu_label(mu_Context *ctx, const char *text);
-int mu_button_ex(mu_Context *ctx, const char *label, int icon, int opt);
-int mu_checkbox(mu_Context *ctx, const char *label, int *state);
-int mu_textbox_raw(mu_Context *ctx, char *buf, int bufsz, mu_Id id, mu_Rect r, int opt);
-int mu_textbox_ex(mu_Context *ctx, char *buf, int bufsz, int opt);
-int mu_slider_ex(mu_Context *ctx, mu_Real *value, mu_Real low, mu_Real high, mu_Real step, const char *fmt, int opt);
-int mu_number_ex(mu_Context *ctx, mu_Real *value, mu_Real step, const char *fmt, int opt);
-int mu_header_ex(mu_Context *ctx, const char *label, int opt);
-int mu_begin_treenode_ex(mu_Context *ctx, const char *label, int opt);
-void mu_end_treenode(mu_Context *ctx);
-int mu_begin_window_ex(mu_Context *ctx, const char *title, mu_Rect rect, int opt);
-void mu_end_window(mu_Context *ctx);
-void mu_open_popup(mu_Context *ctx, const char *name);
-int mu_begin_popup(mu_Context *ctx, const char *name);
-void mu_end_popup(mu_Context *ctx);
-void mu_begin_panel_ex(mu_Context *ctx, const char *name, int opt);
-void mu_end_panel(mu_Context *ctx);
+MICROUI_API void mu_text(mu_Context *ctx, const char *text);
+MICROUI_API void mu_label(mu_Context *ctx, const char *text);
+MICROUI_API int mu_button_ex(mu_Context *ctx, const char *label, int icon, int opt);
+MICROUI_API int mu_checkbox(mu_Context *ctx, const char *label, int *state);
+MICROUI_API int mu_textbox_raw(mu_Context *ctx, char *buf, int bufsz, mu_Id id, mu_Rect r, int opt);
+MICROUI_API int mu_textbox_ex(mu_Context *ctx, char *buf, int bufsz, int opt);
+MICROUI_API int mu_slider_ex(mu_Context *ctx, mu_Real *value, mu_Real low, mu_Real high, mu_Real step, const char *fmt, int opt);
+MICROUI_API int mu_number_ex(mu_Context *ctx, mu_Real *value, mu_Real step, const char *fmt, int opt);
+MICROUI_API int mu_header_ex(mu_Context *ctx, const char *label, int opt);
+MICROUI_API int mu_begin_treenode_ex(mu_Context *ctx, const char *label, int opt);
+MICROUI_API void mu_end_treenode(mu_Context *ctx);
+MICROUI_API int mu_begin_window_ex(mu_Context *ctx, const char *title, mu_Rect rect, int opt);
+MICROUI_API void mu_end_window(mu_Context *ctx);
+MICROUI_API void mu_open_popup(mu_Context *ctx, const char *name);
+MICROUI_API int mu_begin_popup(mu_Context *ctx, const char *name);
+MICROUI_API void mu_end_popup(mu_Context *ctx);
+MICROUI_API void mu_begin_panel_ex(mu_Context *ctx, const char *name, int opt);
+MICROUI_API void mu_end_panel(mu_Context *ctx);
 
 #ifdef __cplusplus
 }

@@ -22,16 +22,6 @@
 #include "../base/log.h"
 #include "../base/container.h"
 
-#if defined(_WIN32)
-    #ifdef TINYGL_EXPORTS
-        #define TINYGL_API __declspec(dllexport)
-    #else
-        #define TINYGL_API __declspec(dllimport)
-    #endif
-#else
-    #define TINYGL_API __attribute__((visibility("default")))
-#endif
-
 namespace tinygl {
 
 // 辅助：计算平面梯度的结构
@@ -254,6 +244,9 @@ public:
     void glDeleteBuffers(GLsizei n, const GLuint* buffers);
     void glBindBuffer(GLenum target, GLuint buffer);
     void glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage);
+    void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
+    void* glMapBuffer(GLenum target, GLenum access);
+    GLboolean glUnmapBuffer(GLenum target);
     void glGenVertexArrays(GLsizei n, GLuint* res);
     void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
     void glBindVertexArray(GLuint array) { m_boundVertexArray = array; }

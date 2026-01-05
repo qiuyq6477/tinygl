@@ -14,7 +14,7 @@ struct AppConfig {
     bool resizable = false;
 };
 
-class Application {
+class TINYGL_API Application {
 public:
     Application(const AppConfig& config);
     virtual ~Application();

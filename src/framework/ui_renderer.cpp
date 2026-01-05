@@ -6,25 +6,30 @@
 #include <iostream>
 #include <algorithm>
 #include <cstring>
+#include <array>
 
 namespace tinygl {
 
-static const char button_map[256] = {
-  [ SDL_BUTTON_LEFT   & 0xff ] =  MU_MOUSE_LEFT,
-  [ SDL_BUTTON_RIGHT  & 0xff ] =  MU_MOUSE_RIGHT,
-  [ SDL_BUTTON_MIDDLE & 0xff ] =  MU_MOUSE_MIDDLE,
-};
+static const std::array<char, 256> button_map = []() {
+    std::array<char, 256> map{};
+    map[SDL_BUTTON_LEFT   & 0xff] = MU_MOUSE_LEFT;
+    map[SDL_BUTTON_RIGHT  & 0xff] = MU_MOUSE_RIGHT;
+    map[SDL_BUTTON_MIDDLE & 0xff] = MU_MOUSE_MIDDLE;
+    return map;
+}();
 
-static const char key_map[256] = {
-  [ SDLK_LSHIFT       & 0xff ] = MU_KEY_SHIFT,
-  [ SDLK_RSHIFT       & 0xff ] = MU_KEY_SHIFT,
-  [ SDLK_LCTRL        & 0xff ] = MU_KEY_CTRL,
-  [ SDLK_RCTRL        & 0xff ] = MU_KEY_CTRL,
-  [ SDLK_LALT         & 0xff ] = MU_KEY_ALT,
-  [ SDLK_RALT         & 0xff ] = MU_KEY_ALT,
-  [ SDLK_RETURN       & 0xff ] = MU_KEY_RETURN,
-  [ SDLK_BACKSPACE    & 0xff ] = MU_KEY_BACKSPACE,
-};
+static const std::array<char, 256> key_map = []() {
+    std::array<char, 256> map{};
+    map[SDLK_LSHIFT       & 0xff] = MU_KEY_SHIFT;
+    map[SDLK_RSHIFT       & 0xff] = MU_KEY_SHIFT;
+    map[SDLK_LCTRL        & 0xff] = MU_KEY_CTRL;
+    map[SDLK_RCTRL        & 0xff] = MU_KEY_CTRL;
+    map[SDLK_LALT         & 0xff] = MU_KEY_ALT;
+    map[SDLK_RALT         & 0xff] = MU_KEY_ALT;
+    map[SDLK_RETURN       & 0xff] = MU_KEY_RETURN;
+    map[SDLK_BACKSPACE    & 0xff] = MU_KEY_BACKSPACE;
+    return map;
+}();
 
 /*
  * 参数:
