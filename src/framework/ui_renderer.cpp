@@ -10,27 +10,6 @@
 
 namespace tinygl {
 
-static const std::array<char, 256> button_map = []() {
-    std::array<char, 256> map{};
-    map[SDL_BUTTON_LEFT   & 0xff] = MU_MOUSE_LEFT;
-    map[SDL_BUTTON_RIGHT  & 0xff] = MU_MOUSE_RIGHT;
-    map[SDL_BUTTON_MIDDLE & 0xff] = MU_MOUSE_MIDDLE;
-    return map;
-}();
-
-static const std::array<char, 256> key_map = []() {
-    std::array<char, 256> map{};
-    map[SDLK_LSHIFT       & 0xff] = MU_KEY_SHIFT;
-    map[SDLK_RSHIFT       & 0xff] = MU_KEY_SHIFT;
-    map[SDLK_LCTRL        & 0xff] = MU_KEY_CTRL;
-    map[SDLK_RCTRL        & 0xff] = MU_KEY_CTRL;
-    map[SDLK_LALT         & 0xff] = MU_KEY_ALT;
-    map[SDLK_RALT         & 0xff] = MU_KEY_ALT;
-    map[SDLK_RETURN       & 0xff] = MU_KEY_RETURN;
-    map[SDLK_BACKSPACE    & 0xff] = MU_KEY_BACKSPACE;
-    return map;
-}();
-
 /*
  * 参数:
  * text: 指向 C 字符串的指针，表示要计算宽度的文本。
@@ -86,9 +65,11 @@ void UIRenderer::processInput(mu_Context* ctx, const SDL_Event& e) {
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP: {
             int b = 0;
-            if (e.button.button == SDL_BUTTON_LEFT) b = MU_MOUSE_LEFT;
-            else if (e.button.button == SDL_BUTTON_RIGHT) b = MU_MOUSE_RIGHT;
-            else if (e.button.button == SDL_BUTTON_MIDDLE) b = MU_MOUSE_MIDDLE;
+            switch (e.button.button) {
+                case SDL_BUTTON_LEFT:   b = MU_MOUSE_LEFT; break;
+                case SDL_BUTTON_RIGHT:  b = MU_MOUSE_RIGHT; break;
+                case SDL_BUTTON_MIDDLE: b = MU_MOUSE_MIDDLE; break;
+            }
             if (b) {
                 if (e.type == SDL_MOUSEBUTTONDOWN) mu_input_mousedown(ctx, e.button.x, e.button.y, b);
                 else mu_input_mouseup(ctx, e.button.x, e.button.y, b);
@@ -97,10 +78,23 @@ void UIRenderer::processInput(mu_Context* ctx, const SDL_Event& e) {
         }
         case SDL_KEYDOWN:
         case SDL_KEYUP: {
-            int key = e.key.keysym.sym & 0xff;
-            if (key < 256 && key_map[key]) {
-                if (e.type == SDL_KEYDOWN) mu_input_keydown(ctx, key_map[key]);
-                else mu_input_keyup(ctx, key_map[key]);
+            int key = e.key.keysym.sym;
+            int mu_key = 0;
+            
+            switch (key) {
+                case SDLK_LSHIFT:    
+                case SDLK_RSHIFT:    mu_key = MU_KEY_SHIFT; break;
+                case SDLK_LCTRL:     
+                case SDLK_RCTRL:     mu_key = MU_KEY_CTRL; break;
+                case SDLK_LALT:      
+                case SDLK_RALT:      mu_key = MU_KEY_ALT; break;
+                case SDLK_RETURN:    mu_key = MU_KEY_RETURN; break;
+                case SDLK_BACKSPACE: mu_key = MU_KEY_BACKSPACE; break;
+            }
+            
+            if (mu_key) {
+                if (e.type == SDL_KEYDOWN) mu_input_keydown(ctx, mu_key);
+                else mu_input_keyup(ctx, mu_key);
             }
             break;
         }
