@@ -14,7 +14,7 @@
 
 namespace tinygl {
 
-class Model {
+class TINYGL_API Model {
 public:
     // Model data
     std::vector<Mesh> meshes;

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <string>
 #include <memory>
+#include <type_traits>
 
 #include "gl_defs.h"
 #include "gl_texture.h"
@@ -21,16 +22,6 @@
 #include "../base/colors.h"
 #include "../base/log.h"
 #include "../base/container.h"
-
-#if defined(_WIN32)
-    #ifdef TINYGL_EXPORTS
-        #define TINYGL_API __declspec(dllexport)
-    #else
-        #define TINYGL_API __declspec(dllimport)
-    #endif
-#else
-    #define TINYGL_API __attribute__((visibility("default")))
-#endif
 
 namespace tinygl {
 
@@ -52,6 +43,8 @@ private:
 
     GLuint m_boundArrayBuffer = 0;
     GLuint m_boundVertexArray = 0;
+    GLuint m_boundCopyReadBuffer = 0;
+    GLuint m_boundCopyWriteBuffer = 0;
     GLuint m_activeTextureUnit = 0;
     GLuint m_boundTextures[MAX_TEXTURE_UNITS] = {0};
 
@@ -110,8 +103,7 @@ private:
     }
 
     inline bool checkStencil(uint8_t stencilVal) {
-        if (!m_capabilities[GL_STENCIL_TEST]) return true;
-
+        // Optimization: Capability check moved to caller
         uint8_t val = stencilVal & m_stencilValueMask;
         uint8_t ref = m_stencilRef & m_stencilValueMask;
         
@@ -138,8 +130,7 @@ private:
     }
 
     inline bool testDepth(float z, float currentDepth) {
-        if (!m_capabilities[GL_DEPTH_TEST]) return true; // If disabled, always pass, but DO NOT update depth
-        
+        // Optimization: Capability check moved to caller
         switch (m_depthFunc) {
             case GL_NEVER:      return false;
             case GL_LESS:       return z < currentDepth;
@@ -153,10 +144,20 @@ private:
         }
     }
 
+    GLuint getBufferID(GLenum target) {
+        if (target == GL_ARRAY_BUFFER) return m_boundArrayBuffer;
+        if (target == GL_ELEMENT_ARRAY_BUFFER) return vaos[m_boundVertexArray].elementBufferID;
+        if (target == GL_COPY_READ_BUFFER) return m_boundCopyReadBuffer;
+        if (target == GL_COPY_WRITE_BUFFER) return m_boundCopyWriteBuffer;
+        return 0;
+    }
+
     // Depth Test Helper
     // Returns true if the fragment passes the depth test.
     // Automatically updates the depth buffer if the test passes and Depth Test is enabled.
     inline bool checkDepth(float z, float& currentDepth) {
+        if (!m_capabilities[GL_DEPTH_TEST]) return true;
+
         bool pass = testDepth(z, currentDepth);
 
         if (pass && m_depthMask) {
@@ -254,6 +255,10 @@ public:
     void glDeleteBuffers(GLsizei n, const GLuint* buffers);
     void glBindBuffer(GLenum target, GLuint buffer);
     void glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage);
+    void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
+    void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
+    void* glMapBuffer(GLenum target, GLenum access);
+    GLboolean glUnmapBuffer(GLenum target);
     void glGenVertexArrays(GLsizei n, GLuint* res);
     void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
     void glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
@@ -325,10 +330,9 @@ public:
         // Determine Face Orientation
         // In this implementation: Positive Area = CCW, Negative Area = CW
         bool isCCW = area > 0;
+        bool isFront = (m_frontFace == GL_CCW) ? isCCW : !isCCW;
         
         if (m_capabilities[GL_CULL_FACE]) {
-            bool isFront = (m_frontFace == GL_CCW) ? isCCW : !isCCW;
-            
             if (m_cullFaceMode == GL_FRONT_AND_BACK) return;
             if (m_cullFaceMode == GL_FRONT && isFront) return;
             if (m_cullFaceMode == GL_BACK && !isFront) return;
@@ -386,6 +390,10 @@ public:
         float w1_row = edgeFunc(tv2.scn.x, tv2.scn.y, tv0.scn.x, tv0.scn.y, startX, startY);
         float w2_row = edgeFunc(tv0.scn.x, tv0.scn.y, tv1.scn.x, tv1.scn.y, startX, startY);
 
+        // Optimization: Cache capability flags
+        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
+        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+
         // 6. 像素遍历循环
         for (int y = minY; y <= maxY; ++y) {
             float w0 = w0_row; float w1 = w1_row; float w2 = w2_row;
@@ -411,14 +419,12 @@ public:
                         
                         // 1. Early-Z Optimization (Read-only)
                         bool earlyZPass = true;
-                        if (m_capabilities[GL_DEPTH_TEST]) {
+                        if (enableDepthTest) {
                             earlyZPass = testDepth(z, *pDepth);
                         }
 
                         if (earlyZPass) {
                             // 2. Fragment Interpolation
-                            fsIn.discarded = false;
-                            fsIn.fragDepthWritten = false;
                             fsIn.rho = 0;
 
                             Simd4f z_vec(z);
@@ -447,35 +453,48 @@ public:
                             fsIn.rho = computeRho(z, dUVwDX, dUVwDY, dZwDX, dZwDY, fsIn.varyings[0].x, fsIn.varyings[0].y);
 
                             // 3. Fragment Shader
-                            Vec4 fColor = shader.fragment(fsIn);
+                            // Setup Builtins
+                            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, zInv); 
+                            shader.gl_FrontFacing = isFront;
+                            shader.gl_Discard = false;
+                            shader.gl_FragDepth.written = false;
+
+                            shader.fragment(fsIn);
+                            Vec4 fColor = shader.gl_FragColor;
 
                             // 4. Discard Check
-                            if (!fsIn.discarded) {
-                                float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+                            if (!shader.gl_Discard) {
+                                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
 
-                                // 5. Late Stencil & Depth Test + Buffer Updates
-                                bool passed = true;
-                                if (m_capabilities[GL_STENCIL_TEST]) {
+                                bool stencilPass = true;
+                                bool depthPass = true;
+
+                                // Optimization: Only re-test depth if FragDepth was written.
+                                // If not written, we rely on Early-Z result (which must have been true to get here).
+                                bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
+
+                                if (enableStencilTest) {
                                     if (!checkStencil(*pStencil)) {
                                         applyStencilOp(m_stencilFail, *pStencil);
-                                        passed = false;
+                                        stencilPass = false;
                                     } else {
-                                        if (!testDepth(finalZ, *pDepth)) {
+                                        // Stencil Passed, check Depth for Stencil Op
+                                        if (needDepthTest && !testDepth(finalZ, *pDepth)) {
                                             applyStencilOp(m_stencilPassDepthFail, *pStencil);
-                                            passed = false;
+                                            depthPass = false;
                                         } else {
                                             applyStencilOp(m_stencilPassDepthPass, *pStencil);
+                                            depthPass = true;
                                         }
                                     }
-                                }
-
-                                if (passed && m_capabilities[GL_DEPTH_TEST]) {
-                                    if (!testDepth(finalZ, *pDepth)) {
-                                        passed = false;
+                                } else {
+                                    // No Stencil, just check Depth
+                                    if (needDepthTest && !testDepth(finalZ, *pDepth)) {
+                                        depthPass = false;
                                     }
                                 }
 
-                                if (passed) {
+                                if (stencilPass && depthPass) {
                                     if (m_depthMask) *pDepth = finalZ;
                                     *pColor = ColorUtils::FloatToUint32(fColor);
                                 }
@@ -533,6 +552,10 @@ public:
         int minY = m_viewport.y;
         int maxY = m_viewport.y + m_viewport.h;
 
+        // Optimization: Cache capability flags
+        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
+        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+
         while (true) {
             // 像素裁剪
             if (x0 >= minX && x0 < maxX && y0 >= minY && y0 < maxY) {
@@ -551,15 +574,13 @@ public:
                     
                     // 1. Early-Z Optimization
                     bool earlyZPass = true;
-                    if (m_capabilities[GL_DEPTH_TEST]) {
+                    if (enableDepthTest) {
                         earlyZPass = testDepth(z, depthBuffer[pix]);
                     }
 
                     if (earlyZPass) {
                         // 2. Interpolate
                         ShaderContext fsIn;
-                        fsIn.discarded = false;
-                        fsIn.fragDepthWritten = false;
                         fsIn.rho = 0; // Lines usually don't have well defined Rho without extra math
 
                         float w_t0 = v0.scn.w * (1.0f - t) * z;
@@ -570,33 +591,44 @@ public:
                         }
 
                         // 3. Shader
-                        Vec4 fColor = shader.fragment(fsIn);
+                        // Setup Builtins
+                        shader.gl_FragCoord = Vec4(x0 + 0.5f, y0 + 0.5f, z, zInv); 
+                        shader.gl_FrontFacing = true;
+                        shader.gl_Discard = false;
+                        shader.gl_FragDepth.written = false;
+
+                        shader.fragment(fsIn);
+                        Vec4 fColor = shader.gl_FragColor;
 
                         // 4. Discard & Late-Z
-                        if (!fsIn.discarded) {
-                            float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+                        if (!shader.gl_Discard) {
+                            float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
                             
-                            // Stencil for Lines? Standard says yes.
-                            bool passed = true;
-                            if (m_capabilities[GL_STENCIL_TEST]) {
+                            bool stencilPass = true;
+                            bool depthPass = true;
+
+                            bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
+
+                            if (enableStencilTest) {
                                 if (!checkStencil(stencilBuffer[pix])) {
                                     applyStencilOp(m_stencilFail, stencilBuffer[pix]);
-                                    passed = false;
+                                    stencilPass = false;
                                 } else {
-                                    if (!testDepth(finalZ, depthBuffer[pix])) {
+                                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
                                         applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
-                                        passed = false;
+                                        depthPass = false;
                                     } else {
                                         applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                                        depthPass = true;
                                     }
+                                }
+                            } else {
+                                if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
+                                    depthPass = false;
                                 }
                             }
 
-                            if (passed && m_capabilities[GL_DEPTH_TEST]) {
-                                if (!testDepth(finalZ, depthBuffer[pix])) passed = false;
-                            }
-
-                            if (passed) {
+                            if (stencilPass && depthPass) {
                                 if (m_depthMask) depthBuffer[pix] = finalZ;
                                 m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                             }
@@ -627,46 +659,60 @@ public:
         // v.scn.z 存储的是 Z/W (NDC depth range 0-1 if transformed correctly, or clip z)
         float z = v.scn.z; 
 
+        // Optimization: Cache capability flags
+        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
+        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+
         // 1. Early-Z
         bool earlyZPass = true;
-        if (m_capabilities[GL_DEPTH_TEST]) {
+        if (enableDepthTest) {
             earlyZPass = testDepth(z, depthBuffer[pix]);
         }
 
         if (earlyZPass) {
             // 2. Setup Context
             ShaderContext fsIn = v.ctx; 
-            fsIn.discarded = false;
-            fsIn.fragDepthWritten = false;
             fsIn.rho = 0;
 
-            // 3. Shader
-            Vec4 fColor = shader.fragment(fsIn);
+            // 3. Fragment Shader
+            // Setup Builtins
+            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, v.scn.w); 
+            shader.gl_FrontFacing = true;
+            shader.gl_Discard = false;
+            shader.gl_FragDepth.written = false;
+
+            shader.fragment(fsIn);
+            Vec4 fColor = shader.gl_FragColor;
 
             // 4. Discard & Late-Z
-            if (!fsIn.discarded) {
-                float finalZ = fsIn.fragDepthWritten ? fsIn.fragDepth : z;
+            if (!shader.gl_Discard) {
+                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
 
-                bool passed = true;
-                if (m_capabilities[GL_STENCIL_TEST]) {
+                bool stencilPass = true;
+                bool depthPass = true;
+
+                bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
+
+                if (enableStencilTest) {
                     if (!checkStencil(stencilBuffer[pix])) {
                         applyStencilOp(m_stencilFail, stencilBuffer[pix]);
-                        passed = false;
+                        stencilPass = false;
                     } else {
-                        if (!testDepth(finalZ, depthBuffer[pix])) {
+                        if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
                             applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
-                            passed = false;
+                            depthPass = false;
                         } else {
                             applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                            depthPass = true;
                         }
+                    }
+                } else {
+                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
+                        depthPass = false;
                     }
                 }
 
-                if (passed && m_capabilities[GL_DEPTH_TEST]) {
-                    if (!testDepth(finalZ, depthBuffer[pix])) passed = false;
-                }
-
-                if (passed) {
+                if (stencilPass && depthPass) {
                     if (m_depthMask) depthBuffer[pix] = finalZ;
                     m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                 }
@@ -705,9 +751,8 @@ public:
             // 调用 Shader (传入数组指针)
             // 如果 Shader 需要 gl_InstanceID，通常需要修改 shader.vertex 签名或者作为 uniform 传入
             // 这里我们保持接口不变，仅通过 Attribute Divisor 支持 Instancing
-            VOut v;
-            v.pos = shader.vertex(attribs, ctx);
-            v.ctx = ctx;
+            shader.vertex(attribs, ctx);
+            VOut v = {.pos = shader.gl_Position, .ctx = ctx};
             triangle.push_back(v);
         }
 
@@ -762,9 +807,8 @@ public:
             }
         }
         ShaderContext ctx;
-        VOut v;
-        v.pos = shader.vertex(attribs, ctx);
-        v.ctx = ctx;
+        shader.vertex(attribs, ctx);
+        VOut v = {.pos = shader.gl_Position, .ctx = ctx};
 
         // 2. Clipping (Points)
         // 简单的视锥体剔除: -w <= x,y,z <= w
@@ -795,7 +839,8 @@ public:
                 }
             }
             ShaderContext ctx;
-            verts[i].pos = shader.vertex(attribs, ctx);
+            shader.vertex(attribs, ctx);
+            verts[i].pos = shader.gl_Position;
             verts[i].ctx = ctx;
         }
 

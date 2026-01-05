@@ -59,7 +59,7 @@ struct SpotLight {
 };
 
 // Shader
-struct LightingMapsShader {
+struct LightingMapsShader : public ShaderBuiltins {
     Mat4 model;
     Mat4 view;
     Mat4 projection;
@@ -71,7 +71,7 @@ struct LightingMapsShader {
     SpotLight spotLight;
 
     // Vertex Shader
-    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    inline void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         Vec4 localPos = attribs[0];
         localPos.w = 1.0f;
         Vec4 worldPos = model * localPos;
@@ -86,7 +86,7 @@ struct LightingMapsShader {
         // UV
         outCtx.varyings[2] = attribs[2];
 
-        return projection * view * worldPos;
+        gl_Position = projection * view * worldPos;
     }
 
     // Helper: Directional Light
@@ -159,7 +159,7 @@ struct LightingMapsShader {
     }
 
     // Fragment Shader
-    Vec4 fragment(const ShaderContext& inCtx) {
+    void fragment(const ShaderContext& inCtx) {
         Vec4 fragPos = inCtx.varyings[0];
         Vec4 normal = normalize(inCtx.varyings[1]);
         Vec4 uv = inCtx.varyings[2];
@@ -179,7 +179,7 @@ struct LightingMapsShader {
         result = result + CalcSpotLight(spotLight, normal, fragPos, viewDir, diffMap, specMap);    
         
         result.w = 1.0f;
-        return result;
+        gl_FragColor = result;
     }
 };
 

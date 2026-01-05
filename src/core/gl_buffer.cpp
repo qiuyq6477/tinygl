@@ -14,10 +14,12 @@ void SoftRenderContext::glGenBuffers(GLsizei n, GLuint* res) {
 void SoftRenderContext::glBindBuffer(GLenum target, GLuint buffer) {
     if (target == GL_ARRAY_BUFFER) m_boundArrayBuffer = buffer;
     else if (target == GL_ELEMENT_ARRAY_BUFFER) getVAO().elementBufferID = buffer;
+    else if (target == GL_COPY_READ_BUFFER) m_boundCopyReadBuffer = buffer;
+    else if (target == GL_COPY_WRITE_BUFFER) m_boundCopyWriteBuffer = buffer;
 }
 
 void SoftRenderContext::glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage) {
-    GLuint id = (target == GL_ARRAY_BUFFER) ? m_boundArrayBuffer : getVAO().elementBufferID;
+    GLuint id = getBufferID(target);
     if (id == 0 || buffers.find(id) == buffers.end()) {
         LOG_ERROR("Invalid Buffer Binding");
         return;
@@ -26,6 +28,83 @@ void SoftRenderContext::glBufferData(GLenum target, GLsizei size, const void* da
     if (data) std::memcpy(buffers[id].data.data(), data, size);
     buffers[id].usage = usage;
     LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
+}
+
+void SoftRenderContext::glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+    GLuint id = getBufferID(target);
+    if (id == 0 || buffers.find(id) == buffers.end()) {
+        LOG_ERROR("glBufferSubData: Invalid Buffer Binding");
+        return;
+    }
+    BufferObject& buffer = buffers[id];
+    if (offset < 0 || size < 0 || (size_t)(offset + size) > buffer.data.size()) {
+        LOG_ERROR("glBufferSubData: Out of bounds");
+        return;
+    }
+    if (data) {
+        std::memcpy(buffer.data.data() + offset, data, size);
+    }
+}
+
+void SoftRenderContext::glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
+    GLuint readID = getBufferID(readTarget);
+    GLuint writeID = getBufferID(writeTarget);
+
+    if (readID == 0 || buffers.find(readID) == buffers.end() ||
+        writeID == 0 || buffers.find(writeID) == buffers.end()) {
+        LOG_ERROR("glCopyBufferSubData: Invalid Buffer Binding");
+        return;
+    }
+
+    BufferObject& readBuf = buffers[readID];
+    BufferObject& writeBuf = buffers[writeID];
+
+    if (readOffset < 0 || size < 0 || (size_t)(readOffset + size) > readBuf.data.size() ||
+        writeOffset < 0 || (size_t)(writeOffset + size) > writeBuf.data.size()) {
+        LOG_ERROR("glCopyBufferSubData: Out of bounds");
+        return;
+    }
+
+    // Standard says: If readTarget and writeTarget are the same, the ranges must not overlap.
+    if (readID == writeID) {
+         if (!( (readOffset + size <= writeOffset) || (writeOffset + size <= readOffset) )) {
+             LOG_ERROR("glCopyBufferSubData: Overlapping copy within the same buffer");
+             return;
+         }
+    }
+
+    std::memcpy(writeBuf.data.data() + writeOffset, readBuf.data.data() + readOffset, size);
+}
+
+void* SoftRenderContext::glMapBuffer(GLenum target, GLenum access) {
+    GLuint id = getBufferID(target);
+    if (id == 0 || buffers.find(id) == buffers.end()) {
+        LOG_ERROR("glMapBuffer: Invalid Buffer Binding");
+        return nullptr;
+    }
+    BufferObject& buffer = buffers[id];
+    if (buffer.mapped) {
+        LOG_ERROR("glMapBuffer: Buffer already mapped");
+        return nullptr;
+    }
+    buffer.mapped = true;
+    buffer.mappedAccess = access;
+    return buffer.data.data();
+}
+
+GLboolean SoftRenderContext::glUnmapBuffer(GLenum target) {
+    GLuint id = getBufferID(target);
+    if (id == 0 || buffers.find(id) == buffers.end()) {
+        LOG_ERROR("glUnmapBuffer: Invalid Buffer Binding");
+        return GL_FALSE;
+    }
+    BufferObject& buffer = buffers[id];
+    if (!buffer.mapped) {
+        LOG_ERROR("glUnmapBuffer: Buffer not mapped");
+        return GL_FALSE;
+    }
+    buffer.mapped = false;
+    return GL_TRUE;
 }
 
 // --- VAO ---

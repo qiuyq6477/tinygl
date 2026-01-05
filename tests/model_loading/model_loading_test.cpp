@@ -13,7 +13,7 @@ using namespace tinygl;
 namespace fs = std::filesystem;
 
 // Simple Blinn-Phong Shader
-struct ModelShader {
+struct ModelShader : public ShaderBuiltins {
     // Uniforms
     Mat4 model;
     Mat4 view;
@@ -29,7 +29,7 @@ struct ModelShader {
     TextureObject* texSpec = nullptr;
 
     // Vertex Shader
-    Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
         // attribs[0]: Position
         // attribs[1]: Normal
         // attribs[2]: TexCoords
@@ -49,16 +49,16 @@ struct ModelShader {
         // TexCoords
         ctx.varyings[2] = aTexCoords;
 
-        return projection * view * worldPos;
+        gl_Position = projection * view * worldPos;
     }
 
     // Fragment Shader
-    Vec4 fragment(const ShaderContext& ctx) {
+    void fragment(const ShaderContext& ctx) {
         Vec4 fragPos = ctx.varyings[0];
         Vec4 normal = normalize(ctx.varyings[1]);
         Vec4 texCoords = ctx.varyings[2];
 
-        if (!renderCtx) return {1, 0, 1, 1}; // Error pink
+        if (!renderCtx) return; // Error pink
 
         // Ambient
         float ambientStrength = 0.1f;
@@ -85,7 +85,7 @@ struct ModelShader {
         Vec4 result = (ambient + diffuse) * diffColor + specular * specColor.x;
         result.w = diffColor.w;
         
-        return result;
+        gl_FragColor = result;
     }
 
     SoftRenderContext* renderCtx = nullptr;

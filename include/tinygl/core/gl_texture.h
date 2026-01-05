@@ -76,7 +76,7 @@ private:
 };
 
 // Texture Object Definition
-struct TextureObject {
+struct TINYGL_API TextureObject {
     // 主采样入口：直接调用函数指针，无运行时分支
     Vec4 sample(float u, float v, float rho = 0.0f) const {
         return activeSampler(*this, u, v, rho);

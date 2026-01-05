@@ -2,31 +2,37 @@
 
 ## Project Overview
 
-**tinygl** is a C++20 software rendering project that implements a subset of the OpenGL 1.x API. It features a header-only software rasterizer and a minimal application framework.
+**tinygl** is a high-performance C++20 software rendering project aiming to implement a subset of the **OpenGL 3.3+ API**. It features a template-driven core rendering pipeline and a minimal application framework, designed for educational purposes and to demonstrate modern C++ techniques in graphics programming.
 
-* **Language:** C++20
-* **Build System:** CMake
-* **Dependencies:** SDL2
-* **Core Feature:** Programmable pipeline via C++ lambdas, SIMD optimizations (ARM NEON/x86), and `glDraw*` emulation.
+* **Goal:** Implement a functional subset of OpenGL 3.3 (and potentially higher versions).
+* **Core:** A software rasterizer with a template-driven pipeline for maximum performance.
+* **Key Features:** 
+    * **Programmable Pipeline:** Vertex and Fragment shaders implemented via C++ lambdas, with a header-resident core for inlining.
+    * **High Performance:** SIMD optimizations (ARM NEON & x86 SSE) and tiled rasterization.
+    * **API Emulation:** Supports `glDraw*`, VAOs, VBOs, and Texture units.
+* **Framework:** Built on SDL2 for platform abstraction and MicroUI for immediate mode GUI.
 
 ## Architecture
 
-The project is divided into three main components:
+The project follows a layered architecture divided into three main components:
 
-1. **Core Renderer (`include/tinygl/core/tinygl.h`):**
-    * A header-only, template-heavy software rasterizer.
-    * Implements the graphics pipeline: Vertex Processing -> Clipping -> Rasterization -> Fragment Processing.
-    * State management mimics OpenGL (VAOs, Textures, Buffers).
+1. **Core Renderer (`include/tinygl/core/` & `src/core/`):**
+    * **Type:** Hybrid (Template Pipeline + Compiled State Management).
+    * **Design:** High-performance template-driven pipeline defined in `tinygl.h` to allow compiler inlining of shader stages.
+    * **Pipeline:** Vertex Processing -> Primitive Assembly & Clipping (Sutherland-Hodgman) -> Rasterization (Barycentric) -> Fragment Processing (Early-Z, Texturing, Blending).
+    * **State Management:** Implemented in `.cpp` files, mimicking OpenGL state machine (VAOs, Textures, Buffers, Render State).
 
-2. **Framework (`src/framework` & `src/core`):**
-    * Compiled as a shared library: `tinygl_framework`.
-    * Handles window creation, input management (via SDL2), and UI rendering (MicroUI).
-    * Provides the `Application` base class.
+2. **Framework (`src/framework/`):**
+    * **Type:** Shared Library (`tinygl_framework`).
+    * **Responsibility:** Provides the runtime environment for the renderer.
+    * **Features:** Window creation, Input event handling (via SDL2), Resource Loading (Textures/Models), and Debug UI rendering (MicroUI).
+    * **Interface:** Exposes the `Application` base class for users to inherit from.
 
 3. **Tests & Demos (`tests/`):**
-    * A single executable `test_runner` runs all registered test cases.
-    * Test cases are static libraries that self-register using a global registry pattern.
-    * Tests verify specific OpenGL features (e.g., `glDrawArrays`, Texturing, Mipmaps).
+    * **Type:** Executable (`test_runner`) + Static Libraries linking against `tinygl_framework`.
+    * **Structure:** Each test case is compiled as a static library that self-registers into a global registry.
+    * **Purpose:** Verification of implemented OpenGL features (e.g., `glDrawArrays`, Texturing, Mipmaps, Instancing, Lighting).
+    * **Runner:** A unified GUI application to browse and run different graphical tests.
 
 ## Building and Running
 
@@ -111,3 +117,38 @@ All 3D test cases must include a camera to allow user navigation.
 * `tests/test_runner.cpp`: Entry point for the test suite.
 * `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.
 * `CMakeLists.txt`: Root build configuration.
+
+## Cross-Platform Development Lessons
+
+### SIMD Portability
+* **Problem:** Hardcoding ARM NEON (`arm_neon.h`) causes build failure on x86 Windows.
+* **Solution:** Use abstraction classes (`Simd4f`) and platform macros (`__ARM_NEON`, `__SSE__`). Always provide an x86 SSE fallback for SIMD code.
+* **Header:** Include `<immintrin.h>` for x86 and `<arm_neon.h>` for ARM.
+
+### DLL Symbol Export (Windows)
+* **Problem:** Windows DLLs hide all symbols by default, causing `undefined reference` errors during linking of tests.
+* **Solution:** Use an export macro (`TINYGL_API`).
+    ```cpp
+    #if defined(_WIN32)
+        #ifdef TINYGL_EXPORTS
+            #define TINYGL_API __declspec(dllexport)
+        #else
+            #define TINYGL_API __declspec(dllimport)
+        #endif
+    #else
+        #define TINYGL_API __attribute__((visibility("default")))
+    #endif
+    ```
+* **Rule:** Every public class, struct, and function in `tinygl_framework` must be marked with `TINYGL_API`.
+
+### C++ Syntax Compatibility
+* **Problem:** C99 array designated initializers (e.g., `[index] = value`) are not standard C++ and fail on strict compilers (MSVC/MinGW GCC).
+* **Solution:**
+    * Use C++ Lambda-based initialization for complex static maps.
+    * Move large data tables (like UI atlases) to `.c` files and compile them as C code.
+
+### Encapsulation & DLL Boundaries
+* **Problem:** Test cases directy calling third-party functions (like `stbi_load`) hidden inside the framework DLL.
+* **Solution:** Create exported wrapper functions in the framework (e.g., `tinygl::LoadImageRaw`) to provide controlled access to private dependencies.
+
+

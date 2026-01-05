@@ -4,10 +4,10 @@
 
 using namespace tinygl;
 
-struct TriangleShader {
+struct TriangleShader : public ShaderBuiltins {
     float scale = 1.0f;
     
-    Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         // Pass color to fragment shader
         outCtx.varyings[0] = attribs[1];
         
@@ -16,11 +16,11 @@ struct TriangleShader {
         pos.x *= scale;
         pos.y *= scale;
         pos.w = 1.0f;
-        return pos;
+        gl_Position = pos;
     }
 
-    Vec4 fragment(const ShaderContext& inCtx) {
-        return inCtx.varyings[0]; // Interpolated color
+    void fragment(const ShaderContext& inCtx) {
+        gl_FragColor = inCtx.varyings[0]; // Interpolated color
     }
 };
 

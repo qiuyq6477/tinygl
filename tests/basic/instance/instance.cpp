@@ -13,7 +13,7 @@ struct InstanceData {
 };
 
 
-struct InstancedCubeShader {
+struct InstancedCubeShader : public tinygl::ShaderBuiltins {
     // Uniforms
     Mat4 viewProj;
     float time;
@@ -23,7 +23,7 @@ struct InstancedCubeShader {
     // attribs[1]: Instance Offset (Divisor 1)
     // attribs[2]: Instance Color  (Divisor 1)
     // attribs[3]: Rotation Params (Divisor 1) -> (SpeedX, SpeedY, Phase, padding)
-    Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
         Vec4 localPos = attribs[0];
         Vec4 offset   = attribs[1];
         Vec4 color    = attribs[2];
@@ -48,13 +48,13 @@ struct InstancedCubeShader {
         worldPos.w = 1.0f;
 
         // 5. 应用 View Projection
-        return viewProj * worldPos;
+        gl_Position = viewProj * worldPos;
     }
 
     // Fragment Shader
-    Vec4 fragment(const ShaderContext& ctx) {
+    void fragment(const ShaderContext& ctx) {
         // 直接输出插值后的颜色
-        return ctx.varyings[0];
+        gl_FragColor = ctx.varyings[0];
     }
 };
 

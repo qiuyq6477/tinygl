@@ -5,23 +5,23 @@
 using namespace tinygl;
 
 // Simple shader for texturing a quad
-struct TextureFilterShader {
+struct TextureFilterShader : public ShaderBuiltins {
     Mat4 mvp = Mat4::Identity();
     TextureObject* texture = nullptr;
 
-    Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         // Pass UV to fragment shader
         outCtx.varyings[0] = attribs[1]; 
         // Position
-        return mvp * attribs[0];
+        gl_Position = mvp * attribs[0];
     }
 
-    Vec4 fragment(const ShaderContext& inCtx) {
+    void fragment(const ShaderContext& inCtx) {
         if (!texture) {
-            return {1, 0, 1, 1}; // Return magenta if texture is missing
+            gl_FragColor = {1, 0, 1, 1}; // Return magenta if texture is missing
         }
         Vec4 uv = inCtx.varyings[0];
-        return texture->sample(uv.x, uv.y, inCtx.rho);
+        gl_FragColor = texture->sample(uv.x, uv.y, inCtx.rho);
     }
 };
 

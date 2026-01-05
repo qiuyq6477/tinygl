@@ -9,6 +9,7 @@ add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
 add_library(tinygl_framework SHARED 
     third_party/microui.c
     third_party/stb_image.cpp
+    framework/atlas.c
     framework/application.cpp
     framework/ui_renderer.cpp
     framework/mesh.cpp

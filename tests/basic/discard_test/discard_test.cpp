@@ -9,13 +9,13 @@
 
 using namespace tinygl;
 
-struct DiscardShader {
+struct DiscardShader : ShaderBuiltins {
     SimdMat4 mvp;
     TextureObject* texture = nullptr;
     float alphaThreshold = 0.1f;
 
     // Vertex Shader
-    Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
         // Pos
         float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, attribs[0].w};
         Simd4f pos = Simd4f::load(posArr);
@@ -26,21 +26,21 @@ struct DiscardShader {
         // Pass UV
         ctx.varyings[0] = attribs[1];
 
-        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+        gl_Position = Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
     // Fragment Shader
-    Vec4 fragment(ShaderContext& ctx) {
+    void fragment(ShaderContext& ctx) {
         Vec4 uv = ctx.varyings[0];
         Vec4 color = texture ? texture->sample(uv.x, uv.y) : Vec4(1,0,1,1);
         
         // Discard logic
         if (color.w < alphaThreshold) {
-            ctx.discard();
-            return Vec4(0,0,0,0);
+            discard();
+            return;
         }
 
-        return color;
+        gl_FragColor = color;
     }
 };
 

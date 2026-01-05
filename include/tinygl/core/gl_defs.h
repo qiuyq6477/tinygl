@@ -1,6 +1,16 @@
 #pragma once
 #include <cstdint>
 
+#if defined(_WIN32)
+    #ifdef TINYGL_EXPORTS
+        #define TINYGL_API __declspec(dllexport)
+    #else
+        #define TINYGL_API __declspec(dllimport)
+    #endif
+#else
+    #define TINYGL_API __attribute__((visibility("default")))
+#endif
+
 namespace tinygl {
 
 // Buffer Type for glClear
@@ -16,12 +26,19 @@ using GLenum = uint32_t;
 using GLuint = uint32_t;
 using GLint = int32_t;
 using GLsizei = int32_t;
+using GLintptr = intptr_t;
+using GLsizeiptr = intptr_t;
 using GLboolean = bool;
 using GLfloat = float;
 
 const GLenum GL_ARRAY_BUFFER = 0x8892;
 const GLenum GL_ELEMENT_ARRAY_BUFFER = 0x8893;
+const GLenum GL_COPY_READ_BUFFER = 0x8F36;
+const GLenum GL_COPY_WRITE_BUFFER = 0x8F37;
 const GLenum GL_STATIC_DRAW = 0x88E4;
+const GLenum GL_READ_ONLY = 0x88B8;
+const GLenum GL_WRITE_ONLY = 0x88B9;
+const GLenum GL_READ_WRITE = 0x88BA;
 const GLenum GL_FLOAT = 0x1406;
 const GLenum GL_TEXTURE_2D = 0x0DE1;
 const GLenum GL_RGBA = 0x1908;

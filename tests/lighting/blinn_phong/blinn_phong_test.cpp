@@ -24,7 +24,7 @@ struct Light {
     float ambientStrength = 0.1f;
 };
 
-struct BlinnPhongShader {
+struct BlinnPhongShader : public ShaderBuiltins {
     // Uniforms
     Mat4 model;
     Mat4 view;
@@ -37,7 +37,7 @@ struct BlinnPhongShader {
 
     // Vertex Shader
     // Input: attribs[0] = pos, attribs[1] = normal
-    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    inline void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         // Transform Position to World Space
         Vec4 localPos = attribs[0];
         localPos.w = 1.0f; // Ensure w is 1
@@ -58,12 +58,12 @@ struct BlinnPhongShader {
         outCtx.varyings[1] = normalize(worldNormal);
 
         // Transform to Clip Space
-        return projection * view * worldPos;
+        gl_Position = projection * view * worldPos;
     }
 
     // Fragment Shader
     // Input: inCtx.varyings[0] = FragPos, inCtx.varyings[1] = Normal
-    Vec4 fragment(const ShaderContext& inCtx) {
+    void fragment(const ShaderContext& inCtx) {
         // 0. Data Preparation
         Vec4 fragPos = inCtx.varyings[0];
         Vec4 normal = normalize(inCtx.varyings[1]);
@@ -93,22 +93,22 @@ struct BlinnPhongShader {
 
         Vec4 result = ambient + diffuse + specular;
         result.w = 1.0f;
-        return result;
+        gl_FragColor = result;
     }
 };
 
-struct LightCubeShader {
+struct LightCubeShader : public ShaderBuiltins {
     Mat4 mvp;
     Vec4 lightColor;
 
-    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    inline void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         Vec4 localPos = attribs[0];
         localPos.w = 1.0f; 
-        return mvp * localPos;
+        gl_Position = mvp * localPos;
     }
 
-    Vec4 fragment(const ShaderContext& inCtx) {
-        return lightColor;
+    void fragment(const ShaderContext& inCtx) {
+        gl_FragColor = lightColor;
     }
 };
 
