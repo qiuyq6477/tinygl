@@ -33,6 +33,8 @@ using GLfloat = float;
 
 const GLenum GL_ARRAY_BUFFER = 0x8892;
 const GLenum GL_ELEMENT_ARRAY_BUFFER = 0x8893;
+const GLenum GL_COPY_READ_BUFFER = 0x8F36;
+const GLenum GL_COPY_WRITE_BUFFER = 0x8F37;
 const GLenum GL_STATIC_DRAW = 0x88E4;
 const GLenum GL_READ_ONLY = 0x88B8;
 const GLenum GL_WRITE_ONLY = 0x88B9;

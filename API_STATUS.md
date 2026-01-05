@@ -22,8 +22,9 @@
 | `glDeleteBuffers` | ✅  | 删除缓冲区 |
 | `glBindBuffer` | ✅ | 绑定缓冲区到目标 |
 | `glBufferData` | ✅ | 上传缓冲区数据 |
-| `glBufferSubData` | ❌ | 部分更新缓冲区 |
-| `glMapBuffer` / `glUnmapBuffer` | ❌ | 内存映射缓冲区 |
+| `glBufferSubData` | ✅ | 部分更新缓冲区 |
+| `glCopyBufferSubData` | ✅ | 缓冲区间复制数据 |
+| `glMapBuffer` / `glUnmapBuffer` | ✅ | 内存映射缓冲区 |
 | `glGetBufferSubData` | ❌ | 读取缓冲区数据 |
 
 **实现位置**：`vc/tinygl.h` 中 `SoftRenderContext` 类

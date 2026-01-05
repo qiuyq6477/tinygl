@@ -42,6 +42,8 @@ private:
 
     GLuint m_boundArrayBuffer = 0;
     GLuint m_boundVertexArray = 0;
+    GLuint m_boundCopyReadBuffer = 0;
+    GLuint m_boundCopyWriteBuffer = 0;
     GLuint m_activeTextureUnit = 0;
     GLuint m_boundTextures[MAX_TEXTURE_UNITS] = {0};
 
@@ -141,6 +143,14 @@ private:
             case GL_ALWAYS:     return true;
             default:            return z < currentDepth;
         }
+    }
+
+    GLuint getBufferID(GLenum target) {
+        if (target == GL_ARRAY_BUFFER) return m_boundArrayBuffer;
+        if (target == GL_ELEMENT_ARRAY_BUFFER) return vaos[m_boundVertexArray].elementBufferID;
+        if (target == GL_COPY_READ_BUFFER) return m_boundCopyReadBuffer;
+        if (target == GL_COPY_WRITE_BUFFER) return m_boundCopyWriteBuffer;
+        return 0;
     }
 
     // Depth Test Helper
@@ -245,6 +255,7 @@ public:
     void glBindBuffer(GLenum target, GLuint buffer);
     void glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage);
     void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
+    void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     void* glMapBuffer(GLenum target, GLenum access);
     GLboolean glUnmapBuffer(GLenum target);
     void glGenVertexArrays(GLsizei n, GLuint* res);

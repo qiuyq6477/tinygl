@@ -1,0 +1,1 @@
+add_tinygl_test(copy_buffer_test_lib copy_buffer_test.cpp)
