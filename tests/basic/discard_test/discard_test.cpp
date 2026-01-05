@@ -36,7 +36,7 @@ struct DiscardShader : ShaderBuiltins {
         
         // Discard logic
         if (color.w < alphaThreshold) {
-            ctx.discard();
+            discard();
             return;
         }
 
