@@ -103,8 +103,7 @@ private:
     }
 
     inline bool checkStencil(uint8_t stencilVal) {
-        if (!m_capabilities[GL_STENCIL_TEST]) return true;
-
+        // Optimization: Capability check moved to caller
         uint8_t val = stencilVal & m_stencilValueMask;
         uint8_t ref = m_stencilRef & m_stencilValueMask;
         
@@ -131,8 +130,7 @@ private:
     }
 
     inline bool testDepth(float z, float currentDepth) {
-        if (!m_capabilities[GL_DEPTH_TEST]) return true; // If disabled, always pass, but DO NOT update depth
-        
+        // Optimization: Capability check moved to caller
         switch (m_depthFunc) {
             case GL_NEVER:      return false;
             case GL_LESS:       return z < currentDepth;
@@ -158,6 +156,8 @@ private:
     // Returns true if the fragment passes the depth test.
     // Automatically updates the depth buffer if the test passes and Depth Test is enabled.
     inline bool checkDepth(float z, float& currentDepth) {
+        if (!m_capabilities[GL_DEPTH_TEST]) return true;
+
         bool pass = testDepth(z, currentDepth);
 
         if (pass && m_depthMask) {
@@ -390,6 +390,10 @@ public:
         float w1_row = edgeFunc(tv2.scn.x, tv2.scn.y, tv0.scn.x, tv0.scn.y, startX, startY);
         float w2_row = edgeFunc(tv0.scn.x, tv0.scn.y, tv1.scn.x, tv1.scn.y, startX, startY);
 
+        // Optimization: Cache capability flags
+        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
+        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+
         // 6. 像素遍历循环
         for (int y = minY; y <= maxY; ++y) {
             float w0 = w0_row; float w1 = w1_row; float w2 = w2_row;
@@ -415,7 +419,7 @@ public:
                         
                         // 1. Early-Z Optimization (Read-only)
                         bool earlyZPass = true;
-                        if (m_capabilities[GL_DEPTH_TEST]) {
+                        if (enableDepthTest) {
                             earlyZPass = testDepth(z, *pDepth);
                         }
 
@@ -462,29 +466,35 @@ public:
                             if (!shader.gl_Discard) {
                                 float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
 
-                                // 5. Late Stencil & Depth Test + Buffer Updates
-                                bool passed = true;
-                                if (m_capabilities[GL_STENCIL_TEST]) {
+                                bool stencilPass = true;
+                                bool depthPass = true;
+
+                                // Optimization: Only re-test depth if FragDepth was written.
+                                // If not written, we rely on Early-Z result (which must have been true to get here).
+                                bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
+
+                                if (enableStencilTest) {
                                     if (!checkStencil(*pStencil)) {
                                         applyStencilOp(m_stencilFail, *pStencil);
-                                        passed = false;
+                                        stencilPass = false;
                                     } else {
-                                        if (!testDepth(finalZ, *pDepth)) {
+                                        // Stencil Passed, check Depth for Stencil Op
+                                        if (needDepthTest && !testDepth(finalZ, *pDepth)) {
                                             applyStencilOp(m_stencilPassDepthFail, *pStencil);
-                                            passed = false;
+                                            depthPass = false;
                                         } else {
                                             applyStencilOp(m_stencilPassDepthPass, *pStencil);
+                                            depthPass = true;
                                         }
                                     }
-                                }
-
-                                if (passed && m_capabilities[GL_DEPTH_TEST]) {
-                                    if (!testDepth(finalZ, *pDepth)) {
-                                        passed = false;
+                                } else {
+                                    // No Stencil, just check Depth
+                                    if (needDepthTest && !testDepth(finalZ, *pDepth)) {
+                                        depthPass = false;
                                     }
                                 }
 
-                                if (passed) {
+                                if (stencilPass && depthPass) {
                                     if (m_depthMask) *pDepth = finalZ;
                                     *pColor = ColorUtils::FloatToUint32(fColor);
                                 }
@@ -542,6 +552,10 @@ public:
         int minY = m_viewport.y;
         int maxY = m_viewport.y + m_viewport.h;
 
+        // Optimization: Cache capability flags
+        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
+        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+
         while (true) {
             // 像素裁剪
             if (x0 >= minX && x0 < maxX && y0 >= minY && y0 < maxY) {
@@ -560,7 +574,7 @@ public:
                     
                     // 1. Early-Z Optimization
                     bool earlyZPass = true;
-                    if (m_capabilities[GL_DEPTH_TEST]) {
+                    if (enableDepthTest) {
                         earlyZPass = testDepth(z, depthBuffer[pix]);
                     }
 
@@ -590,27 +604,31 @@ public:
                         if (!shader.gl_Discard) {
                             float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
                             
-                            // Stencil for Lines? Standard says yes.
-                            bool passed = true;
-                            if (m_capabilities[GL_STENCIL_TEST]) {
+                            bool stencilPass = true;
+                            bool depthPass = true;
+
+                            bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
+
+                            if (enableStencilTest) {
                                 if (!checkStencil(stencilBuffer[pix])) {
                                     applyStencilOp(m_stencilFail, stencilBuffer[pix]);
-                                    passed = false;
+                                    stencilPass = false;
                                 } else {
-                                    if (!testDepth(finalZ, depthBuffer[pix])) {
+                                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
                                         applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
-                                        passed = false;
+                                        depthPass = false;
                                     } else {
                                         applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                                        depthPass = true;
                                     }
+                                }
+                            } else {
+                                if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
+                                    depthPass = false;
                                 }
                             }
 
-                            if (passed && m_capabilities[GL_DEPTH_TEST]) {
-                                if (!testDepth(finalZ, depthBuffer[pix])) passed = false;
-                            }
-
-                            if (passed) {
+                            if (stencilPass && depthPass) {
                                 if (m_depthMask) depthBuffer[pix] = finalZ;
                                 m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                             }
@@ -641,9 +659,13 @@ public:
         // v.scn.z 存储的是 Z/W (NDC depth range 0-1 if transformed correctly, or clip z)
         float z = v.scn.z; 
 
+        // Optimization: Cache capability flags
+        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
+        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+
         // 1. Early-Z
         bool earlyZPass = true;
-        if (m_capabilities[GL_DEPTH_TEST]) {
+        if (enableDepthTest) {
             earlyZPass = testDepth(z, depthBuffer[pix]);
         }
 
@@ -666,26 +688,31 @@ public:
             if (!shader.gl_Discard) {
                 float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
 
-                bool passed = true;
-                if (m_capabilities[GL_STENCIL_TEST]) {
+                bool stencilPass = true;
+                bool depthPass = true;
+
+                bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
+
+                if (enableStencilTest) {
                     if (!checkStencil(stencilBuffer[pix])) {
                         applyStencilOp(m_stencilFail, stencilBuffer[pix]);
-                        passed = false;
+                        stencilPass = false;
                     } else {
-                        if (!testDepth(finalZ, depthBuffer[pix])) {
+                        if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
                             applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
-                            passed = false;
+                            depthPass = false;
                         } else {
                             applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                            depthPass = true;
                         }
+                    }
+                } else {
+                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
+                        depthPass = false;
                     }
                 }
 
-                if (passed && m_capabilities[GL_DEPTH_TEST]) {
-                    if (!testDepth(finalZ, depthBuffer[pix])) passed = false;
-                }
-
-                if (passed) {
+                if (stencilPass && depthPass) {
                     if (m_depthMask) depthBuffer[pix] = finalZ;
                     m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                 }
