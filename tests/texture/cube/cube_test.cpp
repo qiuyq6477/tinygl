@@ -12,15 +12,23 @@ struct Vertex {
     float uv[2];
 };
 
-struct CubeShader {
+struct CubeShader : public ShaderBuiltins {
     TextureObject* texture = nullptr;
     SimdMat4 mvp; 
     Vec4 tintColor = {1.0f, 1.0f, 1.0f, 1.0f};
 
+    // Interface Block for Varyings
+    struct VS_Out {
+        Vec4& uv;
+        Vec4& color;
+        VS_Out(Vec4* v) : uv(v[0]), color(v[1]) {}
+    };
+
     // Vertex Shader
-    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
-        outCtx.varyings[0] = attribs[2]; // UV
-        outCtx.varyings[1] = attribs[1]; // Color
+    void vertex(const Vec4* attribs, ShaderContext& outCtx) {
+        VS_Out out(outCtx.varyings);
+        out.uv = attribs[2]; // UV
+        out.color = attribs[1]; // Color
 
         float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, 1.0f};
         Simd4f pos = Simd4f::load(posArr);
@@ -28,18 +36,24 @@ struct CubeShader {
         
         float outArr[4];
         res.store(outArr);
-        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+        gl_Position = Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
     // Fragment Shader
-        Vec4 fragment(const ShaderContext& inCtx) {
-            Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
-            if (texture) {
-                texColor = texture->sample(inCtx.varyings[0].x, inCtx.varyings[0].y);
-            }
-            return mix(inCtx.varyings[1], texColor, 0.5f) * tintColor;
+    void fragment(ShaderContext& inCtx) {
+        VS_Out in(inCtx.varyings);
+
+        Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+        if (texture) {
+            texColor = texture->sample(in.uv.x, in.uv.y);
         }
-    };
+        
+        // Example usage of built-in discard (uncomment to test)
+        // if (gl_FragCoord.x < 100) discard();
+
+        gl_FragColor = mix(in.color, texColor, 0.5f) * tintColor;
+    }
+};
     
 class CubeTest : public ITestCase {
 public:

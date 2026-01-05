@@ -12,6 +12,24 @@
 
 namespace tinygl {
 
+// ShaderBuiltins: Base class for shaders to emulate GLSL built-in variables
+struct ShaderBuiltins {
+    // --- Vertex Shader Outputs ---
+    Vec4 gl_Position;
+    float gl_PointSize = 1.0f;
+
+    // --- Fragment Shader Inputs ---
+    Vec4 gl_FragCoord;   // (x, y, z, 1/w) in screen space
+    bool gl_FrontFacing; // true if front facing
+
+    // --- Fragment Shader Outputs ---
+    Vec4 gl_FragColor;
+    bool gl_Discard = false;
+
+    // Helper to trigger discard
+    void discard() { gl_Discard = true; }
+};
+
 // Shader & Program
 struct ShaderContext { 
     Vec4 varyings[MAX_VARYINGS]; 
