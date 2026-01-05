@@ -4,21 +4,21 @@
 
 using namespace tinygl;
 
-struct GradientShader {
+struct GradientShader : public ShaderBuiltins {
     // 顶点着色器
     // attribs[0]: 位置 (x, y, z)
     // attribs[1]: 颜色 (r, g, b)
-    Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
         // 1. 将颜色传递给 Varying 0，以便在像素间插值
         ctx.varyings[0] = attribs[1];
         // 2. 直接返回 Clip Space 坐标 (无需矩阵，因为坐标已在 -1~1 范围内)
-        return attribs[0];
+        gl_Position = attribs[0];
     }
 
     // 片元着色器
-    Vec4 fragment(const ShaderContext& ctx) {
+    void fragment(const ShaderContext& ctx) {
         // 获取插值后的颜色
-        return ctx.varyings[0];
+        gl_FragColor = ctx.varyings[0];
     }
 };
 

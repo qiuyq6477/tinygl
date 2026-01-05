@@ -4,7 +4,7 @@
 
 using namespace tinygl;
 
-struct BilinearShader {
+struct BilinearShader : public ShaderBuiltins {
     // 定义 4 个角的颜色
     const Vec4 cTL = {1.0f, 0.0f, 0.0f, 1.0f}; // 红
     const Vec4 cTR = {0.0f, 1.0f, 0.0f, 1.0f}; // 绿
@@ -12,14 +12,14 @@ struct BilinearShader {
     const Vec4 cBL = {1.0f, 1.0f, 0.0f, 1.0f}; // 黄
 
     // 顶点着色器
-    Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
         // attribs[1] 是 UV，只有前两个分量有用 (u, v, 0, 1)
         ctx.varyings[0] = attribs[1]; 
-        return attribs[0];
+        gl_Position = attribs[0];
     }
 
     // 片元着色器
-    Vec4 fragment(const ShaderContext& ctx) {
+    void fragment(const ShaderContext& ctx) {
         // 获取插值后的 UV
         // 这里的 UV 是由三角形光栅化线性插值过来的，
         // 对于平面的矩形，三角形插值得到的 UV 和矩形 UV 是完全一致的，不会有折痕。
@@ -33,7 +33,7 @@ struct BilinearShader {
         Vec4 colorBot = mix(cBL, cBR, u);
         // 3. 在垂直方向插值
         Vec4 finalColor = mix(colorTop, colorBot, v);
-        return finalColor;
+        gl_FragColor = finalColor;
     }
 };
 

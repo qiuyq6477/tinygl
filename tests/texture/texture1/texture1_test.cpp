@@ -12,7 +12,7 @@ struct Vertex {
     float uv[2];
 };
 
-struct TextureShader {
+struct TextureShader : public ShaderBuiltins {
     TextureObject* texture1 = nullptr;
     TextureObject* texture2 = nullptr;
     Vec2 uvScale = {1.0f, 1.0f};
@@ -23,7 +23,7 @@ struct TextureShader {
     // attribs[0]: Pos
     // attribs[1]: Color
     // attribs[2]: UV
-    Vec4 vertex(const Vec4* attribs, ShaderContext& ctx) {
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
         ctx.varyings[0] = attribs[1]; // Color
         
         // Transform UV
@@ -34,11 +34,11 @@ struct TextureShader {
         
         ctx.varyings[1] = transformedUV;
         
-        return attribs[0];
+        gl_Position = attribs[0];
     }
 
     // Fragment Shader
-    Vec4 fragment(const ShaderContext& ctx) {
+    void fragment(const ShaderContext& ctx) {
         Vec4 color = ctx.varyings[0];
         Vec4 uv = ctx.varyings[1];
 
@@ -52,7 +52,7 @@ struct TextureShader {
             texColor2 = texture2->sample(uv.x, uv.y);
         }
         // 合并颜色
-        return mix(texColor1, texColor2, opacity);
+        gl_FragColor = mix(texColor1, texColor2, opacity);
     }
 };
 

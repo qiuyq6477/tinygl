@@ -8,14 +8,14 @@
 
 using namespace tinygl;
 
-struct StencilShader {
+struct StencilShader : ShaderBuiltins {
     SimdMat4 mvp;
     Vec4 color;
     bool useTexture = false;
     TextureObject* texture = nullptr;
 
     // Vertex Shader
-    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    inline void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         // attribs[0] is Position (x, y, z, w)
         float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, attribs[0].w};
         Simd4f pos = Simd4f::load(posArr);
@@ -27,16 +27,16 @@ struct StencilShader {
         // attribs[1] is UV. Store in varying 0.
         outCtx.varyings[0] = Vec4(attribs[1].x, attribs[1].y, 0.0f, 0.0f);
 
-        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+        gl_Position = Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
     // Fragment Shader
-    Vec4 fragment(const ShaderContext& inCtx) {
+    void fragment(const ShaderContext& inCtx) {
         if (useTexture && texture) {
             Vec4 uv = inCtx.varyings[0];
-            return texture->sample(uv.x, uv.y);
+            gl_FragColor = texture->sample(uv.x, uv.y);
         } else {
-            return color;
+            gl_FragColor = color;
         }
     }
 };

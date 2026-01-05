@@ -451,26 +451,14 @@ public:
                             fsIn.rho = computeRho(z, dUVwDX, dUVwDY, dZwDX, dZwDY, fsIn.varyings[0].x, fsIn.varyings[0].y);
 
                             // 3. Fragment Shader
-                            Vec4 fColor;
-
                             // Setup Builtins
-                            if constexpr (requires { shader.gl_FragCoord; }) {
-                                shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, zInv); 
-                                shader.gl_FrontFacing = isFront;
-                                shader.gl_Discard = false;
-                            }
+                            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, zInv); 
+                            shader.gl_FrontFacing = isFront;
+                            shader.gl_Discard = false;
 
-                            if constexpr (std::is_void_v<decltype(shader.fragment(fsIn))>) {
-                                shader.fragment(fsIn);
-                                if constexpr (requires { shader.gl_Discard; }) {
-                                    if (shader.gl_Discard) fsIn.discard();
-                                }
-                                if constexpr (requires { shader.gl_FragColor; }) {
-                                    fColor = shader.gl_FragColor;
-                                }
-                            } else {
-                                fColor = shader.fragment(fsIn);
-                            }
+                            shader.fragment(fsIn);
+                            if (shader.gl_Discard) fsIn.discard();
+                            Vec4 fColor = shader.gl_FragColor;
 
                             // 4. Discard Check
                             if (!fsIn.discarded) {
@@ -593,26 +581,14 @@ public:
                         }
 
                         // 3. Shader
-                        Vec4 fColor;
-
                         // Setup Builtins
-                        if constexpr (requires { shader.gl_FragCoord; }) {
-                            shader.gl_FragCoord = Vec4(x0 + 0.5f, y0 + 0.5f, z, zInv); 
-                            shader.gl_FrontFacing = true;
-                            shader.gl_Discard = false;
-                        }
+                        shader.gl_FragCoord = Vec4(x0 + 0.5f, y0 + 0.5f, z, zInv); 
+                        shader.gl_FrontFacing = true;
+                        shader.gl_Discard = false;
 
-                        if constexpr (std::is_void_v<decltype(shader.fragment(fsIn))>) {
-                            shader.fragment(fsIn);
-                            if constexpr (requires { shader.gl_Discard; }) {
-                                if (shader.gl_Discard) fsIn.discard();
-                            }
-                            if constexpr (requires { shader.gl_FragColor; }) {
-                                fColor = shader.gl_FragColor;
-                            }
-                        } else {
-                            fColor = shader.fragment(fsIn);
-                        }
+                        shader.fragment(fsIn);
+                        if (shader.gl_Discard) fsIn.discard();
+                        Vec4 fColor = shader.gl_FragColor;
 
                         // 4. Discard & Late-Z
                         if (!fsIn.discarded) {
@@ -682,27 +658,15 @@ public:
             fsIn.fragDepthWritten = false;
             fsIn.rho = 0;
 
-            // 3. Shader
-            Vec4 fColor;
-
+            // 3. Fragment Shader
             // Setup Builtins
-            if constexpr (requires { shader.gl_FragCoord; }) {
-                shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, v.scn.w); 
-                shader.gl_FrontFacing = true;
-                shader.gl_Discard = false;
-            }
+            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, v.scn.w); 
+            shader.gl_FrontFacing = true;
+            shader.gl_Discard = false;
 
-            if constexpr (std::is_void_v<decltype(shader.fragment(fsIn))>) {
-                shader.fragment(fsIn);
-                if constexpr (requires { shader.gl_Discard; }) {
-                    if (shader.gl_Discard) fsIn.discard();
-                }
-                if constexpr (requires { shader.gl_FragColor; }) {
-                    fColor = shader.gl_FragColor;
-                }
-            } else {
-                fColor = shader.fragment(fsIn);
-            }
+            shader.fragment(fsIn);
+            if (shader.gl_Discard) fsIn.discard();
+            Vec4 fColor = shader.gl_FragColor;
 
             // 4. Discard & Late-Z
             if (!fsIn.discarded) {
@@ -766,14 +730,8 @@ public:
             // 调用 Shader (传入数组指针)
             // 如果 Shader 需要 gl_InstanceID，通常需要修改 shader.vertex 签名或者作为 uniform 传入
             // 这里我们保持接口不变，仅通过 Attribute Divisor 支持 Instancing
-            VOut v;
-            if constexpr (std::is_void_v<decltype(shader.vertex(attribs, ctx))>) {
-                shader.vertex(attribs, ctx);
-                v.pos = shader.gl_Position;
-            } else {
-                v.pos = shader.vertex(attribs, ctx);
-            }
-            v.ctx = ctx;
+            shader.vertex(attribs, ctx);
+            VOut v = {.pos = shader.gl_Position, .ctx = ctx};
             triangle.push_back(v);
         }
 
@@ -828,14 +786,8 @@ public:
             }
         }
         ShaderContext ctx;
-        VOut v;
-        if constexpr (std::is_void_v<decltype(shader.vertex(attribs, ctx))>) {
-            shader.vertex(attribs, ctx);
-            v.pos = shader.gl_Position;
-        } else {
-            v.pos = shader.vertex(attribs, ctx);
-        }
-        v.ctx = ctx;
+        shader.vertex(attribs, ctx);
+        VOut v = {.pos = shader.gl_Position, .ctx = ctx};
 
         // 2. Clipping (Points)
         // 简单的视锥体剔除: -w <= x,y,z <= w
@@ -866,12 +818,8 @@ public:
                 }
             }
             ShaderContext ctx;
-            if constexpr (std::is_void_v<decltype(shader.vertex(attribs, ctx))>) {
-                shader.vertex(attribs, ctx);
-                verts[i].pos = shader.gl_Position;
-            } else {
-                verts[i].pos = shader.vertex(attribs, ctx);
-            }
+            shader.vertex(attribs, ctx);
+            verts[i].pos = shader.gl_Position;
             verts[i].ctx = ctx;
         }
 

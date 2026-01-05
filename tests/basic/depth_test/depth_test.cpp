@@ -5,11 +5,11 @@
 
 using namespace tinygl;
 
-struct DepthShader {
+struct DepthShader : ShaderBuiltins {
     SimdMat4 mvp;
 
     // Vertex Shader
-    inline Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    inline void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         outCtx.varyings[0] = attribs[1]; // Color
         
         float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, 1.0f};
@@ -18,12 +18,12 @@ struct DepthShader {
         
         float outArr[4];
         res.store(outArr);
-        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+        gl_Position = Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
     // Fragment Shader: Output Color
-    Vec4 fragment(const ShaderContext& inCtx) {
-        return inCtx.varyings[0];
+    void fragment(const ShaderContext& inCtx) {
+        gl_FragColor = inCtx.varyings[0];
     }
 };
 

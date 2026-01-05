@@ -9,11 +9,11 @@
 
 using namespace tinygl;
 
-struct GeometryShader {
+struct GeometryShader : ShaderBuiltins {
     Mat4 mvp;
     Mat4 model;
 
-    Vec4 vertex(Vec4* attribs, ShaderContext& ctx) {
+    void vertex(Vec4* attribs, ShaderContext& ctx) {
         Vec4 pos = attribs[0];
         Vec4 norm = attribs[1];
         // attribs[2] is tangent
@@ -23,10 +23,10 @@ struct GeometryShader {
         ctx.varyings[0] = model * norm; // World Normal
         ctx.varyings[1] = uv;
 
-        return mvp * pos;
+        gl_Position = mvp * pos;
     }
 
-    Vec4 fragment(const ShaderContext& in) {
+    void fragment(const ShaderContext& in) {
         Vec4 normal = normalize(in.varyings[0]);
         Vec4 uv = in.varyings[1];
 
@@ -35,7 +35,7 @@ struct GeometryShader {
 
         // Checkerboard pattern
         float check = (mod(uv.x * 10.0f, 1.0f) > 0.5f) ^ (mod(uv.y * 10.0f, 1.0f) > 0.5f) ? 1.0f : 0.5f;
-        return Vec4(diff * check, diff * check, diff * check, 1.0f);
+        gl_FragColor = Vec4(diff * check, diff * check, diff * check, 1.0f);
     }
 };
 

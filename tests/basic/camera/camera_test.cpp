@@ -5,12 +5,12 @@
 
 using namespace tinygl;
 
-struct CameraShader {
+struct CameraShader : ShaderBuiltins{
     Mat4 model;
     Mat4 view;
     Mat4 projection;
 
-    Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         Vec4 pos = attribs[0]; // Position
         Vec4 color = attribs[1]; // Color
 
@@ -19,13 +19,11 @@ struct CameraShader {
         // MVP transform
         Vec4 worldPos = model * pos;
         Vec4 viewPos = view * worldPos;
-        Vec4 clipPos = projection * viewPos;
-        
-        return clipPos;
+        gl_Position = projection * viewPos;
     }
 
-    Vec4 fragment(const ShaderContext& inCtx) {
-        return inCtx.varyings[0];
+    void fragment(const ShaderContext& inCtx) {
+        gl_FragColor = inCtx.varyings[0];
     }
 };
 

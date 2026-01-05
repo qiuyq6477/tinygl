@@ -6,11 +6,11 @@
 
 using namespace tinygl;
 
-struct MipmapShader {
+struct MipmapShader : public ShaderBuiltins {
     TextureObject* texture = nullptr;
     SimdMat4 mvp;
 
-    Vec4 vertex(const Vec4* attribs, ShaderContext& outCtx) {
+    void vertex(const Vec4* attribs, ShaderContext& outCtx) {
         // attribs[0]: Pos, attribs[1]: UV
         outCtx.varyings[0] = attribs[1]; // Pass UV to fragment shader
         
@@ -21,14 +21,16 @@ struct MipmapShader {
         
         float outArr[4];
         res.store(outArr);
-        return Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+        gl_Position = Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
     }
 
-    Vec4 fragment(const ShaderContext& inCtx) {
+    void fragment(const ShaderContext& inCtx) {
         if (texture) {
-            return texture->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.rho);
+            gl_FragColor = texture->sample(inCtx.varyings[0].x, inCtx.varyings[0].y, inCtx.rho);
         }
-        return {1.0f, 0.0f, 1.0f, 1.0f}; // Error magenta
+        else {
+            gl_FragColor = {1.0f, 0.0f, 1.0f, 1.0f}; // Error magenta
+        }
     }
 };
 
