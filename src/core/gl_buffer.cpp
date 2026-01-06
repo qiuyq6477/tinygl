@@ -5,8 +5,7 @@ namespace tinygl {
 // --- Buffers ---
 void SoftRenderContext::glGenBuffers(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
-        res[i] = m_nextID++;
-        buffers[res[i]]; 
+        res[i] = buffers.allocate();
         LOG_INFO("GenBuffer ID: " + std::to_string(res[i]));
     }
 }
@@ -20,23 +19,25 @@ void SoftRenderContext::glBindBuffer(GLenum target, GLuint buffer) {
 
 void SoftRenderContext::glBufferData(GLenum target, GLsizei size, const void* data, GLenum usage) {
     GLuint id = getBufferID(target);
-    if (id == 0 || buffers.find(id) == buffers.end()) {
+    BufferObject* buffer = buffers.get(id);
+    if (!buffer) {
         LOG_ERROR("Invalid Buffer Binding");
         return;
     }
-    buffers[id].data.resize(size);
-    if (data) std::memcpy(buffers[id].data.data(), data, size);
-    buffers[id].usage = usage;
+    buffer->data.resize(size);
+    if (data) std::memcpy(buffer->data.data(), data, size);
+    buffer->usage = usage;
     LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
 }
 
 void SoftRenderContext::glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
     GLuint id = getBufferID(target);
-    if (id == 0 || buffers.find(id) == buffers.end()) {
+    BufferObject* bufferPtr = buffers.get(id);
+    if (!bufferPtr) {
         LOG_ERROR("glBufferSubData: Invalid Buffer Binding");
         return;
     }
-    BufferObject& buffer = buffers[id];
+    BufferObject& buffer = *bufferPtr;
     if (offset < 0 || size < 0 || (size_t)(offset + size) > buffer.data.size()) {
         LOG_ERROR("glBufferSubData: Out of bounds");
         return;
@@ -50,14 +51,16 @@ void SoftRenderContext::glCopyBufferSubData(GLenum readTarget, GLenum writeTarge
     GLuint readID = getBufferID(readTarget);
     GLuint writeID = getBufferID(writeTarget);
 
-    if (readID == 0 || buffers.find(readID) == buffers.end() ||
-        writeID == 0 || buffers.find(writeID) == buffers.end()) {
+    BufferObject* readBufPtr = buffers.get(readID);
+    BufferObject* writeBufPtr = buffers.get(writeID);
+
+    if (!readBufPtr || !writeBufPtr) {
         LOG_ERROR("glCopyBufferSubData: Invalid Buffer Binding");
         return;
     }
 
-    BufferObject& readBuf = buffers[readID];
-    BufferObject& writeBuf = buffers[writeID];
+    BufferObject& readBuf = *readBufPtr;
+    BufferObject& writeBuf = *writeBufPtr;
 
     if (readOffset < 0 || size < 0 || (size_t)(readOffset + size) > readBuf.data.size() ||
         writeOffset < 0 || (size_t)(writeOffset + size) > writeBuf.data.size()) {
@@ -78,11 +81,12 @@ void SoftRenderContext::glCopyBufferSubData(GLenum readTarget, GLenum writeTarge
 
 void* SoftRenderContext::glMapBuffer(GLenum target, GLenum access) {
     GLuint id = getBufferID(target);
-    if (id == 0 || buffers.find(id) == buffers.end()) {
+    BufferObject* bufferPtr = buffers.get(id);
+    if (!bufferPtr) {
         LOG_ERROR("glMapBuffer: Invalid Buffer Binding");
         return nullptr;
     }
-    BufferObject& buffer = buffers[id];
+    BufferObject& buffer = *bufferPtr;
     if (buffer.mapped) {
         LOG_ERROR("glMapBuffer: Buffer already mapped");
         return nullptr;
@@ -94,11 +98,12 @@ void* SoftRenderContext::glMapBuffer(GLenum target, GLenum access) {
 
 GLboolean SoftRenderContext::glUnmapBuffer(GLenum target) {
     GLuint id = getBufferID(target);
-    if (id == 0 || buffers.find(id) == buffers.end()) {
+    BufferObject* bufferPtr = buffers.get(id);
+    if (!bufferPtr) {
         LOG_ERROR("glUnmapBuffer: Invalid Buffer Binding");
         return GL_FALSE;
     }
-    BufferObject& buffer = buffers[id];
+    BufferObject& buffer = *bufferPtr;
     if (!buffer.mapped) {
         LOG_ERROR("glUnmapBuffer: Buffer not mapped");
         return GL_FALSE;
@@ -110,8 +115,7 @@ GLboolean SoftRenderContext::glUnmapBuffer(GLenum target) {
 // --- VAO ---
 void SoftRenderContext::glGenVertexArrays(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
-        res[i] = m_nextID++;
-        vaos[res[i]];
+        res[i] = vaos.allocate();
         LOG_INFO("GenVAO ID: " + std::to_string(res[i]));
     }
 }
@@ -120,9 +124,19 @@ void SoftRenderContext::glDeleteBuffers(GLsizei n, const GLuint* buffers_to_dele
     for (GLsizei i = 0; i < n; ++i) {
         GLuint id = buffers_to_delete[i];
         if (id != 0) {
-            auto it = buffers.find(id);
-            if (it != buffers.end()) {
-                buffers.erase(it);
+            // Check and reset binding points
+            if (m_boundArrayBuffer == id) m_boundArrayBuffer = 0;
+            if (m_boundCopyReadBuffer == id) m_boundCopyReadBuffer = 0;
+            if (m_boundCopyWriteBuffer == id) m_boundCopyWriteBuffer = 0;
+
+            // Check current VAO's Element Buffer
+            VertexArrayObject* vao = vaos.get(m_boundVertexArray);
+            if (vao && vao->elementBufferID == id) {
+                vao->elementBufferID = 0;
+            }
+
+            if (buffers.isActive(id)) {
+                buffers.release(id);
                 LOG_INFO("Deleted Buffer ID: " + std::to_string(id));
             }
         }
@@ -133,9 +147,13 @@ void SoftRenderContext::glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
     for (GLsizei i = 0; i < n; ++i) {
         GLuint id = arrays[i];
         if (id != 0) {
-            auto it = vaos.find(id);
-            if (it != vaos.end()) {
-                vaos.erase(it);
+            // If the deleted VAO is currently bound, unbind it (reset to default VAO 0)
+            if (m_boundVertexArray == id) {
+                m_boundVertexArray = 0;
+            }
+
+            if (vaos.isActive(id)) {
+                vaos.release(id);
                 LOG_INFO("Deleted VAO ID: " + std::to_string(id));
             }
         }
@@ -171,11 +189,11 @@ void SoftRenderContext::glVertexAttribDivisor(GLuint index, GLuint divisor) {
 Vec4 SoftRenderContext::fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx) {
     if (!attr.enabled) return Vec4(0,0,0,1);
 
-    auto it = buffers.find(attr.bindingBufferID);
+    BufferObject* bufferPtr = buffers.get(attr.bindingBufferID);
     // 检查 1: Buffer 是否存在
-    if (it == buffers.end()) return Vec4(0,0,0,1);
+    if (!bufferPtr) return Vec4(0,0,0,1);
     
-    const auto& buffer = it->second;
+    const auto& buffer = *bufferPtr;
     // 检查 2: Buffer 是否为空
     if (buffer.data.empty()) return Vec4(0,0,0,1);
 

@@ -159,6 +159,13 @@ private:
             m_currentTest = nullptr;
         }
 
+        // Reset Context State to prevent ID collision issues with reused IDs
+        ctx.glBindVertexArray(0);
+        ctx.glBindBuffer(GL_ARRAY_BUFFER, 0);
+        ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        ctx.glBindTexture(GL_TEXTURE_2D, 0);
+        // ctx.glUseProgram(0); // Optional, but good practice if available
+
         // 2. Create new test
         const auto& allTests = TestCaseRegistry::get().getTests();
         if (allTests.count(group) && allTests.at(group).count(name)) {

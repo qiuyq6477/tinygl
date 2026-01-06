@@ -147,9 +147,10 @@ void TextureObject::updateSampler() {
 // ==========================================
 void SoftRenderContext::glGenTextures(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
-        res[i] = m_nextID++;
+        res[i] = textures.allocate();
         // 【Fix】: 立即创建 Texture 对象，防止后续 lookup 失败
-        textures[res[i]].id = res[i]; 
+        TextureObject* tex = textures.get(res[i]);
+        if (tex) tex->id = res[i];
         LOG_INFO("GenTexture ID: " + std::to_string(res[i]));
     }
 }
@@ -162,36 +163,35 @@ void SoftRenderContext::glBindTexture(GLenum target, GLuint texture) {
     if (target == GL_TEXTURE_2D) {
         m_boundTextures[m_activeTextureUnit] = texture;
         // 【Robustness】: 如果绑定的 ID 合法但 Map 中不存在（某些用法允许Bind时创建），则补建
-        if (texture != 0 && textures.find(texture) == textures.end()) {
-            textures[texture].id = texture;
+        if (texture != 0 && !textures.isActive(texture)) {
+            textures.forceAllocate(texture)->id = texture;
             LOG_INFO("Implicitly created Texture ID: " + std::to_string(texture));
         }
     }
 }
 TextureObject* SoftRenderContext::getTextureObject(GLuint id) {
-    if (id == 0) return nullptr;
-    auto it = textures.find(id);
-    if (it != textures.end()) {
-        return &it->second;
-    }
-    return nullptr;
+    return textures.get(id);
 }
 
 TextureObject* SoftRenderContext::getTexture(GLuint unit) {
     if (unit >= 32) return nullptr;
     GLuint id = m_boundTextures[unit];
-    if (id == 0) return nullptr;
-    auto it = textures.find(id);
-    return (it != textures.end()) ? &it->second : nullptr;
+    return textures.get(id);
 }
 
 void SoftRenderContext::glDeleteTextures(GLsizei n, const GLuint* textures_to_delete) {
     for (GLsizei i = 0; i < n; ++i) {
         GLuint id = textures_to_delete[i];
         if (id != 0) {
-            auto it = textures.find(id);
-            if (it != textures.end()) {
-                textures.erase(it);
+            // Check all texture units and unbind if necessary
+            for (int unit = 0; unit < MAX_TEXTURE_UNITS; ++unit) {
+                if (m_boundTextures[unit] == id) {
+                    m_boundTextures[unit] = 0;
+                }
+            }
+
+            if (textures.isActive(id)) {
+                textures.release(id);
                 LOG_INFO("Deleted Texture ID: " + std::to_string(id));
             }
         }

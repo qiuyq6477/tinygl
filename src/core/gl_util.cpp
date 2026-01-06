@@ -33,7 +33,7 @@ const std::vector<uint32_t>& SoftRenderContext::readIndicesAsInts(GLsizei count,
         case GL_UNSIGNED_INT: {
             for(int i=0; i<count; ++i) {
                 uint32_t index;
-                buffers[vao.elementBufferID].readSafe<uint32_t>(idxOffset + i*sizeof(uint32_t), index);
+                buffers.get(vao.elementBufferID)->readSafe<uint32_t>(idxOffset + i*sizeof(uint32_t), index);
                 m_indexCache.push_back(index);
             }
             break;
@@ -41,7 +41,7 @@ const std::vector<uint32_t>& SoftRenderContext::readIndicesAsInts(GLsizei count,
         case GL_UNSIGNED_SHORT: {
             for(int i=0; i<count; ++i) {
                 uint16_t index;
-                buffers[vao.elementBufferID].readSafe<uint16_t>(idxOffset + i*sizeof(uint16_t), index);
+                buffers.get(vao.elementBufferID)->readSafe<uint16_t>(idxOffset + i*sizeof(uint16_t), index);
                 m_indexCache.push_back(static_cast<uint32_t>(index));
             }
             break;
@@ -49,7 +49,7 @@ const std::vector<uint32_t>& SoftRenderContext::readIndicesAsInts(GLsizei count,
         case GL_UNSIGNED_BYTE: {
                 for(int i=0; i<count; ++i) {
                 uint8_t index;
-                buffers[vao.elementBufferID].readSafe<uint8_t>(idxOffset + i*sizeof(uint8_t), index);
+                buffers.get(vao.elementBufferID)->readSafe<uint8_t>(idxOffset + i*sizeof(uint8_t), index);
                 m_indexCache.push_back(static_cast<uint32_t>(index));
             }
             break;

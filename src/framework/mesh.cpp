@@ -3,9 +3,64 @@
 namespace tinygl {
 
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<uint32_t> indices, Material material, SoftRenderContext& ctx)
-    : vertices(std::move(vertices)), indices(std::move(indices)), material(std::move(material)) 
+    : vertices(std::move(vertices)), indices(std::move(indices)), material(std::move(material)), m_ctx(&ctx)
 {
     setupMesh(ctx);
+}
+
+Mesh::~Mesh() {
+    if (m_ctx) {
+        // Clean up buffers
+        GLuint buffers[2] = {VBO, EBO};
+        // Check if valid handles before delete (0 is ignored by GL but good to be explicit)
+        if (VBO != 0 || EBO != 0) {
+            m_ctx->glDeleteBuffers(2, buffers);
+        }
+        if (VAO != 0) {
+            m_ctx->glDeleteVertexArrays(1, &VAO);
+        }
+    }
+}
+
+Mesh::Mesh(Mesh&& other) noexcept 
+    : vertices(std::move(other.vertices)),
+      indices(std::move(other.indices)),
+      material(std::move(other.material)),
+      VAO(other.VAO), VBO(other.VBO), EBO(other.EBO),
+      m_ctx(other.m_ctx)
+{
+    // Steal ownership
+    other.VAO = 0;
+    other.VBO = 0;
+    other.EBO = 0;
+    other.m_ctx = nullptr;
+}
+
+Mesh& Mesh::operator=(Mesh&& other) noexcept {
+    if (this != &other) {
+        // Free existing resources
+        if (m_ctx) {
+             GLuint buffers[2] = {VBO, EBO};
+             if (VBO != 0 || EBO != 0) m_ctx->glDeleteBuffers(2, buffers);
+             if (VAO != 0) m_ctx->glDeleteVertexArrays(1, &VAO);
+        }
+
+        // Move data
+        vertices = std::move(other.vertices);
+        indices = std::move(other.indices);
+        material = std::move(other.material);
+        VAO = other.VAO;
+        VBO = other.VBO;
+        EBO = other.EBO;
+        m_ctx = other.m_ctx;
+
+        // Reset source
+        other.VAO = 0;
+        other.VBO = 0;
+        other.EBO = 0;
+        other.m_ctx = nullptr;
+    }
+    return *this;
 }
 
 void Mesh::setupMesh(SoftRenderContext& ctx) {

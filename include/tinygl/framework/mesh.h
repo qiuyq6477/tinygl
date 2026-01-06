@@ -28,6 +28,15 @@ public:
     Material material;
 
     Mesh(std::vector<Vertex> vertices, std::vector<uint32_t> indices, Material material, SoftRenderContext& ctx);
+    ~Mesh();
+
+    // Disable copying to prevent double-free of GL resources
+    Mesh(const Mesh&) = delete;
+    Mesh& operator=(const Mesh&) = delete;
+
+    // Enable moving
+    Mesh(Mesh&& other) noexcept;
+    Mesh& operator=(Mesh&& other) noexcept;
 
     // Template Draw function must be in header
     template <typename ShaderT>
@@ -57,7 +66,8 @@ public:
 
 private:
     // Render data
-    GLuint VAO, VBO, EBO;
+    GLuint VAO = 0, VBO = 0, EBO = 0;
+    SoftRenderContext* m_ctx = nullptr;
 
     // Initializes all the buffer objects/arrays
     void setupMesh(SoftRenderContext& ctx);

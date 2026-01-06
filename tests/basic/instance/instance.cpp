@@ -86,6 +86,10 @@ public:
             1, 7, 6, 6, 2, 1, // Right
             4, 0, 3, 3, 5, 4  // Left
         };
+        // Create VAO
+        ctx.glGenVertexArrays(1, &vao);
+        ctx.glBindVertexArray(vao);
+
         // 1. 创建并上传 Cube Mesh
         ctx.glGenBuffers(1, &vbo);
         ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -154,6 +158,7 @@ public:
         ctx.glDeleteBuffers(1, &vbo);
         ctx.glDeleteBuffers(1, &ebo);
         ctx.glDeleteBuffers(1, &vbo_instance);
+        ctx.glDeleteVertexArrays(1, &vao);
     }
 
     void onGui(mu_Context* ctx, const Rect& rect) override {
@@ -190,6 +195,7 @@ public:
     }
 
 private:
+    GLuint vao = 0;
     GLuint vbo = 0;
     GLuint ebo = 0;
     GLuint vbo_instance = 0;

@@ -4,6 +4,47 @@
 
 namespace tinygl {
 
+Model::~Model() {
+    if (m_ctx) {
+        // Free loaded textures
+        for (auto& pair : loadedTextures) {
+            GLuint id = pair.second;
+            m_ctx->glDeleteTextures(1, &id);
+        }
+    }
+}
+
+Model::Model(Model&& other) noexcept 
+    : meshes(std::move(other.meshes)),
+      directory(std::move(other.directory)),
+      loadedTextures(std::move(other.loadedTextures)),
+      m_ctx(other.m_ctx)
+{
+    other.m_ctx = nullptr;
+}
+
+Model& Model::operator=(Model&& other) noexcept {
+    if (this != &other) {
+        // Clean up existing resources
+        if (m_ctx) {
+             for (auto& pair : loadedTextures) {
+                GLuint id = pair.second;
+                m_ctx->glDeleteTextures(1, &id);
+             }
+        }
+
+        // Move data
+        meshes = std::move(other.meshes);
+        directory = std::move(other.directory);
+        loadedTextures = std::move(other.loadedTextures);
+        m_ctx = other.m_ctx;
+
+        // Reset source
+        other.m_ctx = nullptr;
+    }
+    return *this;
+}
+
 void Model::loadModel(std::string path, SoftRenderContext& ctx) {
     Assimp::Importer importer;
     // Read file via Assimp

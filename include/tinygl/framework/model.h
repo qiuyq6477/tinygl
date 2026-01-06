@@ -24,9 +24,19 @@ public:
     std::unordered_map<std::string, GLuint> loadedTextures;
 
     // Constructor, expects a filepath to a 3D model.
-    Model(const std::string& path, SoftRenderContext& ctx) {
+    Model(const std::string& path, SoftRenderContext& ctx) : m_ctx(&ctx) {
         loadModel(path, ctx);
     }
+    
+    ~Model();
+
+    // Disable copying
+    Model(const Model&) = delete;
+    Model& operator=(const Model&) = delete;
+
+    // Enable moving
+    Model(Model&& other) noexcept;
+    Model& operator=(Model&& other) noexcept;
 
     // Draws the model, and thus all its meshes
     template <typename ShaderT>
@@ -36,6 +46,8 @@ public:
     }
 
 private:
+    SoftRenderContext* m_ctx = nullptr;
+
     // Loads a model with supported ASSIMP extensions from file and stores the resulting meshes in the meshes vector.
     void loadModel(std::string path, SoftRenderContext& ctx);
 

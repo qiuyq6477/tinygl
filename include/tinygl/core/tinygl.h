@@ -36,10 +36,62 @@ struct Viewport {
 };
 
 class TINYGL_API SoftRenderContext {
+public:
+    template <typename T>
+    class ResourcePool {
+    private:
+        struct Slot {
+            T obj;
+            bool active = false;
+        };
+        std::vector<Slot> pool;
+        std::vector<GLuint> freeList;
+    public:
+        ResourcePool() { pool.resize(1); } // Reserve 0
+        
+        GLuint allocate() {
+            if (!freeList.empty()) {
+                GLuint id = freeList.back();
+                freeList.pop_back();
+                pool[id].active = true;
+                pool[id].obj = T();
+                return id;
+            }
+            pool.push_back({T(), true});
+            return (GLuint)pool.size() - 1;
+        }
+
+        void release(GLuint id) {
+            if (id > 0 && id < pool.size() && pool[id].active) {
+                pool[id].active = false;
+                pool[id].obj = T();
+                freeList.push_back(id);
+            }
+        }
+
+        T* get(GLuint id) {
+            if (id < pool.size() && pool[id].active) return &pool[id].obj;
+            return nullptr;
+        }
+
+        T* forceAllocate(GLuint id) {
+            if (id >= pool.size()) pool.resize(id + 1);
+            if (!pool[id].active) {
+                pool[id].active = true;
+                pool[id].obj = T();
+            }
+            return &pool[id].obj;
+        }
+
+        bool isActive(GLuint id) const {
+            return id < pool.size() && pool[id].active;
+        }
+    };
+
 private:
-    std::unordered_map<GLuint, BufferObject> buffers;
-    std::unordered_map<GLuint, VertexArrayObject> vaos;
-    std::unordered_map<GLuint, TextureObject> textures;
+    ResourcePool<BufferObject> buffers;
+    ResourcePool<VertexArrayObject> vaos;
+    ResourcePool<TextureObject> textures;
 
     GLuint m_boundArrayBuffer = 0;
     GLuint m_boundVertexArray = 0;
@@ -48,7 +100,6 @@ private:
     GLuint m_activeTextureUnit = 0;
     GLuint m_boundTextures[MAX_TEXTURE_UNITS] = {0};
 
-    GLuint m_nextID = 1;
     GLsizei fbWidth = 800;
     GLsizei fbHeight = 600;
     
@@ -146,7 +197,10 @@ private:
 
     GLuint getBufferID(GLenum target) {
         if (target == GL_ARRAY_BUFFER) return m_boundArrayBuffer;
-        if (target == GL_ELEMENT_ARRAY_BUFFER) return vaos[m_boundVertexArray].elementBufferID;
+        if (target == GL_ELEMENT_ARRAY_BUFFER) {
+             VertexArrayObject* v = vaos.get(m_boundVertexArray);
+             return v ? v->elementBufferID : 0;
+        }
         if (target == GL_COPY_READ_BUFFER) return m_boundCopyReadBuffer;
         if (target == GL_COPY_WRITE_BUFFER) return m_boundCopyWriteBuffer;
         return 0;
@@ -172,7 +226,7 @@ public:
         // Viewport 初始化
         m_viewport = {0, 0, fbWidth, fbHeight};
         
-        vaos[0] = VertexArrayObject{}; 
+        vaos.forceAllocate(0); 
         colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
         m_colorBufferPtr = colorBuffer.data();               // Default to internal buffer
 
@@ -262,7 +316,11 @@ public:
     void glGenVertexArrays(GLsizei n, GLuint* res);
     void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
     void glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
-    VertexArrayObject& getVAO() { return vaos[m_boundVertexArray]; }
+    VertexArrayObject& getVAO() { 
+        VertexArrayObject* v = vaos.get(m_boundVertexArray);
+        if(!v) return *vaos.get(0);
+        return *v;
+    }
     void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer);
     void glEnableVertexAttribArray(GLuint index);
     void glVertexAttribDivisor(GLuint index, GLuint divisor);
@@ -982,9 +1040,9 @@ public:
         if (vao.elementBufferID != 0) {
             // --- EBO 模式 ---
             // 此时 indices 参数被视为 Buffer 内的字节偏移量 (Byte Offset)
-            auto it = buffers.find(vao.elementBufferID);
-            if (it != buffers.end()) {
-                const auto& buffer = it->second;
+            BufferObject* bufferPtr = buffers.get(vao.elementBufferID);
+            if (bufferPtr) {
+                const auto& buffer = *bufferPtr;
                 // indices 在这里解释为字节偏移量
                 size_t offset = reinterpret_cast<size_t>(indices);
                 // 计算需要读取的总字节数
