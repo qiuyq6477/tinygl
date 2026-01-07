@@ -203,7 +203,7 @@ public:
             Mat4 modelMatrix = Mat4::Translate(0.0f, -0.5f, 0.0f) * Mat4::Scale(modelScale, modelScale, modelScale);
             
             // Draw
-            currentModel->Draw(ctx, modelMatrix, state);
+            currentModel->Draw(modelMatrix, state);
         }
     }
 

@@ -34,7 +34,7 @@ public:
     Mesh& operator=(Mesh&& other) noexcept;
 
     // New Draw: Delegates to the Material's ShaderPass
-    void Draw(SoftRenderContext& ctx, const Mat4& modelMatrix, const RenderState& state);
+    void Draw(const Mat4& modelMatrix, const RenderState& state);
 
     // Accessor for ShaderPass
     GLuint GetVAO() const { return VAO; }
@@ -45,7 +45,7 @@ private:
     SoftRenderContext* m_ctx = nullptr;
 
     // Initializes all the buffer objects/arrays
-    void setupMesh(SoftRenderContext& ctx);
+    void setupMesh();
 };
 
 } // namespace tinygl

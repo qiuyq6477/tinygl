@@ -11,10 +11,8 @@ Model::~Model() {
 Model::Model(Model&& other) noexcept 
     : meshes(std::move(other.meshes)),
       directory(std::move(other.directory)),
-      texturesKeepAlive(std::move(other.texturesKeepAlive)),
-      m_ctx(other.m_ctx)
+      texturesKeepAlive(std::move(other.texturesKeepAlive))
 {
-    other.m_ctx = nullptr;
 }
 
 Model& Model::operator=(Model&& other) noexcept {
@@ -23,10 +21,6 @@ Model& Model::operator=(Model&& other) noexcept {
         meshes = std::move(other.meshes);
         directory = std::move(other.directory);
         texturesKeepAlive = std::move(other.texturesKeepAlive);
-        m_ctx = other.m_ctx;
-
-        // Reset source
-        other.m_ctx = nullptr;
     }
     return *this;
 }

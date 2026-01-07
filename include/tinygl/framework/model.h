@@ -26,7 +26,7 @@ public:
     std::vector<std::shared_ptr<Texture>> texturesKeepAlive;
 
     // Constructor, expects a filepath to a 3D model.
-    Model(const std::string& path, SoftRenderContext& ctx) : m_ctx(&ctx) {
+    Model(const std::string& path, SoftRenderContext& ctx) {
         loadModel(path, ctx);
     }
     
@@ -45,14 +45,12 @@ public:
     Model& operator=(Model&& other) noexcept;
 
     // Draws the model, and thus all its meshes
-    void Draw(SoftRenderContext& ctx, const Mat4& modelMatrix, const RenderState& state) {
+    void Draw(const Mat4& modelMatrix, const RenderState& state) {
         for(unsigned int i = 0; i < meshes.size(); i++)
-            meshes[i].Draw(ctx, modelMatrix, state);
+            meshes[i].Draw(modelMatrix, state);
     }
 
 private:
-    SoftRenderContext* m_ctx = nullptr;
-
     // Loads a model with supported ASSIMP extensions from file and stores the resulting meshes in the meshes vector.
     void loadModel(std::string path, SoftRenderContext& ctx);
 
