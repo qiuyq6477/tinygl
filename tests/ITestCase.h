@@ -3,7 +3,6 @@
 #include <tinygl/framework/application.h>
 #include <tinygl/framework/camera.h>
 #include <tinygl/framework/geometry.h>
-#include <tinygl/framework/load_texture.h>
 #include <tinygl/third_party/stb_image.h>
 #include <tinygl/third_party/microui.h>
 #include <SDL2/SDL.h>

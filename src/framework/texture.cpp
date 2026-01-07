@@ -15,7 +15,8 @@ Texture::Texture(SoftRenderContext& ctx, const std::string& relPath, const std::
     this->path = filename;
 
     ctx.glGenTextures(1, &id);
-
+    // Default to flipping vertically as per standard OpenGL conventions for images
+    stbi_set_flip_vertically_on_load(true); 
     // Force loading as 4 components (RGBA)
     unsigned char *data = stbi_load(filename.c_str(), &width, &height, &channels, 4);
     if (data) {

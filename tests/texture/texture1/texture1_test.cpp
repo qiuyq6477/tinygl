@@ -1,6 +1,7 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
 #include <tinygl/core/tinygl.h>
+#include <tinygl/framework/texture_manager.h>
 #include <vector>
 #include <cstdio>
 
@@ -92,16 +93,21 @@ public:
         ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)(6 * sizeof(float)));
         ctx.glEnableVertexAttribArray(2);
 
-        tinygl::LoadTextureFromFile(ctx, "texture/texture1/assets/container.jpg" , GL_TEXTURE0, tex1);
-        tinygl::LoadTextureFromFile(ctx, "texture/texture1/assets/awesomeface.png" , GL_TEXTURE1, tex2);
+        // Load textures using Manager
+        m_texRef1 = TextureManager::Load(ctx, "texture/texture1/assets/container.jpg");
+        tex1 = m_texRef1 ? m_texRef1->id : 0;
+
+        m_texRef2 = TextureManager::Load(ctx, "texture/texture1/assets/awesomeface.png");
+        tex2 = m_texRef2 ? m_texRef2->id : 0;
     }
 
     void destroy(SoftRenderContext& ctx) override {
         ctx.glDeleteBuffers(1, &vbo);
         ctx.glDeleteBuffers(1, &ebo);
         ctx.glDeleteVertexArrays(1, &vao);
-        ctx.glDeleteTextures(1, &tex1);
-        ctx.glDeleteTextures(1, &tex2);
+        // Textures managed by TextureManager/shared_ptr
+        m_texRef1.reset();
+        m_texRef2.reset();
     }
 
     void onGui(mu_Context* ctx, const Rect& rect) override {
@@ -130,31 +136,25 @@ public:
 
     void onRender(SoftRenderContext& ctx) override {
         // Apply Texture Parameters
-        for (GLuint t : {tex1, tex2}) {
-            ctx.glActiveTexture(GL_TEXTURE0); // Temporarily assume texture unit doesn't matter for bind only, but param needs bind
-            // Actually implementation of glActiveTexture sets unit, glBindTexture binds to that unit.
-            // But glTexParameteri operates on ACTIVE unit.
-            
-            // To set params for tex1, we must bind it.
-            // But tex1 might be intended for Unit 0, tex2 for Unit 1.
-            // Let's preserve units.
-        }
-        
         // Set params for Texture Unit 0 (tex1)
-        ctx.glActiveTexture(GL_TEXTURE0);
-        ctx.glBindTexture(GL_TEXTURE_2D, tex1);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapMode);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapMode);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filterMode);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filterMode);
+        if (tex1) {
+            ctx.glActiveTexture(GL_TEXTURE0);
+            ctx.glBindTexture(GL_TEXTURE_2D, tex1);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapMode);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapMode);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filterMode);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filterMode);
+        }
 
         // Set params for Texture Unit 1 (tex2)
-        ctx.glActiveTexture(GL_TEXTURE1);
-        ctx.glBindTexture(GL_TEXTURE_2D, tex2);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapMode);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapMode);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filterMode);
-        ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filterMode);
+        if (tex2) {
+            ctx.glActiveTexture(GL_TEXTURE1);
+            ctx.glBindTexture(GL_TEXTURE_2D, tex2);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapMode);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapMode);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filterMode);
+            ctx.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filterMode);
+        }
 
         shader.texture1 = ctx.getTextureObject(tex1);
         shader.texture2 = ctx.getTextureObject(tex2);
@@ -167,6 +167,8 @@ public:
 
 private:
     GLuint vao = 0, vbo = 0, ebo = 0, tex1 = 0, tex2 = 0;
+    std::shared_ptr<Texture> m_texRef1;
+    std::shared_ptr<Texture> m_texRef2;
     
     // UI State
     GLint m_wrapMode = GL_REPEAT;

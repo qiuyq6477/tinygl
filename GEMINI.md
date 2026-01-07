@@ -149,6 +149,6 @@ All 3D test cases must include a camera to allow user navigation.
 
 ### Encapsulation & DLL Boundaries
 * **Problem:** Test cases directy calling third-party functions (like `stbi_load`) hidden inside the framework DLL.
-* **Solution:** Create exported wrapper functions in the framework (e.g., `tinygl::LoadImageRaw`) to provide controlled access to private dependencies.
+* **Solution:** Create exported wrapper functions in the framework to provide controlled access to private dependencies.
 
 

@@ -3,7 +3,7 @@
 #include <tinygl/core/tinygl.h>
 #include <tinygl/framework/camera.h>
 #include <tinygl/framework/geometry.h>
-#include <tinygl/framework/load_texture.h>
+#include <tinygl/framework/texture_manager.h>
 #include <vector>
 #include <random>
 
@@ -76,7 +76,8 @@ public:
         ctx.glEnableVertexAttribArray(1);
 
         // Load Texture from assets
-        tinygl::LoadTextureFromFile(ctx, "basic/discard_test/assets/grass.png", GL_TEXTURE0, tex);
+        m_texRef = TextureManager::Load(ctx, "basic/discard_test/assets/grass.png");
+        tex = m_texRef ? m_texRef->id : 0;
         
         // Generate positions for multiple grass blades
         std::mt19937 rng(123);
@@ -98,7 +99,7 @@ public:
         ctx.glDeleteVertexArrays(1, &vao);
         ctx.glDeleteBuffers(1, &vbo);
         ctx.glDeleteBuffers(1, &ebo);
-        ctx.glDeleteTextures(1, &tex);
+        m_texRef.reset();
     }
 
     void onEvent(const SDL_Event& e) override {
@@ -125,6 +126,7 @@ public:
         shader.texture = ctx.getTextureObject(tex);
         
         ctx.glBindVertexArray(vao);
+        ctx.glActiveTexture(GL_TEXTURE0);
         ctx.glBindTexture(GL_TEXTURE_2D, tex);
 
         // Render Grass Instances
@@ -142,6 +144,7 @@ public:
 
 private:
     GLuint vao, vbo, ebo, tex;
+    std::shared_ptr<Texture> m_texRef;
     Camera camera;
     DiscardShader shader;
     Geometry planeGeo; // Unused for now

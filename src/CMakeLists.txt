@@ -16,7 +16,6 @@ add_library(tinygl_framework SHARED
     framework/model.cpp
     framework/texture.cpp
     framework/texture_manager.cpp
-    framework/load_texture.cpp
     core/gl_texture.cpp
     core/gl_buffer.cpp
     core/gl_clip.cpp

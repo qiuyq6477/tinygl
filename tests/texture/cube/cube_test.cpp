@@ -1,6 +1,7 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
 #include <tinygl/core/tinygl.h>
+#include <tinygl/framework/texture_manager.h>
 #include <vector>
 #include <cstdio>
 
@@ -58,28 +59,20 @@ struct CubeShader : public ShaderBuiltins {
 class CubeTest : public ITestCase {
 public:
     void init(SoftRenderContext& ctx) override {
-        // Load Texture
-        ctx.glGenTextures(1, &m_tex); 
-        ctx.glActiveTexture(GL_TEXTURE0); 
-        ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
+        // Load Texture via Manager
+        m_texRef = TextureManager::Load(ctx, "texture/cube/assets/container.jpg");
         
-        // Try to load texture relative to the executable path
-        // Use LoadTextureFromFile instead of raw stbi calls
-        // This handles texture creation, binding, and default params
-        if (tinygl::LoadTextureFromFile(ctx, "texture/cube/assets/container.jpg", GL_TEXTURE0, m_tex)) {
-            // Texture loaded successfully, get its dimensions if needed (optional for this test logic)
-            // But LoadTextureFromFile already set up the texture object.
-            // We need to retrieve width/height if we want to print them, 
-            // or just trust it.
-            // Let's retrieve the object to print info.
-            TextureObject* texObj = ctx.getTextureObject(m_tex);
-            if (texObj) {
-                printf("Loaded texture: %dx%d\n", texObj->width, texObj->height);
-            }
+        if (m_texRef && m_texRef->id != 0) {
+            m_tex = m_texRef->id;
+            // Texture loaded successfully, bind it to Unit 0 for consistency with shader assumption if any
+            ctx.glActiveTexture(GL_TEXTURE0); 
+            ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
+            
+            printf("Loaded texture: %dx%d\n", m_texRef->width, m_texRef->height);
         } else {
             printf("Failed to load texture, falling back to checkerboard.\n");
-            // LoadTextureFromFile creates a pink texture on failure, but we want checkerboard.
-            // So we override it.
+            // Create fallback manually
+            ctx.glGenTextures(1, &m_tex);
             ctx.glActiveTexture(GL_TEXTURE0);
             ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
             
@@ -92,6 +85,12 @@ public:
                 pixels[i] = isWhite ? 0xFFFFFFFF : 0xFF000000;
             }
             ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            
+            // Note: m_texRef is null here, meaning texture won't be auto-cleaned by shared_ptr
+            // But m_tex is a raw GL handle that we must clean up manually if we created it manually.
+            // TextureManager textures clean themselves up via ~Texture().
+            // So if fallback, we set m_manualTexCleanup = true.
+            m_manualTexCleanup = true;
         }
 
         // Setup Geometry (Same as original demo)
@@ -144,7 +143,10 @@ public:
         ctx.glDeleteBuffers(1, &m_vbo);
         ctx.glDeleteBuffers(1, &m_ebo);
         ctx.glDeleteVertexArrays(1, &m_vao);
-        ctx.glDeleteTextures(1, &m_tex);
+        if (m_manualTexCleanup) {
+            ctx.glDeleteTextures(1, &m_tex);
+        }
+        m_texRef.reset(); // Auto cleanup if managed
     }
 
     void onUpdate(float dt) override {
@@ -190,6 +192,9 @@ public:
 
 private:
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0, m_tex = 0;
+    std::shared_ptr<Texture> m_texRef;
+    bool m_manualTexCleanup = false;
+    
     uint32_t m_cubeIndices[36];
     float m_rotationAngle = 0.0f;
     float m_speed = 45.0f;

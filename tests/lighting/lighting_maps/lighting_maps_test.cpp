@@ -2,6 +2,7 @@
 #include "../../test_registry.h"
 #include <tinygl/core/tinygl.h>
 #include <tinygl/framework/camera.h>
+#include <tinygl/framework/texture_manager.h>
 #include <vector>
 #include <cmath>
 
@@ -189,6 +190,8 @@ public:
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0;
     GLuint m_diffuseTex = 0;
     GLuint m_specularTex = 0;
+    std::shared_ptr<Texture> m_diffuseRef;
+    std::shared_ptr<Texture> m_specRef;
     LightingMapsShader m_shader;
     
     // Cube positions
@@ -209,11 +212,11 @@ public:
         m_camera = Camera({.position = Vec4(0, 0, 3, 1)});
 
         // Load Textures 
-        ctx.glGenTextures(1, &m_diffuseTex);
-        tinygl::LoadTextureFromFile(ctx, "lighting/lighting_maps/assets/container2.png", GL_TEXTURE0, m_diffuseTex); 
+        m_diffuseRef = TextureManager::Load(ctx, "lighting/lighting_maps/assets/container2.png");
+        m_diffuseTex = m_diffuseRef ? m_diffuseRef->id : 0;
 
-        ctx.glGenTextures(1, &m_specularTex);
-        tinygl::LoadTextureFromFile(ctx, "lighting/lighting_maps/assets/container2_specular.png", GL_TEXTURE1, m_specularTex); 
+        m_specRef = TextureManager::Load(ctx, "lighting/lighting_maps/assets/container2_specular.png");
+        m_specularTex = m_specRef ? m_specRef->id : 0;
 
         // Setup Geometry
         setupCube(ctx);
@@ -288,8 +291,8 @@ public:
     void destroy(SoftRenderContext& ctx) override {
         ctx.glDeleteBuffers(1, &m_vbo);
         ctx.glDeleteVertexArrays(1, &m_vao);
-        ctx.glDeleteTextures(1, &m_diffuseTex);
-        ctx.glDeleteTextures(1, &m_specularTex);
+        m_diffuseRef.reset();
+        m_specRef.reset();
     }
 
     void onEvent(const SDL_Event& e) override {
