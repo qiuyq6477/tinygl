@@ -152,3 +152,13 @@ All 3D test cases must include a camera to allow user navigation.
 * **Solution:** Create exported wrapper functions in the framework to provide controlled access to private dependencies.
 
 
+## Gemini Added Memories
+- Implemented Slot-Based Material System (Scheme B) for tinygl: Decoupled Mesh::Draw from specific texture types using std::vector<GLuint> slots. Slot 0 = Diffuse, Slot 1 = Specular. Abstracted Texture class for RAII resource management.
+- Implemented TextureManager for tinygl using weak_ptr for automatic cache management. Model class now uses TextureManager to load textures and maintains a keepAlive list to ensure textures persist during model lifetime. This prevents duplicate texture loading across models.
+- Enhanced Material System: Expanded `tinygl::Material` to support more properties (Ambient, Specular, Emissive, Opacity, Shininess) and flags (AlphaTest, DoubleSided). `Mesh::Draw` now automatically binds up to 6 texture slots (Diffuse, Specular, Normal, Ambient, Emissive, Opacity) and passes material data to compatible shaders using C++20 `if constexpr (requires)`. Added `glIsEnabled` to `SoftRenderContext`.
+- Implemented Shader Pass Architecture (Scheme 1).
+- Added `RenderState` for global uniform data.
+- Added `IShaderPass` and `ShaderPass<T>` to decouple Mesh from specific Shader types.
+- Refactored `Material` to hold `std::shared_ptr<IShaderPass>`.
+- Updated `Mesh::Draw` and `Model::Draw` to use `IShaderPass` instead of templates.
+- Updated `ModelLoadingTest` to demonstrate assigning `ShaderPass` to materials at runtime.

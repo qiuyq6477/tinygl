@@ -289,6 +289,12 @@ public:
         m_capabilities[cap] = GL_FALSE;
     }
 
+    GLboolean glIsEnabled(GLenum cap) {
+        auto it = m_capabilities.find(cap);
+        if (it != m_capabilities.end()) return it->second;
+        return GL_FALSE;
+    }
+
     void glDepthFunc(GLenum func) {
         m_depthFunc = func;
     }

@@ -45,10 +45,9 @@ public:
     Model& operator=(Model&& other) noexcept;
 
     // Draws the model, and thus all its meshes
-    template <typename ShaderT>
-    void Draw(SoftRenderContext& ctx, ShaderT& shader) {
+    void Draw(SoftRenderContext& ctx, const Mat4& modelMatrix, const RenderState& state) {
         for(unsigned int i = 0; i < meshes.size(); i++)
-            meshes[i].Draw(ctx, shader);
+            meshes[i].Draw(ctx, modelMatrix, state);
     }
 
 private:

@@ -114,26 +114,83 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene, SoftRenderContext& c
     if(mesh->mMaterialIndex >= 0) {
         aiMaterial* materialPtr = scene->mMaterials[mesh->mMaterialIndex];
         
-        // 1. Diffuse maps -> Slot 0
-        std::vector<GLuint> diffuseMaps = loadMaterialTextures(materialPtr, aiTextureType_DIFFUSE, ctx);
-        if (!diffuseMaps.empty()) {
-             material.SetTexture(0, diffuseMaps[0]);
-        }
+        // 1. Texture maps
         
-        // 2. Specular maps -> Slot 1
+        // Diffuse maps -> Slot 0
+        std::vector<GLuint> diffuseMaps = loadMaterialTextures(materialPtr, aiTextureType_DIFFUSE, ctx);
+        if (!diffuseMaps.empty()) material.SetTexture(0, diffuseMaps[0]);
+        
+        // Specular maps -> Slot 1
         std::vector<GLuint> specularMaps = loadMaterialTextures(materialPtr, aiTextureType_SPECULAR, ctx);
-        if (!specularMaps.empty()) {
-            material.SetTexture(1, specularMaps[0]);
+        if (!specularMaps.empty()) material.SetTexture(1, specularMaps[0]);
+
+        // Normal/Height maps -> Slot 2
+        // Some formats (like OBJ) use aiTextureType_HEIGHT for normal maps
+        std::vector<GLuint> normalMaps = loadMaterialTextures(materialPtr, aiTextureType_NORMALS, ctx);
+        if (normalMaps.empty()) normalMaps = loadMaterialTextures(materialPtr, aiTextureType_HEIGHT, ctx);
+        if (!normalMaps.empty()) material.SetTexture(2, normalMaps[0]);
+
+        // Ambient maps -> Slot 3
+        std::vector<GLuint> ambientMaps = loadMaterialTextures(materialPtr, aiTextureType_AMBIENT, ctx);
+        if (!ambientMaps.empty()) material.SetTexture(3, ambientMaps[0]);
+
+        // Emissive maps -> Slot 4
+        std::vector<GLuint> emissiveMaps = loadMaterialTextures(materialPtr, aiTextureType_EMISSIVE, ctx);
+        if (!emissiveMaps.empty()) material.SetTexture(4, emissiveMaps[0]);
+
+        // Opacity maps -> Slot 5
+        std::vector<GLuint> opacityMaps = loadMaterialTextures(materialPtr, aiTextureType_OPACITY, ctx);
+        if (!opacityMaps.empty()) {
+            material.SetTexture(5, opacityMaps[0]);
+            material.alphaTest = true;
         }
 
-        // 3. Material Properties
+        // 2. Material Properties
         aiColor3D color(0.f, 0.f, 0.f);
-        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
-            material.color = Vec4(color.r, color.g, color.b, 1.0f);
+        
+        // Name
+        aiString name;
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_NAME, name)) {
+            material.name = name.C_Str();
         }
+
+        // Diffuse Color
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
+            material.diffuse = Vec4(color.r, color.g, color.b, 1.0f);
+        }
+        
+        // Ambient Color
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_AMBIENT, color)) {
+            material.ambient = Vec4(color.r, color.g, color.b, 1.0f);
+        }
+
+        // Specular Color
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_SPECULAR, color)) {
+            material.specular = Vec4(color.r, color.g, color.b, 1.0f);
+        }
+
+        // Emissive Color
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_EMISSIVE, color)) {
+            material.emissive = Vec4(color.r, color.g, color.b, 1.0f);
+        }
+
+        // Shininess
         float shininess = 0.0f;
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_SHININESS, shininess)) {
             material.shininess = shininess;
+        }
+
+        // Opacity
+        float opacity = 1.0f;
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_OPACITY, opacity)) {
+            material.opacity = opacity;
+            if (opacity < 1.0f) material.alphaTest = true;
+        }
+
+        // Two-Sided
+        int twoSided = 0;
+        if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_TWOSIDED, twoSided)) {
+            material.doubleSided = (twoSided != 0);
         }
     }
 

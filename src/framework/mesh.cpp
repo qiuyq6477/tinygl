@@ -1,4 +1,5 @@
 #include <tinygl/framework/mesh.h>
+#include <tinygl/framework/shader_pass.h>
 
 namespace tinygl {
 
@@ -6,6 +7,14 @@ Mesh::Mesh(std::vector<Vertex> vertices, std::vector<uint32_t> indices, Material
     : vertices(std::move(vertices)), indices(std::move(indices)), material(std::move(material)), m_ctx(&ctx)
 {
     setupMesh(ctx);
+}
+
+void Mesh::Draw(SoftRenderContext& ctx, const Mat4& modelMatrix, const RenderState& state) {
+    if (material.shader) {
+        material.shader->Draw(ctx, *this, modelMatrix, state);
+    } else {
+        // Fallback or warning log
+    }
 }
 
 Mesh::~Mesh() {
