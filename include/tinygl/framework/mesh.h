@@ -14,10 +14,23 @@ struct Vertex {
 };
 
 struct Material {
-    GLuint diffuseMap = 0;
-    GLuint specularMap = 0;
+    // Texture slots:
+    // [0] = Diffuse
+    // [1] = Specular
+    // [2] = Normal
+    // ...
+    std::vector<GLuint> textures;
+    
     float shininess = 32.0f;
     Vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; 
+
+    // Helper to add/set texture at specific slot
+    void SetTexture(int slot, GLuint textureID) {
+        if (slot >= (int)textures.size()) {
+            textures.resize(slot + 1, 0);
+        }
+        textures[slot] = textureID;
+    }
 };
 
 class TINYGL_API Mesh {
@@ -41,19 +54,12 @@ public:
     // Template Draw function must be in header
     template <typename ShaderT>
     void Draw(SoftRenderContext& ctx, ShaderT& shader) {
-        // Bind appropriate textures
-        // Convention: 
-        // Unit 0 = Diffuse Map
-        // Unit 1 = Specular Map
-        
-        if (material.diffuseMap != 0) {
-            ctx.glActiveTexture(GL_TEXTURE0);
-            ctx.glBindTexture(GL_TEXTURE_2D, material.diffuseMap);
-        }
-
-        if (material.specularMap != 0) {
-            ctx.glActiveTexture(GL_TEXTURE1);
-            ctx.glBindTexture(GL_TEXTURE_2D, material.specularMap);
+        // Bind textures from slots
+        for (size_t i = 0; i < material.textures.size(); ++i) {
+            if (material.textures[i] != 0) {
+                ctx.glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i));
+                ctx.glBindTexture(GL_TEXTURE_2D, material.textures[i]);
+            }
         }
 
         // Draw mesh

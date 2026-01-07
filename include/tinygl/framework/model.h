@@ -10,7 +10,9 @@
 #include <assimp/postprocess.h>
 
 #include <tinygl/framework/mesh.h>
+#include <tinygl/framework/texture.h>
 #include <tinygl/core/tinygl.h>
+#include <memory>
 
 namespace tinygl {
 
@@ -20,15 +22,19 @@ public:
     std::vector<Mesh> meshes;
     std::string directory;
     
-    // Stores loaded textures to prevent duplicates (path -> textureID)
-    std::unordered_map<std::string, GLuint> loadedTextures;
+    // Hold references to textures to keep them alive (TextureManager uses weak_ptr)
+    std::vector<std::shared_ptr<Texture>> texturesKeepAlive;
 
     // Constructor, expects a filepath to a 3D model.
     Model(const std::string& path, SoftRenderContext& ctx) : m_ctx(&ctx) {
         loadModel(path, ctx);
     }
     
-    ~Model();
+    ~Model(); // Default destructor is fine if we use shared_ptr, but we might want to ensure context valid?
+              // Actually Texture destructor needs context... 
+              // But Texture destructor stores its own pointer to context.
+              // So default dtor for Model should be fine if Texture handles its cleanup.
+              // We'll keep explicit ~Model in cpp to clear meshes if needed.
 
     // Disable copying
     Model(const Model&) = delete;
@@ -58,9 +64,6 @@ private:
 
     // Checks all material textures of a given type and loads the textures if they're not loaded yet.
     std::vector<GLuint> loadMaterialTextures(aiMaterial *mat, aiTextureType type, SoftRenderContext& ctx);
-
-    // Helper to load texture from file
-    GLuint textureFromFile(const char* path, const std::string& directory, SoftRenderContext& ctx);
 };
 
 } // namespace tinygl

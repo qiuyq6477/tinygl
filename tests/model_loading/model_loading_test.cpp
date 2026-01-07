@@ -204,7 +204,7 @@ public:
                 snprintf(buf, sizeof(buf), "Total Indices: %zu", totalIndices);
                 mu_text(mu_ctx, buf);
                 
-                snprintf(buf, sizeof(buf), "Textures Loaded: %zu", currentModel->loadedTextures.size());
+                snprintf(buf, sizeof(buf), "Textures Loaded: %zu", currentModel->texturesKeepAlive.size());
                 mu_text(mu_ctx, buf);
                 
                 if (mu_header_ex(mu_ctx, "Mesh Details", MU_OPT_CLOSED)) {
