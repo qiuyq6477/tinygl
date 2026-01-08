@@ -324,16 +324,20 @@ void SoftRenderContext::prepareDraw() {
                 // Basic bounds check
                 if (finalOffset < buffer->data.size()) {
                     baked.basePointer = buffer->data.data() + finalOffset;
+                    baked.limitPointer = buffer->data.data() + buffer->data.size();
                     baked.stride = bnd.stride;
                     baked.divisor = bnd.divisor;
                 } else {
                     baked.basePointer = nullptr;
+                    baked.limitPointer = nullptr;
                 }
             } else {
                 baked.basePointer = nullptr;
+                baked.limitPointer = nullptr;
             }
         } else {
             baked.basePointer = nullptr;
+            baked.limitPointer = nullptr;
         }
     }
     
@@ -350,6 +354,13 @@ Vec4 SoftRenderContext::fetchAttribute(const ResolvedAttribute& attr, int vertex
     
     size_t stride = attr.stride;
     const uint8_t* src = attr.basePointer + effectiveIdx * stride;
+    
+    // Bounds Check
+    size_t elementSize = (attr.type == GL_UNSIGNED_BYTE) ? sizeof(uint8_t) : sizeof(float);
+    size_t readSize = attr.size * elementSize;
+    if (src + readSize > attr.limitPointer) {
+        return Vec4(0,0,0,1); // Out of bounds
+    }
     
     float raw[4] = {0,0,0,1};
     

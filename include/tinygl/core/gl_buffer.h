@@ -59,6 +59,7 @@ struct VertexBufferBinding {
 // 3. 执行快照：Baking 的结果 (The Performance Engine)
 struct ResolvedAttribute {
     const uint8_t* basePointer = nullptr; // 最终计算出的起始内存地址
+    const uint8_t* limitPointer = nullptr; // Buffer end pointer for bounds checking
     GLsizei stride = 0;
     GLint size = 4;
     GLenum type = GL_FLOAT;
