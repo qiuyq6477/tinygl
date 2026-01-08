@@ -25,7 +25,7 @@ struct ModelShader : public ShaderBuiltins {
     Vec4 lightColor;
 
     // 2. 材质数据 (自动注入)
-    Material material;
+    MaterialData materialData;
 
     // 3. 上下文 (自动注入)
     SoftRenderContext* renderCtx = nullptr;
@@ -64,31 +64,31 @@ struct ModelShader : public ShaderBuiltins {
         TextureObject* texOpacity = renderCtx->getTexture(5);
 
         // Alpha test
-        float alpha = material.opacity;
+        float alpha = materialData.opacity;
         if (texOpacity) {
             alpha *= texOpacity->sample(texCoords.x, texCoords.y).x;
         } else if (texDiff) {
             alpha *= texDiff->sample(texCoords.x, texCoords.y).w;
         }
 
-        if (material.alphaTest && alpha < material.alphaCutoff) {
+        if (materialData.alphaTest && alpha < materialData.alphaCutoff) {
             discard();
             return;
         }
 
         // Ambient
-        Vec4 ambient = lightColor * material.ambient * 0.1f;
+        Vec4 ambient = lightColor * materialData.ambient * 0.1f;
 
         // Diffuse
         Vec4 lightDir = normalize(lightPos - fragPos);
         float diff = std::max(dot(normal, lightDir), 0.0f);
-        Vec4 diffuse = lightColor * material.diffuse * diff;
+        Vec4 diffuse = lightColor * materialData.diffuse * diff;
 
         // Specular
         Vec4 viewDir = normalize(viewPos - fragPos);
         Vec4 halfwayDir = normalize(lightDir + viewDir);
-        float spec = std::pow(std::max(dot(normal, halfwayDir), 0.0f), material.shininess);
-        Vec4 specular = lightColor * material.specular * spec;
+        float spec = std::pow(std::max(dot(normal, halfwayDir), 0.0f), materialData.shininess);
+        Vec4 specular = lightColor * materialData.specular * spec;
 
         // Texture colors
         Vec4 texColor = texDiff ? texDiff->sample(texCoords.x, texCoords.y) : Vec4(1,1,1,1);

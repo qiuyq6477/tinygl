@@ -50,11 +50,15 @@ public:
         // 利用 mesh.material 将数据传递给 shader.material
         if constexpr (requires { shader.material = mesh.material; }) {
             shader.material = mesh.material;
+        } 
+        // 优化：如果 Shader 只需要纯数据，则只传递 MaterialData
+        else if constexpr (requires { shader.materialData = mesh.material.data; }) {
+            shader.materialData = mesh.material.data;
         }
 
         // 4. 处理双面渲染状态
         bool wasCullEnabled = ctx.glIsEnabled(GL_CULL_FACE);
-        if (mesh.material.doubleSided && wasCullEnabled) {
+        if (mesh.material.data.doubleSided && wasCullEnabled) {
             ctx.glDisable(GL_CULL_FACE);
         }
 
@@ -73,7 +77,7 @@ public:
         
         // 7. 恢复状态
         ctx.glBindVertexArray(0);
-        if (mesh.material.doubleSided && wasCullEnabled) {
+        if (mesh.material.data.doubleSided && wasCullEnabled) {
             ctx.glEnable(GL_CULL_FACE);
         }
     }

@@ -136,7 +136,7 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene, SoftRenderContext& c
         std::vector<GLuint> opacityMaps = loadMaterialTextures(materialPtr, aiTextureType_OPACITY, ctx);
         if (!opacityMaps.empty()) {
             material.SetTexture(5, opacityMaps[0]);
-            material.alphaTest = true;
+            material.data.alphaTest = 1;
         }
 
         // 2. Material Properties
@@ -150,41 +150,41 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene, SoftRenderContext& c
 
         // Diffuse Color
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
-            material.diffuse = Vec4(color.r, color.g, color.b, 1.0f);
+            material.data.diffuse = Vec4(color.r, color.g, color.b, 1.0f);
         }
         
         // Ambient Color
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_AMBIENT, color)) {
-            material.ambient = Vec4(color.r, color.g, color.b, 1.0f);
+            material.data.ambient = Vec4(color.r, color.g, color.b, 1.0f);
         }
 
         // Specular Color
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_SPECULAR, color)) {
-            material.specular = Vec4(color.r, color.g, color.b, 1.0f);
+            material.data.specular = Vec4(color.r, color.g, color.b, 1.0f);
         }
 
         // Emissive Color
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_COLOR_EMISSIVE, color)) {
-            material.emissive = Vec4(color.r, color.g, color.b, 1.0f);
+            material.data.emissive = Vec4(color.r, color.g, color.b, 1.0f);
         }
 
         // Shininess
         float shininess = 0.0f;
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_SHININESS, shininess)) {
-            material.shininess = shininess;
+            material.data.shininess = shininess;
         }
 
         // Opacity
         float opacity = 1.0f;
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_OPACITY, opacity)) {
-            material.opacity = opacity;
-            if (opacity < 1.0f) material.alphaTest = true;
+            material.data.opacity = opacity;
+            if (opacity < 1.0f) material.data.alphaTest = 1;
         }
 
         // Two-Sided
         int twoSided = 0;
         if (AI_SUCCESS == materialPtr->Get(AI_MATKEY_TWOSIDED, twoSided)) {
-            material.doubleSided = (twoSided != 0);
+            material.data.doubleSided = (twoSided != 0);
         }
     }
 

@@ -10,6 +10,25 @@ namespace tinygl {
 
 class IShaderPass; // Forward declaration
 
+/**
+ * @brief POD structure for material data that can be directly uploaded to a GPU Uniform Buffer (UBO).
+ * Uses std140-like layout principles (16-byte alignment for vectors).
+ */
+struct MaterialData {
+    Vec4 diffuse = {1.0f, 1.0f, 1.0f, 1.0f}; 
+    Vec4 ambient = {0.1f, 0.1f, 0.1f, 1.0f};
+    Vec4 specular = {0.5f, 0.5f, 0.5f, 1.0f};
+    Vec4 emissive = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    float shininess = 32.0f;
+    float opacity = 1.0f;
+    float alphaCutoff = 0.5f;
+    int alphaTest = 0;      // 0 = false, 1 = true
+
+    int doubleSided = 0;    // 0 = false, 1 = true
+    float padding[3];       // Pad to 16-byte boundary (Total size: 4*16 + 4*4 + 4*4 = 96 bytes)
+};
+
 struct Material {
     std::string name;
 
@@ -24,18 +43,18 @@ struct Material {
     // [4] = Emissive
     // [5] = Opacity / Alpha
     std::vector<GLuint> textures;
-    
-    float shininess = 32.0f;
-    float opacity = 1.0f;
-    Vec4 diffuse = {1.0f, 1.0f, 1.0f, 1.0f}; 
-    Vec4 ambient = {0.1f, 0.1f, 0.1f, 1.0f};
-    Vec4 specular = {0.5f, 0.5f, 0.5f, 1.0f};
-    Vec4 emissive = {0.0f, 0.0f, 0.0f, 1.0f};
 
-    // Flags
-    bool alphaTest = false;
-    float alphaCutoff = 0.5f;
-    bool doubleSided = false;
+    // Render Data (POD)
+    MaterialData data;
+    
+    // Convenience accessors for commonly used data (optional, but helps keep code clean)
+    // Note: We use references to allow direct modification of the underlying data.
+    float& shininess() { return data.shininess; }
+    float& opacity() { return data.opacity; }
+    Vec4& diffuse() { return data.diffuse; }
+    Vec4& ambient() { return data.ambient; }
+    Vec4& specular() { return data.specular; }
+    Vec4& emissive() { return data.emissive; }
 
     // Helper to add/set texture at specific slot
     void SetTexture(int slot, GLuint textureID) {
