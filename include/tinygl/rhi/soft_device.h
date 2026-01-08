@@ -47,34 +47,75 @@ public:
 private:
     SoftRenderContext& m_ctx;
 
-    // --- Resource Storage ---
-    // Using maps for simplicity in Phase 1. 
-    // Real implementation should use handle-maps or packed arrays.
-    
+    // --- Resource Storage (Optimized Scheme A: Packed Arrays) ---
+    template <typename T>
+    struct ResourceSlot {
+        T resource;
+        bool active = false;
+    };
+
+    template <typename T>
+    struct ResourcePool {
+        std::vector<ResourceSlot<T>> pool;
+        std::vector<uint32_t> freeIndices;
+
+        ResourcePool() {
+            // Reserve index 0 as invalid/null
+            pool.emplace_back(); 
+        }
+
+        uint32_t Allocate(T&& res) {
+            if (!freeIndices.empty()) {
+                uint32_t idx = freeIndices.back();
+                freeIndices.pop_back();
+                pool[idx] = { std::move(res), true };
+                return idx;
+            }
+            pool.push_back({ std::move(res), true });
+            return static_cast<uint32_t>(pool.size() - 1);
+        }
+
+        void Release(uint32_t idx) {
+            if (idx > 0 && idx < pool.size() && pool[idx].active) {
+                pool[idx].active = false;
+                // Optional: destruct resource immediately if T holds RAII handles
+                pool[idx].resource = T(); 
+                freeIndices.push_back(idx);
+            }
+        }
+
+        T* Get(uint32_t idx) {
+            if (idx > 0 && idx < pool.size() && pool[idx].active) {
+                return &pool[idx].resource;
+            }
+            return nullptr;
+        }
+    };
+
     struct BufferRes { GLuint glId; BufferType type; };
     struct TextureRes { GLuint glId; bool owned = true; };
+    
+    // Pools
+    ResourcePool<BufferRes> m_buffers;
+    ResourcePool<TextureRes> m_textures;
+    ResourcePool<std::unique_ptr<ISoftPipeline>> m_pipelines;
 
-    uint32_t m_nextBufferId = 1;
-    std::map<uint32_t, BufferRes> m_buffers;
-
-    uint32_t m_nextTextureId = 1;
-    std::map<uint32_t, TextureRes> m_textures;
-
-    uint32_t m_nextPipelineId = 1;
-    std::map<uint32_t, std::unique_ptr<ISoftPipeline>> m_pipelines;
-
+    // Factories (Low frequency, can map or vector)
     uint32_t m_nextShaderId = 1;
     std::map<uint32_t, PipelineFactory> m_shaderFactories;
 
-    // --- Runtime Execution State ---
-    // This state is reset at the beginning of Submit
+    // --- Runtime Execution State (Optimized Scheme B: State Deduplication) ---
+    // Tracks currently bound handles to avoid redundant context calls
     
+    uint32_t m_activePipelineId = 0;
+    uint32_t m_activeVBOId = 0;
+    uint32_t m_activeIBOId = 0;
+    uint32_t m_activeTextureIds[8] = {0}; // Track basic slots
+
     ISoftPipeline* m_currentPipeline = nullptr;
     uint32_t m_currentVertexBufferOffset = 0;
     
     // Uniform Storage
-    // We simply keep a linear buffer that mimics the layout of slots.
-    // For simplicity: Slot 0 = bytes [0..255], Slot 1 = [256..511], etc.
     static constexpr size_t MAX_UNIFORM_SIZE = 1024; 
     std::vector<uint8_t> m_uniformData;
 };

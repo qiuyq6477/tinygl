@@ -9,8 +9,19 @@ SoftDevice::SoftDevice(SoftRenderContext& ctx) : m_ctx(ctx) {
 }
 
 SoftDevice::~SoftDevice() {
-    for (auto& [id, res] : m_buffers) m_ctx.glDeleteBuffers(1, &res.glId);
-    for (auto& [id, res] : m_textures) m_ctx.glDeleteTextures(1, &res.glId);
+    // Cleanup Buffers
+    for (size_t i = 0; i < m_buffers.pool.size(); ++i) {
+        if (m_buffers.pool[i].active) {
+            m_ctx.glDeleteBuffers(1, &m_buffers.pool[i].resource.glId);
+        }
+    }
+    // Cleanup Textures
+    for (size_t i = 0; i < m_textures.pool.size(); ++i) {
+        if (m_textures.pool[i].active) {
+            m_ctx.glDeleteTextures(1, &m_textures.pool[i].resource.glId);
+        }
+    }
+    // Pipelines are unique_ptrs, cleaned up by vector destructor
 }
 
 // --- Resources ---
@@ -27,31 +38,27 @@ BufferHandle SoftDevice::CreateBuffer(const BufferDesc& desc) {
         m_ctx.glBufferData(target, desc.size, desc.initialData, GL_STATIC_DRAW);
     }
     
-    uint32_t id = m_nextBufferId++;
-    m_buffers[id] = res;
+    uint32_t id = m_buffers.Allocate(std::move(res));
     return {id};
 }
 
 void SoftDevice::DestroyBuffer(BufferHandle handle) {
-    auto it = m_buffers.find(handle.id);
-    if (it != m_buffers.end()) {
-        m_ctx.glDeleteBuffers(1, &it->second.glId);
-        m_buffers.erase(it);
+    BufferRes* res = m_buffers.Get(handle.id);
+    if (res) {
+        m_ctx.glDeleteBuffers(1, &res->glId);
+        m_buffers.Release(handle.id);
     }
 }
 
 void SoftDevice::UpdateBuffer(BufferHandle handle, const void* data, size_t size, size_t offset) {
-    auto it = m_buffers.find(handle.id);
-    if (it != m_buffers.end()) {
-        GLenum target = (it->second.type == BufferType::IndexBuffer) ? GL_ELEMENT_ARRAY_BUFFER : GL_ARRAY_BUFFER;
-        m_ctx.glBindBuffer(target, it->second.glId);
-        // SoftRenderContext currently doesn't expose glBufferSubData, so we re-upload or need to add it.
-        // For now, assume full re-upload or implement SubData in core.
-        // Fallback: full upload if offset is 0
+    BufferRes* res = m_buffers.Get(handle.id);
+    if (res) {
+        GLenum target = (res->type == BufferType::IndexBuffer) ? GL_ELEMENT_ARRAY_BUFFER : GL_ARRAY_BUFFER;
+        m_ctx.glBindBuffer(target, res->glId);
         if (offset == 0) {
             m_ctx.glBufferData(target, size, data, GL_STATIC_DRAW);
         } else {
-            // TODO: Add glBufferSubData to SoftRenderContext
+            // TODO: Add glBufferSubData
         }
     }
 }
@@ -65,28 +72,26 @@ TextureHandle SoftDevice::CreateTexture(const void* pixelData, int width, int he
     GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
     m_ctx.glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, pixelData);
     
-    uint32_t id = m_nextTextureId++;
-    m_textures[id] = res;
+    uint32_t id = m_textures.Allocate(std::move(res));
     return {id};
 }
 
 TextureHandle SoftDevice::CreateTextureFromNative(GLuint glTextureId) {
     TextureRes res;
     res.glId = glTextureId;
-    res.owned = false; // External ownership
+    res.owned = false;
     
-    uint32_t id = m_nextTextureId++;
-    m_textures[id] = res;
+    uint32_t id = m_textures.Allocate(std::move(res));
     return {id};
 }
 
 void SoftDevice::DestroyTexture(TextureHandle handle) {
-    auto it = m_textures.find(handle.id);
-    if (it != m_textures.end()) {
-        if (it->second.owned) {
-            m_ctx.glDeleteTextures(1, &it->second.glId);
+    TextureRes* res = m_textures.Get(handle.id);
+    if (res) {
+        if (res->owned) {
+            m_ctx.glDeleteTextures(1, &res->glId);
         }
-        m_textures.erase(it);
+        m_textures.Release(handle.id);
     }
 }
 
@@ -108,18 +113,25 @@ PipelineHandle SoftDevice::CreatePipeline(const PipelineDesc& desc) {
     }
     
     auto pipeline = factoryIt->second(desc);
-    uint32_t id = m_nextPipelineId++;
-    m_pipelines[id] = std::move(pipeline);
+    uint32_t id = m_pipelines.Allocate(std::move(pipeline));
     return {id};
 }
 
 void SoftDevice::DestroyPipeline(PipelineHandle handle) {
-    m_pipelines.erase(handle.id);
+    m_pipelines.Release(handle.id);
 }
 
 // --- Execution ---
 
 void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, const uint8_t* payload, size_t payloadSize) {
+    // Reset runtime state trackers at the beginning of a command batch
+    // This ensures we don't assume state persists from previous Submit calls 
+    // (unless we want to implement robust cross-frame state tracking).
+    m_activePipelineId = 0;
+    m_activeVBOId = 0;
+    m_activeIBOId = 0;
+    std::memset(m_activeTextureIds, 0, sizeof(m_activeTextureIds));
+
     m_currentPipeline = nullptr;
     
     for (size_t i = 0; i < commandCount; ++i) {
@@ -127,42 +139,67 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
         
         switch (cmd.type) {
             case CommandType::SetPipeline: {
-                auto it = m_pipelines.find(cmd.pipeline.handle.id);
-                if (it != m_pipelines.end()) {
-                    m_currentPipeline = it->second.get();
+                if (cmd.pipeline.handle.id != m_activePipelineId) {
+                    auto* pipelinePtr = m_pipelines.Get(cmd.pipeline.handle.id);
+                    if (pipelinePtr && *pipelinePtr) {
+                        m_currentPipeline = pipelinePtr->get();
+                        m_activePipelineId = cmd.pipeline.handle.id;
+                    } else {
+                        m_currentPipeline = nullptr;
+                        m_activePipelineId = 0;
+                    }
                 }
                 break;
             }
             
             case CommandType::SetViewport: {
+                // Viewport is rarely redundant, just set it
                 m_ctx.glViewport(cmd.viewport.x, cmd.viewport.y, cmd.viewport.w, cmd.viewport.h);
                 break;
             }
             
             case CommandType::SetVertexBuffer: {
-                auto it = m_buffers.find(cmd.buffer.handle.id);
-                if (it != m_buffers.end()) {
-                    m_ctx.glBindBuffer(GL_ARRAY_BUFFER, it->second.glId);
-                    // Store offset, but don't set attrib pointers yet.
-                    // This is done by Pipeline::Draw using the InputLayout.
-                    m_currentVertexBufferOffset = cmd.buffer.offset;
+                // Check redundancy for BindBuffer
+                if (cmd.buffer.handle.id != m_activeVBOId) {
+                    BufferRes* res = m_buffers.Get(cmd.buffer.handle.id);
+                    if (res) {
+                        m_ctx.glBindBuffer(GL_ARRAY_BUFFER, res->glId);
+                        m_activeVBOId = cmd.buffer.handle.id;
+                    } else {
+                        m_activeVBOId = 0;
+                    }
                 }
+                // Offset can change even if buffer is same
+                m_currentVertexBufferOffset = cmd.buffer.offset;
                 break;
             }
             
             case CommandType::SetIndexBuffer: {
-                auto it = m_buffers.find(cmd.buffer.handle.id);
-                if (it != m_buffers.end()) {
-                    m_ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, it->second.glId);
+                if (cmd.buffer.handle.id != m_activeIBOId) {
+                    BufferRes* res = m_buffers.Get(cmd.buffer.handle.id);
+                    if (res) {
+                        m_ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, res->glId);
+                        m_activeIBOId = cmd.buffer.handle.id;
+                    } else {
+                        m_activeIBOId = 0;
+                    }
                 }
                 break;
             }
 
             case CommandType::SetTexture: {
-                auto it = m_textures.find(cmd.texture.handle.id);
-                if (it != m_textures.end()) {
-                    m_ctx.glActiveTexture(GL_TEXTURE0 + cmd.texture.slot);
-                    m_ctx.glBindTexture(GL_TEXTURE_2D, it->second.glId);
+                uint8_t slot = cmd.texture.slot;
+                if (slot < 8) { // Bound check for tracker
+                    if (m_activeTextureIds[slot] != cmd.texture.handle.id) {
+                        TextureRes* res = m_textures.Get(cmd.texture.handle.id);
+                        if (res) {
+                            m_ctx.glActiveTexture(GL_TEXTURE0 + slot);
+                            m_ctx.glBindTexture(GL_TEXTURE_2D, res->glId);
+                            m_activeTextureIds[slot] = cmd.texture.handle.id;
+                        } else {
+                             m_activeTextureIds[slot] = 0;
+                        }
+                    }
                 }
                 break;
             }
@@ -170,9 +207,6 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
             case CommandType::UpdateUniform: {
                 if (cmd.uniform.dataOffset + cmd.uniform.size <= payloadSize) {
                     // Mapping Slot -> Linear Offset
-                    // Slot 0: 0
-                    // Slot 1: 256
-                    // Slot 2: 512
                     size_t dstOffset = cmd.uniform.slot * 256; 
                     if (dstOffset + cmd.uniform.size <= m_uniformData.size()) {
                         memcpy(m_uniformData.data() + dstOffset, 
@@ -205,8 +239,7 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
 }
 
 void SoftDevice::Present() {
-    // SoftRenderContext::SwapBuffers or similar is handled by Application loop usually.
-    // But we can add a hook here.
+    // Present hook
 }
 
 }
