@@ -21,6 +21,7 @@ add_library(tinygl_framework SHARED
     core/gl_clip.cpp
     core/gl_util.cpp
     core/tinygl.cpp
+    rhi/soft_device.cpp
 )
 
 # 定义导出宏

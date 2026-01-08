@@ -1,0 +1,1 @@
+add_tinygl_test(rhi_triangle_test rhi_triangle_test.cpp)
