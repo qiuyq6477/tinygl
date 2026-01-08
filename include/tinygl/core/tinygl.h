@@ -86,6 +86,8 @@ public:
         bool isActive(GLuint id) const {
             return id < pool.size() && pool[id].active;
         }
+
+        size_t size() const { return pool.size(); }
     };
 
 private:
@@ -1124,6 +1126,8 @@ public:
         fclose(f);
         LOG_INFO("Saved PPM to " + std::string(filename));
     }
+
+    void printContextState();
 };
 
 }
