@@ -157,8 +157,16 @@ All 3D test cases must include a camera to allow user navigation.
 - Implemented TextureManager for tinygl using weak_ptr for automatic cache management. Model class now uses TextureManager to load textures and maintains a keepAlive list to ensure textures persist during model lifetime. This prevents duplicate texture loading across models.
 - Enhanced Material System: Expanded `tinygl::Material` to support more properties (Ambient, Specular, Emissive, Opacity, Shininess) and flags (AlphaTest, DoubleSided). `Mesh::Draw` now automatically binds up to 6 texture slots (Diffuse, Specular, Normal, Ambient, Emissive, Opacity) and passes material data to compatible shaders using C++20 `if constexpr (requires)`. Added `glIsEnabled` to `SoftRenderContext`.
 - Implemented Shader Pass Architecture (Scheme 1).
-- Added `RenderState` for global uniform data.
-- Added `IShaderPass` and `ShaderPass<T>` to decouple Mesh from specific Shader types.
-- Refactored `Material` to hold `std::shared_ptr<IShaderPass>`.
-- Updated `Mesh::Draw` and `Model::Draw` to use `IShaderPass` instead of templates.
-- Updated `ModelLoadingTest` to demonstrate assigning `ShaderPass` to materials at runtime.
+    - Added `RenderState` for global uniform data.
+    - Added `IShaderPass` and `ShaderPass<T>` to decouple Mesh from specific Shader types.
+    - Refactored `Material` to hold `std::shared_ptr<IShaderPass>`.
+    - Updated `Mesh::Draw` and `Model::Draw` to use `IShaderPass` instead of templates.
+    - Updated `ModelLoadingTest` to demonstrate assigning `ShaderPass` to materials at runtime.
+- Implemented Data-Driven RHI (Render Hardware Interface):
+    - **Architecture:** Adopted "Command Bucket" pattern (Scheme B) for high-performance and future Vulkan compatibility.
+    - **Core Interfaces:** Defined `IGraphicsDevice` (Abstract), `SoftDevice` (Backend), `CommandEncoder` (Frontend), and `RenderCommand` (POD).
+    - **Material Refactor:** Extracted POD `MaterialData` from `Material` class to be "Uniform Buffer Ready" (std140 layout compatible). Updated `ShaderPass` to support direct injection of `MaterialData`.
+    - **SoftRender Adapter:** Created `ISoftPipeline` bridge to support runtime switching of template-based shaders. Implemented `RegisterShaderFactory` mechanism to link runtime handles to compile-time types.
+    - **Dynamic Vertex Layout:** Implemented `VertexInputState` in `PipelineDesc`. Removed hardcoded attribute setup in favor of dynamic `glVertexAttribPointer` configuration in `SoftPipeline::SetupInputLayout`.
+    - **Features:** Handle-based resource management (Buffers, Textures, Pipelines), linear allocator for transient uniform data, and slot-based uniform injection.
+    - **Validation:** Added `tests/rhi/basic_triangle` to verify the full RHI pipeline.

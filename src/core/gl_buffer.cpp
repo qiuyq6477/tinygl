@@ -173,7 +173,7 @@ void SoftRenderContext::glVertexAttribPointer(GLuint index, GLint size, GLenum t
     attr.normalized = norm; 
     attr.stride = stride;
     attr.pointerOffset = reinterpret_cast<size_t>(pointer);
-    LOG_INFO("Attrib " + std::to_string(index) + " bound to VBO " + std::to_string(m_boundArrayBuffer));
+    // LOG_INFO("Attrib " + std::to_string(index) + " bound to VBO " + std::to_string(m_boundArrayBuffer));
 }
 
 void SoftRenderContext::glEnableVertexAttribArray(GLuint index) {
