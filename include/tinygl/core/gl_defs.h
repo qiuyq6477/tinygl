@@ -135,6 +135,7 @@ const GLenum GL_TEXTURE_LOD_BIAS = 0x8501; // 可选支持
 
 // System Limits & Defaults
 constexpr int MAX_ATTRIBS       = 16;   // 最大顶点属性数量
+constexpr int MAX_BINDINGS      = 16;   // 最大顶点缓冲区绑定点数量
 constexpr int MAX_VARYINGS      = 8;    // 最大插值变量数量
 constexpr int MAX_TEXTURE_UNITS = 16;   // 最大纹理单元数量
 

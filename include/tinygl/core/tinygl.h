@@ -319,6 +319,12 @@ public:
     void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     void* glMapBuffer(GLenum target, GLenum access);
     GLboolean glUnmapBuffer(GLenum target);
+
+    // --- DSA Buffers (Phase 1) ---
+    void glCreateBuffers(GLsizei n, GLuint* buffers);
+    void glNamedBufferStorage(GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags);
+
+    // --- Vertex Arrays ---
     void glGenVertexArrays(GLsizei n, GLuint* res);
     void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
     void glBindVertexArray(GLuint array) { m_boundVertexArray = array; }
@@ -329,8 +335,16 @@ public:
     }
     void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void* pointer);
     void glEnableVertexAttribArray(GLuint index);
+    
+    // --- DSA Vertex Arrays (Phase 1 & 2) ---
+    void glCreateVertexArrays(GLsizei n, GLuint* arrays);
+    void glVertexArrayAttribFormat(GLuint vaobj, GLuint attribindex, GLint size, GLenum type, GLboolean normalized, GLuint relativeoffset);
+    void glVertexArrayAttribBinding(GLuint vaobj, GLuint attribindex, GLuint bindingindex);
+    void glVertexArrayVertexBuffer(GLuint vaobj, GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride);
+    void glVertexArrayElementBuffer(GLuint vaobj, GLuint buffer);
+    void glEnableVertexArrayAttrib(GLuint vaobj, GLuint index);
     void glVertexAttribDivisor(GLuint index, GLuint divisor);
-    Vec4 fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx);
+    Vec4 fetchAttribute(const ResolvedAttribute& attr, int vertexIdx, int instanceIdx);
 
     // --- Textures ---
     void glGenTextures(GLsizei n, GLuint* res);
@@ -345,6 +359,9 @@ public:
     void glTexParameteriv(GLenum target, GLenum pname, const GLint* params); // nt Vector 版本
     void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params); // Float Vector 版本 (关键：Border Color)
     void glGenerateMipmap(GLenum target); // 生成 Mipmap
+
+    // --- Draw Execution Helpers ---
+    void prepareDraw();
 
     // --- util ---
     // 线性插值辅助函数 (Linear Interpolation)
@@ -806,8 +823,8 @@ public:
             // 注意：为了极致性能，这里只应该读取 shader 实际需要的属性
             // 但通用管线必须遍历 enabled 的属性
             for (int a = 0; a < MAX_ATTRIBS; ++a) {
-                if (vao.attributes[a].enabled) {
-                    attribs[a] = fetchAttribute(vao.attributes[a], idx, instanceID);
+                if (vao.bakedAttributes[a].enabled) {
+                    attribs[a] = fetchAttribute(vao.bakedAttributes[a], idx, instanceID);
                 }
             }
 
@@ -866,8 +883,8 @@ public:
         // 1. Vertex Shader
         Vec4 attribs[MAX_ATTRIBS];
         for (int a = 0; a < MAX_ATTRIBS; ++a) {
-            if (vao.attributes[a].enabled) {
-                attribs[a] = fetchAttribute(vao.attributes[a], idx, instanceID);
+            if (vao.bakedAttributes[a].enabled) {
+                attribs[a] = fetchAttribute(vao.bakedAttributes[a], idx, instanceID);
             }
         }
         ShaderContext ctx;
@@ -898,8 +915,8 @@ public:
         for(int i=0; i<2; ++i) {
             Vec4 attribs[MAX_ATTRIBS];
             for (int a = 0; a < MAX_ATTRIBS; ++a) {
-                if (vao.attributes[a].enabled) {
-                    attribs[a] = fetchAttribute(vao.attributes[a], indices[i], instanceID);
+                if (vao.bakedAttributes[a].enabled) {
+                    attribs[a] = fetchAttribute(vao.bakedAttributes[a], indices[i], instanceID);
                 }
             }
             ShaderContext ctx;
@@ -992,6 +1009,8 @@ public:
     void glDrawArrays(ShaderT& shader, GLenum mode, GLint first, GLsizei count) {
         if (count <= 0) return;
         
+        prepareDraw();
+
         // 定义 getter: 索引就是 first + i
         auto linearIndexGetter = [&](int i) -> uint32_t {
             return (uint32_t)(first + i);
@@ -1005,6 +1024,8 @@ public:
     void glDrawArraysInstanced(ShaderT& shader, GLenum mode, GLint first, GLsizei count, GLsizei primcount) {
         if (count <= 0 || primcount <= 0) return;
         
+        prepareDraw();
+
         auto linearIndexGetter = [&](int i) -> uint32_t {
             return (uint32_t)(first + i);
         };
@@ -1034,6 +1055,8 @@ public:
     void glDrawElementsInstanced(ShaderT& shader, GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) {
         if (count == 0 || instanceCount == 0) return;
         
+        prepareDraw();
+
         size_t indexSize = getIndexTypeSize(type);
         if (indexSize == 0) {
             LOG_ERROR("glDrawElements: Invalid index type.");

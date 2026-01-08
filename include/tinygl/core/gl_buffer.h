@@ -16,6 +16,11 @@ struct BufferObject {
     bool mapped = false;           // Track if buffer is mapped
     GLenum mappedAccess = 0;       // Mapping access
     
+    // [Phase 1] DSA Support
+    bool immutable = false;        // Track if buffer was created with glNamedBufferStorage
+    GLsizeiptr size = 0;           // Allocated size
+    GLbitfield storageFlags = 0;   // Flags from glNamedBufferStorage
+
     template <typename T>
     bool readSafe(size_t offset, T& outValue) const {
         if (offset + sizeof(T) > data.size()) {
@@ -31,25 +36,52 @@ struct BufferObject {
     }
 };
 
-// VAO Components
-struct VertexAttribState {
+// VAO Components (DSA Style)
+
+// 1. 属性格式描述 (Format) - 解耦后的逻辑状态
+struct VertexAttribFormat {
     bool enabled = false;
-    GLuint bindingBufferID = 0;
-    GLint size = 3;
+    GLint size = 4;
     GLenum type = GL_FLOAT;
-    GLboolean normalized = false;
+    GLboolean normalized = GL_FALSE;
+    GLuint relativeOffset = 0;
+    GLuint bindingIndex = 0; // 指向哪个 Binding Slot
+};
+
+// 2. 缓冲绑定描述 (Binding Slot)
+struct VertexBufferBinding {
+    GLuint bufferID = 0;
+    GLintptr offset = 0;
     GLsizei stride = 0;
-    size_t pointerOffset = 0;
-    // [新增] 实例除数
-    // 0 = 每顶点更新 (默认)
-    // 1 = 每 1 个实例更新一次
-    // N = 每 N 个实例更新一次
-    GLuint divisor = 0; 
+    GLuint divisor = 0; // 支持 Instancing
+};
+
+// 3. 执行快照：Baking 的结果 (The Performance Engine)
+struct ResolvedAttribute {
+    const uint8_t* basePointer = nullptr; // 最终计算出的起始内存地址
+    GLsizei stride = 0;
+    GLint size = 4;
+    GLenum type = GL_FLOAT;
+    GLboolean normalized = GL_FALSE;
+    bool enabled = false;
+    GLuint divisor = 0; // 支持 Instancing
 };
 
 struct VertexArrayObject {
-    VertexAttribState attributes[MAX_ATTRIBS];
+    // 逻辑状态 (Logical State)
+    VertexAttribFormat attributes[MAX_ATTRIBS];
+    VertexBufferBinding bindings[MAX_BINDINGS];
     GLuint elementBufferID = 0;
+
+    // 状态检查 (Dirty Flag)
+    bool isDirty = true; // 任何 Format 或 Binding 改变时设为 true
+    
+    // 烘焙出的结果：fetchAttribute 直接读取这个数组 (Baked State)
+    ResolvedAttribute bakedAttributes[MAX_ATTRIBS];
 };
+
+// Keep old name for compatibility if needed elsewhere temporarily, 
+// but most code should move to the new structures.
+using VertexAttribState = VertexAttribFormat; 
 
 }

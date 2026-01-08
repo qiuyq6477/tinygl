@@ -112,11 +112,103 @@ GLboolean SoftRenderContext::glUnmapBuffer(GLenum target) {
     return GL_TRUE;
 }
 
+// --- DSA Buffers (Phase 1) ---
+void SoftRenderContext::glCreateBuffers(GLsizei n, GLuint* res) {
+    for (int i = 0; i < n; i++) {
+        res[i] = buffers.allocate();
+        // Initialize as DSA buffer
+        BufferObject* buf = buffers.get(res[i]);
+        if (buf) {
+            buf->immutable = false;
+        }
+        LOG_INFO("CreateBuffer (DSA) ID: " + std::to_string(res[i]));
+    }
+}
+
+void SoftRenderContext::glNamedBufferStorage(GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags) {
+    BufferObject* buf = buffers.get(buffer);
+    if (!buf) {
+        LOG_ERROR("glNamedBufferStorage: Invalid buffer ID " + std::to_string(buffer));
+        return;
+    }
+    if (buf->immutable) {
+        LOG_ERROR("glNamedBufferStorage: Buffer " + std::to_string(buffer) + " is already immutable");
+        return;
+    }
+
+    buf->data.resize(size);
+    if (data) std::memcpy(buf->data.data(), data, size);
+    
+    buf->immutable = true;
+    buf->size = size;
+    buf->storageFlags = flags;
+    LOG_INFO("NamedBufferStorage " + std::to_string(size) + " bytes to ID " + std::to_string(buffer));
+}
+
 // --- VAO ---
 void SoftRenderContext::glGenVertexArrays(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
         res[i] = vaos.allocate();
         LOG_INFO("GenVAO ID: " + std::to_string(res[i]));
+    }
+}
+
+// --- DSA Vertex Arrays (Phase 1) ---
+void SoftRenderContext::glCreateVertexArrays(GLsizei n, GLuint* arrays) {
+    for (int i = 0; i < n; i++) {
+        arrays[i] = vaos.allocate();
+        LOG_INFO("CreateVertexArray (DSA) ID: " + std::to_string(arrays[i]));
+    }
+}
+
+void SoftRenderContext::glVertexArrayElementBuffer(GLuint vaobj, GLuint buffer) {
+    VertexArrayObject* vao = vaos.get(vaobj);
+    if (vao) {
+        vao->elementBufferID = buffer;
+        vao->isDirty = true;
+    }
+}
+
+void SoftRenderContext::glVertexArrayAttribFormat(GLuint vaobj, GLuint attribindex, GLint size, GLenum type, GLboolean normalized, GLuint relativeoffset) {
+    if (attribindex >= MAX_ATTRIBS) return;
+    VertexArrayObject* vao = vaos.get(vaobj);
+    if (vao) {
+        VertexAttribFormat& fmt = vao->attributes[attribindex];
+        fmt.size = size;
+        fmt.type = type;
+        fmt.normalized = normalized;
+        fmt.relativeOffset = relativeoffset;
+        vao->isDirty = true;
+    }
+}
+
+void SoftRenderContext::glVertexArrayAttribBinding(GLuint vaobj, GLuint attribindex, GLuint bindingindex) {
+    if (attribindex >= MAX_ATTRIBS || bindingindex >= MAX_BINDINGS) return;
+    VertexArrayObject* vao = vaos.get(vaobj);
+    if (vao) {
+        vao->attributes[attribindex].bindingIndex = bindingindex;
+        vao->isDirty = true;
+    }
+}
+
+void SoftRenderContext::glVertexArrayVertexBuffer(GLuint vaobj, GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride) {
+    if (bindingindex >= MAX_BINDINGS) return;
+    VertexArrayObject* vao = vaos.get(vaobj);
+    if (vao) {
+        VertexBufferBinding& binding = vao->bindings[bindingindex];
+        binding.bufferID = buffer;
+        binding.offset = offset;
+        binding.stride = stride;
+        vao->isDirty = true;
+    }
+}
+
+void SoftRenderContext::glEnableVertexArrayAttrib(GLuint vaobj, GLuint index) {
+    if (index >= MAX_ATTRIBS) return;
+    VertexArrayObject* vao = vaos.get(vaobj);
+    if (vao) {
+        vao->attributes[index].enabled = true;
+        vao->isDirty = true;
     }
 }
 
@@ -166,82 +258,109 @@ void SoftRenderContext::glVertexAttribPointer(GLuint index, GLint size, GLenum t
         LOG_ERROR("No VBO bound!");
         return;
     }
-    VertexAttribState& attr = getVAO().attributes[index];
-    attr.bindingBufferID = m_boundArrayBuffer;
+    VertexArrayObject& vao = getVAO();
+    
+    // Legacy mapping: Attribute index X binds to Binding Slot X
+    VertexAttribFormat& attr = vao.attributes[index];
+    attr.enabled = true; // glVertexAttribPointer implicitly enables? No, usually glEnableVertexAttribArray does.
+                         // But in some drivers it might. TinyGL legacy code didn't enable here.
     attr.size = size;
     attr.type = type;
     attr.normalized = norm; 
-    attr.stride = stride;
-    attr.pointerOffset = reinterpret_cast<size_t>(pointer);
-    // LOG_INFO("Attrib " + std::to_string(index) + " bound to VBO " + std::to_string(m_boundArrayBuffer));
+    attr.relativeOffset = 0; // In legacy, offset is part of VBO binding
+    attr.bindingIndex = index;
+
+    VertexBufferBinding& bnd = vao.bindings[index];
+    bnd.bufferID = m_boundArrayBuffer;
+    bnd.offset = reinterpret_cast<GLintptr>(pointer);
+    bnd.stride = stride ? stride : size * ((type == GL_UNSIGNED_BYTE) ? 1 : 4);
+    
+    vao.isDirty = true;
 }
 
 void SoftRenderContext::glEnableVertexAttribArray(GLuint index) {
-    if (index < MAX_ATTRIBS) getVAO().attributes[index].enabled = true;
+    if (index < MAX_ATTRIBS) {
+        VertexArrayObject& vao = getVAO();
+        vao.attributes[index].enabled = true;
+        vao.isDirty = true;
+    }
 }
 
 void SoftRenderContext::glVertexAttribDivisor(GLuint index, GLuint divisor) {
     if (index < MAX_ATTRIBS) {
-        getVAO().attributes[index].divisor = divisor;
+        VertexArrayObject& vao = getVAO();
+        // Divisor is associated with the binding point in modern GL, 
+        // but often mapped to attribute in early versions.
+        // We'll put it in Binding Slot for now since that's where Instancing logic usually lives.
+        GLuint bindingIndex = vao.attributes[index].bindingIndex;
+        vao.bindings[bindingIndex].divisor = divisor;
+        vao.isDirty = true;
     }
 }
 
-Vec4 SoftRenderContext::fetchAttribute(const VertexAttribState& attr, int vertexIdx, int instanceIdx) {
-    if (!attr.enabled) return Vec4(0,0,0,1);
+void SoftRenderContext::prepareDraw() {
+    VertexArrayObject& vao = getVAO();
+    if (!vao.isDirty) return;
 
-    BufferObject* bufferPtr = buffers.get(attr.bindingBufferID);
-    // 检查 1: Buffer 是否存在
-    if (!bufferPtr) return Vec4(0,0,0,1);
-    
-    const auto& buffer = *bufferPtr;
-    // 检查 2: Buffer 是否为空
-    if (buffer.data.empty()) return Vec4(0,0,0,1);
+    for (int i = 0; i < MAX_ATTRIBS; ++i) {
+        VertexAttribFormat& fmt = vao.attributes[i];
+        ResolvedAttribute& baked = vao.bakedAttributes[i];
+        
+        baked.enabled = fmt.enabled;
+        if (!fmt.enabled) continue;
 
-    // 计算 stride 
-    // TODO: 支持其他类型的 Attribute
-    size_t stride = attr.stride ? attr.stride : attr.size * sizeof(float); // Default stride for floats
-    // Instancing 核心逻辑
-    // 如果 divisor 为 0，使用 vertexIdx。
-    // 如果 divisor > 0，使用 instanceIdx / divisor。
-    int effectiveIdx = (attr.divisor == 0) ? vertexIdx : (instanceIdx / attr.divisor);
-    // 计算起始偏移量
-    size_t offset = attr.pointerOffset + effectiveIdx * stride;
-    
-    // 计算读取该属性所需的总大小
-    // 注意：attr.type 可能是 float 或 byte，这里假设标准 float 为 4 字节
-    // 如果你的系统支持更多类型，这里需要根据 attr.type 动态计算 dataSize
-    size_t elementSize = (attr.type == GL_UNSIGNED_BYTE) ? sizeof(uint8_t) : sizeof(float);
-    size_t readSize = attr.size * elementSize;
+        // Copy format
+        baked.size = fmt.size;
+        baked.type = fmt.type;
+        baked.normalized = fmt.normalized;
 
-    // 检查 3: 严格的越界检查
-    // offset + readSize > buffer.size()
-    if (offset >= buffer.data.size() || (buffer.data.size() - offset) < readSize) {
-        // 返回默认值，防止崩溃
-        return Vec4(0,0,0,1);
+        // Resolve pointer
+        if (fmt.bindingIndex < MAX_BINDINGS) {
+            VertexBufferBinding& bnd = vao.bindings[fmt.bindingIndex];
+            BufferObject* buffer = buffers.get(bnd.bufferID);
+            
+            if (buffer && !buffer->data.empty()) {
+                size_t finalOffset = bnd.offset + fmt.relativeOffset;
+                // Basic bounds check
+                if (finalOffset < buffer->data.size()) {
+                    baked.basePointer = buffer->data.data() + finalOffset;
+                    baked.stride = bnd.stride;
+                    baked.divisor = bnd.divisor;
+                } else {
+                    baked.basePointer = nullptr;
+                }
+            } else {
+                baked.basePointer = nullptr;
+            }
+        } else {
+            baked.basePointer = nullptr;
+        }
     }
+    
+    vao.isDirty = false;
+}
 
+Vec4 SoftRenderContext::fetchAttribute(const ResolvedAttribute& attr, int vertexIdx, int instanceIdx) {
+    if (!attr.enabled || !attr.basePointer) return Vec4(0,0,0,1);
+
+    // Instancing Logic
+    // If divisor is 0, use vertexIdx.
+    // If divisor > 0, use instanceIdx / divisor.
+    int effectiveIdx = (attr.divisor == 0) ? vertexIdx : (instanceIdx / attr.divisor);
+    
+    size_t stride = attr.stride;
+    const uint8_t* src = attr.basePointer + effectiveIdx * stride;
+    
     float raw[4] = {0,0,0,1};
     
-    // 读取逻辑 (使用 readSafe 进一步保证，或者直接 memcpy 因为上面已检查)
     switch (attr.type) {
         case GL_FLOAT: {
-            // for(int i=0; i<attr.size; ++i) {
-            //     it->second.readSafe<float>(offset + i*sizeof(float), raw[i]);
-            // }
-            // 直接拷贝，比循环 readSafe 快
-            std::memcpy(raw, buffer.data.data() + offset, attr.size * sizeof(float));
+            std::memcpy(raw, src, attr.size * sizeof(float));
             break;
         }
         case GL_UNSIGNED_BYTE: {
-            // stride = attr.stride ? attr.stride : attr.size * sizeof(uint8_t);
-            // offset = attr.pointerOffset + vertexIdx * stride;
-            // 如果是 BYTE 类型，stride 默认值计算可能需要区分，但上面已经根据类型计算了 stride，
-            // 这里的逻辑复用 fetchAttribute 原有逻辑即可，重点是 offset 计算变了。
             uint8_t ubyte_raw[4] = {0,0,0,255};
-            // for(int i=0; i<attr.size; ++i) {
-            //     it->second.readSafe<uint8_t>(offset + i*sizeof(uint8_t), ubyte_raw[i]);
-            // }
-            std::memcpy(ubyte_raw, buffer.data.data() + offset, attr.size * sizeof(uint8_t));
+            std::memcpy(ubyte_raw, src, attr.size * sizeof(uint8_t));
             
             if (attr.normalized) {
                 for(int i=0; i<4; ++i) raw[i] = ubyte_raw[i] / 255.0f;
@@ -251,7 +370,6 @@ Vec4 SoftRenderContext::fetchAttribute(const VertexAttribState& attr, int vertex
             break;
         }
         default:
-            LOG_WARN("Unsupported vertex attribute type.");
             break;
     }
     
