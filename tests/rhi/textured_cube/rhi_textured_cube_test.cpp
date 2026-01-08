@@ -101,7 +101,7 @@ public:
         camera = Camera(camInfo);
 
         // 1. Create Texture via Manager
-        textureAsset = TextureManager::Load(ctx, "tests/texture/cube/assets/container.jpg");
+        textureAsset = TextureManager::Load(ctx, "texture/cube/assets/container.jpg");
         if (textureAsset) {
             // Import into RHI
             textureHandle = device->CreateTextureFromNative(textureAsset->id);
@@ -212,7 +212,7 @@ public:
 
     void onUpdate(float dt) override {
         m_rotationAngle += 50.0f * dt;
-        if (m_rotationAngle > 360.0f) m_rotationAngle -= 360.0f;
+        if (m_rotationAngle > 720.0f) m_rotationAngle -= 720.0f;
         
         camera.Update(dt);
     }
