@@ -180,6 +180,7 @@ All 3D test cases must include a camera to allow user navigation.
     - **API Additions:** Added `glCreateVertexArrays`, `glCreateBuffers`, `glNamedBufferStorage`, `glVertexArrayAttribFormat`, `glVertexArrayAttribBinding`, `glVertexArrayVertexBuffer`, `glVertexArrayElementBuffer`, and `glEnableVertexArrayAttrib`.
     - **Compatibility:** Updated legacy `glVertexAttribPointer` to map to the new DSA internal structure transparently.
     - **RHI Update:** Refactored `SoftPipeline` to create and configure an internal VAO using DSA functions at construction time. `Draw` calls now simply bind the VAO and update the VBO binding via `glVertexArrayVertexBuffer`, eliminating the attribute setup loop.
+    - **Safety:** Implemented robust bounds checking in `fetchAttribute` using `limitPointer`. 
     - **Instancing Fix:** Added `divisor` support to `ResolvedAttribute` and `fetchAttribute` to restore instanced rendering functionality.
 - **RHI Optimization:**
     - **Resource Pooling (Scheme A):** Replaced `std::map` with vector-based `ResourcePool` in `SoftDevice` for O(1) resource access and better cache locality.
