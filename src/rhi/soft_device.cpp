@@ -112,7 +112,7 @@ PipelineHandle SoftDevice::CreatePipeline(const PipelineDesc& desc) {
         return {0};
     }
     
-    auto pipeline = factoryIt->second(desc);
+    auto pipeline = factoryIt->second(m_ctx, desc);
     uint32_t id = m_pipelines.Allocate(std::move(pipeline));
     return {id};
 }
@@ -219,14 +219,14 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
 
             case CommandType::Draw: {
                 if (m_currentPipeline) {
-                    m_currentPipeline->Draw(m_ctx, m_uniformData, cmd, m_currentVertexBufferOffset);
+                    m_currentPipeline->Draw(m_ctx, m_uniformData, cmd, m_activeVBOId, m_currentVertexBufferOffset);
                 }
                 break;
             }
 
             case CommandType::DrawIndexed: {
                 if (m_currentPipeline) {
-                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, cmd, m_currentVertexBufferOffset);
+                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, cmd, m_activeVBOId, m_activeIBOId, m_currentVertexBufferOffset);
                 }
                 break;
             }

@@ -37,7 +37,7 @@ public:
     // Since SoftRender uses C++ templates for shaders, we need a way to link a runtime Handle 
     // to a compile-time type instantiation.
     
-    using PipelineFactory = std::function<std::unique_ptr<ISoftPipeline>(const PipelineDesc&)>;
+    using PipelineFactory = std::function<std::unique_ptr<ISoftPipeline>(SoftRenderContext&, const PipelineDesc&)>;
     
     // Returns a new handle that represents the Shader Type T
     ShaderHandle CreateShaderHandle(); 
@@ -124,8 +124,8 @@ private:
 template <typename ShaderT>
 ShaderHandle RegisterShader(SoftDevice& device) {
     ShaderHandle handle = device.CreateShaderHandle();
-    device.RegisterShaderFactory(handle, [](const PipelineDesc& desc) {
-        return std::make_unique<SoftPipeline<ShaderT>>(desc);
+    device.RegisterShaderFactory(handle, [](SoftRenderContext& ctx, const PipelineDesc& desc) {
+        return std::make_unique<SoftPipeline<ShaderT>>(ctx, desc);
     });
     return handle;
 }

@@ -170,3 +170,17 @@ All 3D test cases must include a camera to allow user navigation.
     - **Dynamic Vertex Layout:** Implemented `VertexInputState` in `PipelineDesc`. Removed hardcoded attribute setup in favor of dynamic `glVertexAttribPointer` configuration in `SoftPipeline::SetupInputLayout`.
     - **Features:** Handle-based resource management (Buffers, Textures, Pipelines), linear allocator for transient uniform data, and slot-based uniform injection.
     - **Validation:** Added `tests/rhi/basic_triangle` to verify the full RHI pipeline.
+- Implemented **DSA-Forward Rendering Pipeline** (Direct State Access) for performance and architecture modernization:
+    - **Concept:** Decoupled Vertex Attribute Format from Buffer Binding to eliminate redundant API calls ("API Thrashing"). Introduced "Draw-time Baking" to pre-calculate pointer addresses, enabling O(1) attribute fetching.
+    - **Core Changes:**
+        - Refactored `VertexArrayObject` to split `VertexAttribFormat` and `VertexBufferBinding`.
+        - Implemented `ResolvedAttribute` structure to store baked pointers and metadata.
+        - Added `prepareDraw()` helper to bake attributes when `isDirty` is set.
+        - Refactored `fetchAttribute` to use baked `ResolvedAttribute` directly, removing indirect lookups.
+    - **API Additions:** Added `glCreateVertexArrays`, `glCreateBuffers`, `glNamedBufferStorage`, `glVertexArrayAttribFormat`, `glVertexArrayAttribBinding`, `glVertexArrayVertexBuffer`, `glVertexArrayElementBuffer`, and `glEnableVertexArrayAttrib`.
+    - **Compatibility:** Updated legacy `glVertexAttribPointer` to map to the new DSA internal structure transparently.
+    - **RHI Update:** Refactored `SoftPipeline` to create and configure an internal VAO using DSA functions at construction time. `Draw` calls now simply bind the VAO and update the VBO binding via `glVertexArrayVertexBuffer`, eliminating the attribute setup loop.
+    - **Instancing Fix:** Added `divisor` support to `ResolvedAttribute` and `fetchAttribute` to restore instanced rendering functionality.
+- **RHI Optimization:**
+    - **Resource Pooling (Scheme A):** Replaced `std::map` with vector-based `ResourcePool` in `SoftDevice` for O(1) resource access and better cache locality.
+    - **State Deduplication (Scheme B):** Implemented state tracking in `SoftDevice::Submit` to skip redundant pipeline, buffer, and texture binding commands.
