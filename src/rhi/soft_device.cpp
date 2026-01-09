@@ -219,14 +219,26 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
 
             case CommandType::Draw: {
                 if (m_currentPipeline) {
-                    m_currentPipeline->Draw(m_ctx, m_uniformData, cmd, m_activeVBOId, m_currentVertexBufferOffset);
+                    uint32_t vboGLId = 0;
+                    if (BufferRes* res = m_buffers.Get(m_activeVBOId)) {
+                        vboGLId = res->glId;
+                    }
+                    m_currentPipeline->Draw(m_ctx, m_uniformData, cmd, vboGLId, m_currentVertexBufferOffset);
                 }
                 break;
             }
 
             case CommandType::DrawIndexed: {
                 if (m_currentPipeline) {
-                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, cmd, m_activeVBOId, m_activeIBOId, m_currentVertexBufferOffset);
+                    uint32_t vboGLId = 0;
+                    if (BufferRes* res = m_buffers.Get(m_activeVBOId)) {
+                        vboGLId = res->glId;
+                    }
+                    uint32_t iboGLId = 0;
+                    if (BufferRes* res = m_buffers.Get(m_activeIBOId)) {
+                        iboGLId = res->glId;
+                    }
+                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, cmd, vboGLId, iboGLId, m_currentVertexBufferOffset);
                 }
                 break;
             }

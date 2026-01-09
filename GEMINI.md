@@ -151,6 +151,10 @@ All 3D test cases must include a camera to allow user navigation.
 * **Problem:** Test cases directy calling third-party functions (like `stbi_load`) hidden inside the framework DLL.
 * **Solution:** Create exported wrapper functions in the framework to provide controlled access to private dependencies.
 
+### RHI Handle vs. GL ID Safety
+* **Problem:** Passing RHI Handle IDs (from ResourcePool) directly to Core functions expecting GL Object IDs. This caused a critical bug where a VBO (Handle 1) was bound as an EBO (GL ID 1), leading to `fetchAttribute OOB` as float data was misinterpreted as integer indices.
+* **Solution:** Always resolve RHI Handles to their underlying GL IDs in the `Submit` layer using `m_buffers.Get(handle)->glId` before passing them to the rendering backend.
+
 
 ## Gemini Added Memories
 - Implemented Slot-Based Material System (Scheme B) for tinygl: Decoupled Mesh::Draw from specific texture types using std::vector<GLuint> slots. Slot 0 = Diffuse, Slot 1 = Specular. Abstracted Texture class for RAII resource management.
@@ -185,3 +189,4 @@ All 3D test cases must include a camera to allow user navigation.
 - **RHI Optimization:**
     - **Resource Pooling (Scheme A):** Replaced `std::map` with vector-based `ResourcePool` in `SoftDevice` for O(1) resource access and better cache locality.
     - **State Deduplication (Scheme B):** Implemented state tracking in `SoftDevice::Submit` to skip redundant pipeline, buffer, and texture binding commands.
+- **RHI Fix:** Resolved RHI Handle to GL ID mismatch in `SoftDevice::Submit`. Fixed a bug where internal handle indices were incorrectly passed as OpenGL object IDs, which caused corrupted index buffer bindings and `fetchAttribute OOB` errors.
