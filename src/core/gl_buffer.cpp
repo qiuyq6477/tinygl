@@ -24,8 +24,13 @@ void SoftRenderContext::glBufferData(GLenum target, GLsizei size, const void* da
         LOG_ERROR("Invalid Buffer Binding");
         return;
     }
+    LOG_INFO("glBufferData: Resizing buffer " + std::to_string(id) + " to " + std::to_string(size));
     buffer->data.resize(size);
-    if (data) std::memcpy(buffer->data.data(), data, size);
+    if (data) {
+        LOG_INFO("glBufferData: Memcpy start");
+        std::memcpy(buffer->data.data(), data, size);
+        LOG_INFO("glBufferData: Memcpy done");
+    }
     buffer->usage = usage;
     LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
 }
@@ -330,10 +335,12 @@ void SoftRenderContext::prepareDraw() {
                 } else {
                     baked.basePointer = nullptr;
                     baked.limitPointer = nullptr;
+                    LOG_ERROR("prepareDraw: Offset OOB. BufferID=" + std::to_string(bnd.bufferID));
                 }
             } else {
                 baked.basePointer = nullptr;
                 baked.limitPointer = nullptr;
+                // LOG_WARN("prepareDraw: Buffer missing or empty. BufferID=" + std::to_string(bnd.bufferID));
             }
         } else {
             baked.basePointer = nullptr;
@@ -358,8 +365,17 @@ Vec4 SoftRenderContext::fetchAttribute(const ResolvedAttribute& attr, int vertex
     // Bounds Check
     size_t elementSize = (attr.type == GL_UNSIGNED_BYTE) ? sizeof(uint8_t) : sizeof(float);
     size_t readSize = attr.size * elementSize;
-    if (src + readSize > attr.limitPointer) {
-        return Vec4(0,0,0,1); // Out of bounds
+    
+    // Debug logging for crash investigation
+    if (src < attr.basePointer || src + readSize > attr.limitPointer) {
+        LOG_ERROR("fetchAttribute OOB: idx=" + std::to_string(vertexIdx) + 
+                  " inst=" + std::to_string(instanceIdx) +
+                  " stride=" + std::to_string(stride) +
+                  " base=" + std::to_string((uintptr_t)attr.basePointer) + 
+                  " limit=" + std::to_string((uintptr_t)attr.limitPointer) + 
+                  " src=" + std::to_string((uintptr_t)src) +
+                  " readSize=" + std::to_string(readSize));
+        return Vec4(0,0,0,1); 
     }
     
     float raw[4] = {0,0,0,1};

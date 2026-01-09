@@ -3,8 +3,8 @@
 #include <tinygl/framework/application.h>
 #include <tinygl/framework/camera.h>
 #include <tinygl/framework/geometry.h>
-#include <tinygl/third_party/stb_image.h>
-#include <tinygl/third_party/microui.h>
+#include <stb_image.h>
+#include <microui.h>
 #include <SDL2/SDL.h>
 
 struct Rect {

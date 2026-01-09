@@ -1,5 +1,5 @@
 #pragma once
-#include <tinygl/third_party/microui.h>
+#include <microui.h>
 
 #ifdef __cplusplus
 extern "C" {

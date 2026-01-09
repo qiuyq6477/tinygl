@@ -1,7 +1,7 @@
 #include <filesystem>
 #include <vector>
 #include <string>
-#include <tinygl/third_party/microui.h>
+#include <microui.h>
 #include <tinygl/core/tinygl.h>
 #include <tinygl/framework/application.h>
 #include <tinygl/framework/camera.h>

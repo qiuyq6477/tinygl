@@ -4,7 +4,7 @@
 #include <string>
 #include <tinygl/core/tinygl.h>
 #include <tinygl/framework/ui_renderer.h>
-#include <tinygl/third_party/microui.h>
+#include <microui.h>
 namespace tinygl {
 
 struct AppConfig {

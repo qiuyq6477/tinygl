@@ -1,6 +1,6 @@
 #include <tinygl/framework/texture.h>
 #include <tinygl/base/log.h>
-#include <tinygl/third_party/stb_image.h>
+#include <stb_image.h>
 #include <utility>
 
 namespace tinygl {

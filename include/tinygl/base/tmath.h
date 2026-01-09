@@ -187,15 +187,15 @@ struct Mat4 {
 
     // 透视投影矩阵 (简易版 FOV=90, Aspect=1)
     // 使得 Z 坐标产生透视效果 (w = -z)
-    static Mat4 Perspective(float fovInDegrees, float aspect, float near, float far) {
+    static Mat4 Perspective(float fovInDegrees, float aspect, float zNear, float zFar) {
         Mat4 res = {0};
         float fovInRadians = fovInDegrees * M_PI / 180.0f;
         float f = 1.0f / std::tan(fovInRadians * 0.5f);
         res.m[0] = f / aspect;
         res.m[5] = f;
-        res.m[10] = (far + near) / (near - far);
+        res.m[10] = (zFar + zNear) / (zNear - zFar);
         res.m[11] = -1.0f; // Convention: Camera looks towards -Z
-        res.m[14] = (2.0f * far * near) / (near - far);
+        res.m[14] = (2.0f * zFar * zNear) / (zNear - zFar);
         return res;
     }
 

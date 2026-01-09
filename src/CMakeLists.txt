@@ -42,5 +42,7 @@ set_target_properties(tinygl_framework PROPERTIES
 target_include_directories(tinygl_framework PUBLIC 
     ${SDL2_INCLUDE_DIRS} 
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include/tinygl/third_party
 )
+
 target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES} PUBLIC assimp::assimp)

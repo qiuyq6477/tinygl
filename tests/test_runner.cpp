@@ -152,6 +152,7 @@ private:
 
         auto& ctx = getContext();
 
+        try {
         // 1. Destroy old test
         if (m_currentTest) {
             m_currentTest->destroy(ctx);
@@ -173,6 +174,13 @@ private:
             if (m_currentTest) {
                 m_currentTest->init(ctx);
             }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[TestRunner] Exception caught during test switch: " << e.what() << std::endl;
+            m_currentTest = nullptr;
+        } catch (...) {
+            std::cerr << "[TestRunner] Unknown exception caught during test switch." << std::endl;
+            m_currentTest = nullptr;
         }
 
         m_selectedGroup = group;
