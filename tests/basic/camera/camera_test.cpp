@@ -1,9 +1,10 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/camera.h>
+#include <tinygl/tinygl.h>
+#include <framework/camera.h>
 
 using namespace tinygl;
+using namespace framework;
 
 struct CameraShader : ShaderBuiltins{
     Mat4 model;

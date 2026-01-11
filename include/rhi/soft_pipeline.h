@@ -1,9 +1,9 @@
 #pragma once
-#include <tinygl/core/tinygl.h>
-#include <tinygl/rhi/types.h>
+#include <tinygl/tinygl.h>
+#include <rhi/types.h>
 #include <cstring>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 // Abstract interface for a pipeline object in the SoftRender backend.
 // Hides the template type of the shader.

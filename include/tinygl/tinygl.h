@@ -11,17 +11,17 @@
 #include <memory>
 #include <type_traits>
 
-#include "gl_defs.h"
-#include "gl_texture.h"
-#include "gl_buffer.h"
-#include "gl_shader.h"
+#include "core/gl_defs.h"
+#include "core/gl_texture.h"
+#include "core/gl_buffer.h"
+#include "core/gl_shader.h"
 
-#include "../base/tmath.h"
-#include "../base/math_simd.h"
-#include "../base/color.h"
-#include "../base/colors.h"
-#include "../base/log.h"
-#include "../base/container.h"
+#include "base/tmath.h"
+#include "base/math_simd.h"
+#include "base/color.h"
+#include "base/colors.h"
+#include "base/log.h"
+#include "base/container.h"
 
 namespace tinygl {
 

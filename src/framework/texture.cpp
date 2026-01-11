@@ -1,9 +1,9 @@
-#include <tinygl/framework/texture.h>
+#include <framework/texture.h>
 #include <tinygl/base/log.h>
 #include <stb_image.h>
 #include <utility>
 
-namespace tinygl {
+namespace framework {
 
 Texture::Texture(SoftRenderContext& ctx, const std::string& relPath, const std::string& directory) 
     : m_ctx(&ctx) 

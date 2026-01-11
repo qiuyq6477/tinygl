@@ -3,11 +3,11 @@
 #include <vector>
 #include <string>
 #include <tinygl/base/tmath.h>
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/material.h>
-#include <tinygl/framework/render_defs.h>
+#include <tinygl/tinygl.h>
+#include <framework/material.h>
+#include <framework/render_defs.h>
 
-namespace tinygl {
+namespace framework {
 
 struct Vertex {
     Vec4 Position; // Use Vec4 (w=1)

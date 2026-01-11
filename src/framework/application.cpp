@@ -1,7 +1,7 @@
 #include <iostream>
 #include <SDL2/SDL.h>
-#include <tinygl/framework/application.h>
-#include <tinygl/framework/ui_renderer.h>
+#include <framework/application.h>
+#include <framework/ui_renderer.h>
 
 #ifdef _WIN32
     #include <direct.h>
@@ -10,7 +10,7 @@
     #include <unistd.h>
 #endif
 
-namespace tinygl {
+namespace framework {
 
 Application::Application(const AppConfig& config) : m_config(config) {
     // 构造 Context

@@ -1,10 +1,11 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
+#include <tinygl/tinygl.h>
 #include <vector>
 #include <string>
 
 using namespace tinygl;
+using namespace framework;
 
 struct MipmapShader : public ShaderBuiltins {
     TextureObject* texture = nullptr;

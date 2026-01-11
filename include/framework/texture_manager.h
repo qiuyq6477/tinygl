@@ -4,9 +4,9 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
-#include <tinygl/framework/texture.h>
+#include <framework/texture.h>
 
-namespace tinygl {
+namespace framework {
 
 class TINYGL_API TextureManager {
 public:

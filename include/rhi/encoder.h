@@ -1,10 +1,10 @@
 #pragma once
 #include <vector>
 #include <cstring>
-#include <tinygl/rhi/commands.h>
-#include <tinygl/rhi/device.h>
+#include <rhi/commands.h>
+#include <rhi/device.h>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 /**
  * @brief Helper class to record RenderCommands.

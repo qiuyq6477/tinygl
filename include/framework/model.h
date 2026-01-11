@@ -9,12 +9,12 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include <tinygl/framework/mesh.h>
-#include <tinygl/framework/texture.h>
-#include <tinygl/core/tinygl.h>
+#include <framework/mesh.h>
+#include <framework/texture.h>
+#include <tinygl/tinygl.h>
 #include <memory>
 
-namespace tinygl {
+namespace framework {
 
 class TINYGL_API Model {
 public:

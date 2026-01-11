@@ -7,7 +7,9 @@
 #include <tinygl/base/tmath.h>
 #include <tinygl/core/gl_defs.h>
 
-namespace tinygl {
+using namespace tinygl;
+
+namespace framework {
 
 struct Geometry {
     std::vector<float> vertices;  // 4 components (x,y,z,w)

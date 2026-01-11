@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <algorithm> // for std::clamp
 #include <cmath>     // for std::round or type casting
+#include <tinygl/base/tmath.h>
 
 using namespace tinygl;
 namespace ColorUtils {

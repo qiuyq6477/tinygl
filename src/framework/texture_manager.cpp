@@ -1,7 +1,7 @@
-#include <tinygl/framework/texture_manager.h>
+#include <framework/texture_manager.h>
 #include <iostream>
 
-namespace tinygl {
+namespace framework {
 
 std::unordered_map<std::string, std::weak_ptr<Texture>> TextureManager::m_cache;
 std::mutex TextureManager::m_mutex;

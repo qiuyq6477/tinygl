@@ -1,13 +1,14 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/framework/geometry.h>
+#include <framework/geometry.h>
 #include <tinygl/core/gl_shader.h>
-#include <tinygl/framework/camera.h>
+#include <framework/camera.h>
 #include <vector>
 #include <cmath>
 #include <cstdio>
 
 using namespace tinygl;
+using namespace framework;
 
 struct GeometryShader : ShaderBuiltins {
     Mat4 mvp;

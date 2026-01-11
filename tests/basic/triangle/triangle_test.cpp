@@ -1,8 +1,9 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
+#include <tinygl/tinygl.h>
 
 using namespace tinygl;
+using namespace framework;
 
 struct TriangleShader : public ShaderBuiltins {
     float scale = 1.0f;

@@ -5,7 +5,9 @@
 #include <cmath>
 #include <tinygl/base/tmath.h>
 
-namespace tinygl {
+using namespace tinygl;
+
+namespace framework {
 
 struct CameraCreateInfo {
     Vec4 position = Vec4(0.0f, 0.0f, 3.0f, 1.0f);

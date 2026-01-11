@@ -1,14 +1,14 @@
 #include <vector>
 #include <tinygl/base/log.h>
-#include <tinygl/framework/ui_renderer.h>
-#include <tinygl/framework/atlas.inl> 
+#include <framework/ui_renderer.h>
+#include <framework/atlas.inl> 
 
 #include <iostream>
 #include <algorithm>
 #include <cstring>
 #include <array>
 
-namespace tinygl {
+namespace framework {
 
 /*
  * 参数:

@@ -1,8 +1,8 @@
 #pragma once
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/application.h>
-#include <tinygl/framework/camera.h>
-#include <tinygl/framework/geometry.h>
+#include <tinygl/tinygl.h>
+#include <framework/application.h>
+#include <framework/camera.h>
+#include <framework/geometry.h>
 #include <stb_image.h>
 #include <microui.h>
 #include <SDL2/SDL.h>

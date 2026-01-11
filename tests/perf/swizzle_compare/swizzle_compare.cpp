@@ -1,10 +1,10 @@
-#include <tinygl/core/tinygl.h>
 #include <vector>
 #include <chrono>
 #include <iostream>
 #include <random>
 #include <iomanip>
 #include <cmath>
+#include <tinygl/tinygl.h>
 
 using namespace tinygl;
 

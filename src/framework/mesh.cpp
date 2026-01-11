@@ -1,7 +1,7 @@
-#include <tinygl/framework/mesh.h>
-#include <tinygl/framework/shader_pass.h>
+#include <framework/mesh.h>
+#include <framework/shader_pass.h>
 
-namespace tinygl {
+namespace framework {
 
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<uint32_t> indices, Material material, SoftRenderContext& ctx)
     : vertices(std::move(vertices)), indices(std::move(indices)), material(std::move(material)), m_ctx(&ctx)

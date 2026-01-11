@@ -1,5 +1,5 @@
 #include <algorithm> // for std::clamp, std::fill_n
-#include <tinygl/core/tinygl.h>
+#include <tinygl/tinygl.h>
 namespace tinygl {
 
 void SoftRenderContext::glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {

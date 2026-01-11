@@ -1,8 +1,8 @@
 #pragma once
-#include <tinygl/rhi/types.h>
-#include <tinygl/rhi/commands.h>
+#include <rhi/types.h>
+#include <rhi/commands.h>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 /**
  * @brief Abstract Render Hardware Interface (RHI).

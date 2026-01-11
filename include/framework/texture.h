@@ -1,9 +1,9 @@
 #pragma once
 
 #include <string>
-#include <tinygl/core/tinygl.h>
+#include <tinygl/tinygl.h>
 
-namespace tinygl {
+namespace framework {
 
 class TINYGL_API Texture {
 public:

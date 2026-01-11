@@ -1,9 +1,9 @@
 #pragma once
 #include <SDL2/SDL.h>
 #include <unordered_map>
-#include <tinygl/core/tinygl.h>
+#include <tinygl/tinygl.h>
 #include <microui.h>
-namespace tinygl {
+namespace framework {
 
 class UIRenderer {
 public:

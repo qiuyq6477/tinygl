@@ -16,11 +16,11 @@ add_library(tinygl_framework SHARED
     framework/model.cpp
     framework/texture.cpp
     framework/texture_manager.cpp
-    core/gl_texture.cpp
-    core/gl_buffer.cpp
-    core/gl_clip.cpp
-    core/gl_util.cpp
-    core/tinygl.cpp
+    tinygl/gl_texture.cpp
+    tinygl/gl_buffer.cpp
+    tinygl/gl_clip.cpp
+    tinygl/gl_util.cpp
+    tinygl/tinygl.cpp
     rhi/soft_device.cpp
 )
 
@@ -42,7 +42,7 @@ set_target_properties(tinygl_framework PROPERTIES
 target_include_directories(tinygl_framework PUBLIC 
     ${SDL2_INCLUDE_DIRS} 
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/include/tinygl/third_party
+    ${CMAKE_SOURCE_DIR}/include/third_party
 )
 
 target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES} PUBLIC assimp::assimp)

@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 // --- Handles ---
 // Simple handle wrapper. ID 0 is reserved for invalid/null.

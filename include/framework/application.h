@@ -2,10 +2,10 @@
 #include <SDL2/SDL.h>
 #include <iostream>
 #include <string>
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/ui_renderer.h>
+#include <tinygl/tinygl.h>
+#include <framework/ui_renderer.h>
 #include <microui.h>
-namespace tinygl {
+namespace framework {
 
 struct AppConfig {
     std::string title = "TinyGL Application";

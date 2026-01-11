@@ -1,11 +1,11 @@
 #include <iostream>
-#include <tinygl/framework/application.h>
-#include <tinygl/core/tinygl.h>
+#include <framework/application.h>
+#include <tinygl/tinygl.h>
 #include "ITestCase.h"
 #include "test_registry.h"
 
 using namespace tinygl;
-
+using namespace framework;
 class TestRunnerApp : public Application {
 public:
     TestRunnerApp() : Application({"TinyGL Test Runner", 1280, 720, true}) {}

@@ -1,16 +1,17 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
-#include <tinygl/rhi/soft_device.h>
-#include <tinygl/rhi/encoder.h>
-#include <tinygl/framework/geometry.h>
-#include <tinygl/framework/texture_manager.h>
-#include <tinygl/framework/camera.h>
+#include <tinygl/tinygl.h>
+#include <rhi/soft_device.h>
+#include <rhi/encoder.h>
+#include <framework/geometry.h>
+#include <framework/texture_manager.h>
+#include <framework/camera.h>
 #include <cmath>
 #include <vector>
 
 using namespace tinygl;
-using namespace tinygl::rhi;
+using namespace framework;
+using namespace rhi;
 
 // Define RHI-compatible Shader
 struct RhiCubeShader : public ShaderBuiltins {

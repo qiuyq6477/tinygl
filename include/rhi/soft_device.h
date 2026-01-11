@@ -1,14 +1,14 @@
 
 #pragma once
-#include <tinygl/rhi/device.h>
-#include <tinygl/core/tinygl.h>
-#include <tinygl/rhi/soft_pipeline.h>
+#include <rhi/device.h>
+#include <tinygl/tinygl.h>
+#include <rhi/soft_pipeline.h>
 #include <vector>
 #include <memory>
 #include <map>
 #include <functional>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 class TINYGL_API SoftDevice : public IGraphicsDevice {
 public:

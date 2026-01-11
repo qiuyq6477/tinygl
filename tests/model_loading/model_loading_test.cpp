@@ -2,15 +2,16 @@
 #include <vector>
 #include <string>
 #include <microui.h>
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/application.h>
-#include <tinygl/framework/camera.h>
-#include <tinygl/framework/model.h>
-#include <tinygl/framework/shader_pass.h>
+#include <tinygl/tinygl.h>
+#include <framework/application.h>
+#include <framework/camera.h>
+#include <framework/model.h>
+#include <framework/shader_pass.h>
 #include "../ITestCase.h"
 #include "../test_registry.h"
 
 using namespace tinygl;
+using namespace framework;
 namespace fs = std::filesystem;
 
 // Simple Blinn-Phong Shader

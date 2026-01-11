@@ -1,12 +1,13 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/geometry.h>
-#include <tinygl/framework/camera.h>
+#include <tinygl/tinygl.h>
+#include <framework/geometry.h>
+#include <framework/camera.h>
 #include <cstdio>
 #include <vector>
 
 using namespace tinygl;
+using namespace framework;
 
 struct StencilShader : ShaderBuiltins {
     SimdMat4 mvp;

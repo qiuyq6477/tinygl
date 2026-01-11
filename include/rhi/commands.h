@@ -1,7 +1,7 @@
 #pragma once
-#include <tinygl/rhi/types.h>
+#include <rhi/types.h>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 enum class CommandType : uint8_t {
     SetPipeline,

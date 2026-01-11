@@ -88,8 +88,8 @@ Strictly adhere to **Conventional Commits**:
 
 #### Camera Integration (Mandatory)
 All 3D test cases must include a camera to allow user navigation.
-1. **Include:** `#include <tinygl/camera.h>`
-2. **Member:** Add `tinygl::Camera camera;` to your class.
+1. **Include:** `#include <framework/camera.h>`
+2. **Member:** Add `framework::Camera camera;` to your class.
 3. **Event:** Forward events in `onEvent`: `camera.ProcessEvent(e);`
 4. **Update:** Update camera physics in `onUpdate`: `camera.Update(dt);`
 5. **Render:** Use `camera.GetViewMatrix()` and `camera.GetProjectionMatrix()` to compute MVP matrices.
@@ -112,7 +112,7 @@ All 3D test cases must include a camera to allow user navigation.
 
 ## Key Files & Directories
 
-* `include/tinygl/core/tinygl.h`: **The Brain.** The software rasterizer implementation.
+* `include/tinygl/tinygl.h`: **The Brain.** The software rasterizer implementation.
 * `src/framework/application.cpp`: Main application loop and SDL integration.
 * `tests/test_runner.cpp`: Entry point for the test suite.
 * `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.

@@ -1,13 +1,14 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
-#include <tinygl/rhi/soft_device.h>
-#include <tinygl/rhi/encoder.h>
-#include <tinygl/framework/material.h>
+#include <tinygl/tinygl.h>
+#include <rhi/soft_device.h>
+#include <rhi/encoder.h>
+#include <framework/material.h>
 #include <cmath>
 
 using namespace tinygl;
-using namespace tinygl::rhi;
+using namespace framework;
+using namespace rhi;
 
 // 1. Define a Shader compatible with RHI
 // Must accept 'materialData' for uniforms to receive data from Slot 0

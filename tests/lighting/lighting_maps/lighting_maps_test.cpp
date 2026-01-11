@@ -1,12 +1,13 @@
 #include "../../ITestCase.h"
 #include "../../test_registry.h"
-#include <tinygl/core/tinygl.h>
-#include <tinygl/framework/camera.h>
-#include <tinygl/framework/texture_manager.h>
+#include <tinygl/tinygl.h>
+#include <framework/camera.h>
+#include <framework/texture_manager.h>
 #include <vector>
 #include <cmath>
 
 using namespace tinygl;
+using namespace framework;
 
 // Vertex Structure
 struct Vertex {

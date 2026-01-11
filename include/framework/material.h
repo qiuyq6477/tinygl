@@ -4,9 +4,9 @@
 #include <string>
 #include <memory>
 #include <tinygl/base/tmath.h>
-#include <tinygl/core/tinygl.h>
+#include <tinygl/tinygl.h>
 
-namespace tinygl {
+namespace framework {
 
 class IShaderPass; // Forward declaration
 

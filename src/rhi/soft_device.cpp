@@ -1,8 +1,8 @@
-#include <tinygl/rhi/soft_device.h>
+#include <rhi/soft_device.h>
 #include <tinygl/base/log.h>
 #include <cstring>
 
-namespace tinygl::rhi {
+namespace rhi {
 
 SoftDevice::SoftDevice(SoftRenderContext& ctx) : m_ctx(ctx) {
     m_uniformData.resize(MAX_UNIFORM_SIZE);
