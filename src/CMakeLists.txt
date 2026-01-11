@@ -23,6 +23,7 @@ add_library(tinygl_framework SHARED
     tinygl/gl_util.cpp
     tinygl/tinygl.cpp
     rhi/soft_device.cpp
+    rhi/gl_device.cpp
 )
 
 # 定义导出宏

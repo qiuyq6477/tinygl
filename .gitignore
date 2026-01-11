@@ -4,3 +4,4 @@ build
 debug.plist
 TODO
 conductor
+*.log

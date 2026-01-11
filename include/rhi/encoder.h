@@ -63,6 +63,26 @@ public:
         commands.push_back(cmd);
     }
 
+    void Clear(float r, float g, float b, float a, bool color = true, bool depth = true, bool stencil = false) {
+        RenderCommand cmd;
+        cmd.type = CommandType::Clear;
+        cmd.clear.r = r;
+        cmd.clear.g = g;
+        cmd.clear.b = b;
+        cmd.clear.a = a;
+        cmd.clear.color = color;
+        cmd.clear.depth = depth;
+        cmd.clear.stencil = stencil;
+        cmd.clear.depthValue = 1.0f;
+        cmd.clear.stencilValue = 0;
+        commands.push_back(cmd);
+    }
+
+    // --- Generic ---
+    void Push(const RenderCommand& cmd) {
+        commands.push_back(cmd);
+    }
+
     // --- Data Commands ---
 
     /**

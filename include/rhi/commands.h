@@ -12,7 +12,8 @@ enum class CommandType : uint8_t {
     Draw,
     DrawIndexed,
     SetViewport,
-    SetScissor
+    SetScissor,
+    Clear
 };
 
 // A single rendering command. Designed to be POD and relatively small.
@@ -58,6 +59,16 @@ struct RenderCommand {
         struct {
             float x, y, w, h;
         } viewport;
+
+        // CLEAR
+        struct {
+            bool color;
+            bool depth;
+            bool stencil;
+            float r, g, b, a;
+            float depthValue;
+            int stencilValue;
+        } clear;
     };
 };
 

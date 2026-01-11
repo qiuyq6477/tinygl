@@ -5,6 +5,8 @@
 #include <tinygl/tinygl.h>
 #include <framework/ui_renderer.h>
 #include <microui.h>
+#include <rhi/device.h>
+
 namespace framework {
 
 struct AppConfig {
@@ -12,6 +14,7 @@ struct AppConfig {
     int width = 800;
     int height = 600;
     bool resizable = false;
+    enum class Backend { Software, OpenGL } backend = Backend::Software;
 };
 
 class TINYGL_API Application {
@@ -53,11 +56,17 @@ protected:
     // --- 辅助函数 ---
     
     // 获取渲染上下文
+    // Note: Returns reference to internal soft context. 
+    // If Backend is OpenGL, this might be null/invalid if we don't maintain a dual buffer.
+    // For now, we keep it for backward compatibility with software-only tests.
     SoftRenderContext& getContext() { return *m_context; }
     const AppConfig& getConfig() const { return m_config; }
 
     // 获取 UI 上下文
     mu_Context* getUIContext() { return &m_uiContext; }
+
+    // 获取 RHI 设备
+    rhi::IGraphicsDevice* getGraphicsDevice() { return m_graphicsDevice.get(); }
 
     // 获取窗口宽高
     int getWidth() const { return m_config.width; }
@@ -76,9 +85,13 @@ private:
     SDL_Window* m_window = nullptr;
     SDL_Renderer* m_renderer = nullptr;
     SDL_Texture* m_texture = nullptr;
+    SDL_GLContext m_glContext = nullptr;
 
     // TinyGL Context
     std::unique_ptr<SoftRenderContext> m_context;
+    
+    // RHI Device (Backend agnostic)
+    std::unique_ptr<rhi::IGraphicsDevice> m_graphicsDevice;
     
     // UI Context
     mu_Context m_uiContext;
