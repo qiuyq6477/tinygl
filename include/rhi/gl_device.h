@@ -1,5 +1,6 @@
 #pragma once
 #include <rhi/device.h>
+#include <rhi/command_buffer.h>
 #include <SDL2/SDL.h>
 #include <tinygl/core/gl_defs.h>
 
@@ -20,7 +21,7 @@ public:
     PipelineHandle CreatePipeline(const PipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle handle) override;
 
-    void Submit(const RenderCommand* commands, size_t commandCount, const uint8_t* payload, size_t payloadSize) override;
+    void Submit(const CommandBuffer& buffer) override;
     void Present() override;
 };
 

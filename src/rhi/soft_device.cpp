@@ -1,6 +1,7 @@
 #include <rhi/soft_device.h>
 #include <tinygl/base/log.h>
 #include <cstring>
+#include <rhi/command_buffer.h>
 
 namespace rhi {
 
@@ -58,7 +59,9 @@ void SoftDevice::UpdateBuffer(BufferHandle handle, const void* data, size_t size
         if (offset == 0) {
             m_ctx.glBufferData(target, size, data, GL_STATIC_DRAW);
         } else {
-            // TODO: Add glBufferSubData
+            // TODO: Add glBufferSubData if needed, but SoftRasterizer usually updates whole buffer or maps it
+            // For now, re-upload is fine for small buffers
+            m_ctx.glBufferData(target, size, data, GL_STATIC_DRAW);
         }
     }
 }
@@ -123,10 +126,8 @@ void SoftDevice::DestroyPipeline(PipelineHandle handle) {
 
 // --- Execution ---
 
-void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, const uint8_t* payload, size_t payloadSize) {
+void SoftDevice::Submit(const CommandBuffer& buffer) {
     // Reset runtime state trackers at the beginning of a command batch
-    // This ensures we don't assume state persists from previous Submit calls 
-    // (unless we want to implement robust cross-frame state tracking).
     m_activePipelineId = 0;
     m_activeVBOId = 0;
     m_activeIBOId = 0;
@@ -134,16 +135,20 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
 
     m_currentPipeline = nullptr;
     
-    for (size_t i = 0; i < commandCount; ++i) {
-        const auto& cmd = commands[i];
+    const uint8_t* ptr = buffer.GetData();
+    const uint8_t* end = ptr + buffer.GetSize();
+
+    while (ptr < end) {
+        const auto* header = reinterpret_cast<const CommandPacket*>(ptr);
         
-        switch (cmd.type) {
+        switch (header->type) {
             case CommandType::SetPipeline: {
-                if (cmd.pipeline.handle.id != m_activePipelineId) {
-                    auto* pipelinePtr = m_pipelines.Get(cmd.pipeline.handle.id);
+                const auto* pkt = reinterpret_cast<const PacketSetPipeline*>(ptr);
+                if (pkt->handle.id != m_activePipelineId) {
+                    auto* pipelinePtr = m_pipelines.Get(pkt->handle.id);
                     if (pipelinePtr && *pipelinePtr) {
                         m_currentPipeline = pipelinePtr->get();
-                        m_activePipelineId = cmd.pipeline.handle.id;
+                        m_activePipelineId = pkt->handle.id;
                     } else {
                         m_currentPipeline = nullptr;
                         m_activePipelineId = 0;
@@ -153,33 +158,33 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
             }
             
             case CommandType::SetViewport: {
-                // Viewport is rarely redundant, just set it
-                m_ctx.glViewport(cmd.viewport.x, cmd.viewport.y, cmd.viewport.w, cmd.viewport.h);
+                const auto* pkt = reinterpret_cast<const PacketSetViewport*>(ptr);
+                m_ctx.glViewport(pkt->x, pkt->y, pkt->w, pkt->h);
                 break;
             }
             
             case CommandType::SetVertexBuffer: {
-                // Check redundancy for BindBuffer
-                if (cmd.buffer.handle.id != m_activeVBOId) {
-                    BufferRes* res = m_buffers.Get(cmd.buffer.handle.id);
+                const auto* pkt = reinterpret_cast<const PacketSetBuffer*>(ptr);
+                if (pkt->handle.id != m_activeVBOId) {
+                    BufferRes* res = m_buffers.Get(pkt->handle.id);
                     if (res) {
                         m_ctx.glBindBuffer(GL_ARRAY_BUFFER, res->glId);
-                        m_activeVBOId = cmd.buffer.handle.id;
+                        m_activeVBOId = pkt->handle.id;
                     } else {
                         m_activeVBOId = 0;
                     }
                 }
-                // Offset can change even if buffer is same
-                m_currentVertexBufferOffset = cmd.buffer.offset;
+                m_currentVertexBufferOffset = pkt->offset;
                 break;
             }
             
             case CommandType::SetIndexBuffer: {
-                if (cmd.buffer.handle.id != m_activeIBOId) {
-                    BufferRes* res = m_buffers.Get(cmd.buffer.handle.id);
+                const auto* pkt = reinterpret_cast<const PacketSetBuffer*>(ptr);
+                if (pkt->handle.id != m_activeIBOId) {
+                    BufferRes* res = m_buffers.Get(pkt->handle.id);
                     if (res) {
                         m_ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, res->glId);
-                        m_activeIBOId = cmd.buffer.handle.id;
+                        m_activeIBOId = pkt->handle.id;
                     } else {
                         m_activeIBOId = 0;
                     }
@@ -188,14 +193,15 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
             }
 
             case CommandType::SetTexture: {
-                uint8_t slot = cmd.texture.slot;
-                if (slot < 8) { // Bound check for tracker
-                    if (m_activeTextureIds[slot] != cmd.texture.handle.id) {
-                        TextureRes* res = m_textures.Get(cmd.texture.handle.id);
+                const auto* pkt = reinterpret_cast<const PacketSetTexture*>(ptr);
+                uint8_t slot = pkt->slot;
+                if (slot < 8) { 
+                    if (m_activeTextureIds[slot] != pkt->handle.id) {
+                        TextureRes* res = m_textures.Get(pkt->handle.id);
                         if (res) {
                             m_ctx.glActiveTexture(GL_TEXTURE0 + slot);
                             m_ctx.glBindTexture(GL_TEXTURE_2D, res->glId);
-                            m_activeTextureIds[slot] = cmd.texture.handle.id;
+                            m_activeTextureIds[slot] = pkt->handle.id;
                         } else {
                              m_activeTextureIds[slot] = 0;
                         }
@@ -205,30 +211,38 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
             }
 
             case CommandType::UpdateUniform: {
-                if (cmd.uniform.dataOffset + cmd.uniform.size <= payloadSize) {
-                    // Mapping Slot -> Linear Offset
-                    size_t dstOffset = cmd.uniform.slot * 256; 
-                    if (dstOffset + cmd.uniform.size <= m_uniformData.size()) {
-                        memcpy(m_uniformData.data() + dstOffset, 
-                               payload + cmd.uniform.dataOffset, 
-                               cmd.uniform.size);
-                    }
+                const auto* pkt = reinterpret_cast<const PacketUpdateUniform*>(ptr);
+                // Data follows the struct
+                const uint8_t* data = ptr + sizeof(PacketUpdateUniform);
+                size_t dataSize = header->size - sizeof(PacketUpdateUniform);
+                
+                // Copy to internal storage
+                // For now, copy to fixed slots
+                size_t dstOffset = pkt->slot * 256; 
+                if (dstOffset + dataSize <= m_uniformData.size()) {
+                    memcpy(m_uniformData.data() + dstOffset, data, dataSize);
                 }
                 break;
             }
 
             case CommandType::Draw: {
+                const auto* pkt = reinterpret_cast<const PacketDraw*>(ptr);
+                
                 if (m_currentPipeline) {
                     uint32_t vboGLId = 0;
                     if (BufferRes* res = m_buffers.Get(m_activeVBOId)) {
                         vboGLId = res->glId;
                     }
-                    m_currentPipeline->Draw(m_ctx, m_uniformData, cmd, vboGLId, m_currentVertexBufferOffset);
+                    m_currentPipeline->Draw(m_ctx, m_uniformData, 
+                                            pkt->vertexCount, pkt->firstVertex, pkt->instanceCount,
+                                            vboGLId, m_currentVertexBufferOffset);
                 }
                 break;
             }
 
             case CommandType::DrawIndexed: {
+                const auto* pkt = reinterpret_cast<const PacketDrawIndexed*>(ptr);
+
                 if (m_currentPipeline) {
                     uint32_t vboGLId = 0;
                     if (BufferRes* res = m_buffers.Get(m_activeVBOId)) {
@@ -238,15 +252,35 @@ void SoftDevice::Submit(const RenderCommand* commands, size_t commandCount, cons
                     if (BufferRes* res = m_buffers.Get(m_activeIBOId)) {
                         iboGLId = res->glId;
                     }
-                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, cmd, vboGLId, iboGLId, m_currentVertexBufferOffset);
+                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, 
+                                                   pkt->indexCount, pkt->firstIndex, pkt->baseVertex, pkt->instanceCount,
+                                                   vboGLId, iboGLId, m_currentVertexBufferOffset);
                 }
                 break;
             }
             
-            case CommandType::SetScissor:
-                 // TODO
+            case CommandType::Clear: {
+                 const auto* pkt = reinterpret_cast<const PacketClear*>(ptr);
+                 
+                 GLbitfield mask = 0;
+                 if (pkt->color) mask |= GL_COLOR_BUFFER_BIT;
+                 if (pkt->depth) mask |= GL_DEPTH_BUFFER_BIT;
+                 if (pkt->stencil) mask |= GL_STENCIL_BUFFER_BIT;
+                 
+                 m_ctx.glClearColor(pkt->r, pkt->g, pkt->b, pkt->a);
+                 m_ctx.glClear(mask);
                  break;
+            }
+            
+            case CommandType::SetScissor:
+                 break;
+                 
+            case CommandType::NoOp:
+                break;
         }
+
+        // Advance to next packet
+        ptr += header->size;
     }
 }
 

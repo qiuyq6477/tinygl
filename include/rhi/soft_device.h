@@ -1,6 +1,6 @@
-
 #pragma once
 #include <rhi/device.h>
+#include <rhi/command_buffer.h>
 #include <tinygl/tinygl.h>
 #include <rhi/soft_pipeline.h>
 #include <vector>
@@ -30,7 +30,7 @@ public:
     PipelineHandle CreatePipeline(const PipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle handle) override;
 
-    void Submit(const RenderCommand* commands, size_t commandCount, const uint8_t* payload, size_t payloadSize) override;
+    void Submit(const CommandBuffer& buffer) override;
     void Present() override;
 
     // --- Shader Registration System ---
@@ -116,7 +116,10 @@ private:
     uint32_t m_currentVertexBufferOffset = 0;
     
     // Uniform Storage
-    static constexpr size_t MAX_UNIFORM_SIZE = 1024; 
+    // Use a flat buffer to accumulate uniform updates.
+    // For now, let's keep it simple and just write directly to this buffer
+    // when we see UpdateUniform, and pass pointers into it during Draw.
+    static constexpr size_t MAX_UNIFORM_SIZE = 1024 * 64; // Increase to 64KB
     std::vector<uint8_t> m_uniformData;
 };
 

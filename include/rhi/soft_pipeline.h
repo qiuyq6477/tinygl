@@ -2,6 +2,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/types.h>
 #include <cstring>
+#include <vector>
 
 namespace rhi {
 
@@ -14,16 +15,20 @@ public:
     // Called by SoftDevice::Submit when a Draw command is executed.
     // ctx: The underlying SoftRenderContext
     // uniformData: Pointer to the accumulated uniform data (slots)
-    // args: Draw arguments
     virtual void Draw(SoftRenderContext& ctx, 
                       const std::vector<uint8_t>& uniformData,
-                      const RenderCommand& cmd,
+                      uint32_t vertexCount, 
+                      uint32_t firstVertex, 
+                      uint32_t instanceCount,
                       uint32_t vboId,
                       uint32_t vertexBufferOffset) = 0;
                       
     virtual void DrawIndexed(SoftRenderContext& ctx,
                              const std::vector<uint8_t>& uniformData,
-                             const RenderCommand& cmd,
+                             uint32_t indexCount, 
+                             uint32_t firstIndex, 
+                             int32_t baseVertex, 
+                             uint32_t instanceCount,
                              uint32_t vboId,
                              uint32_t iboId,
                              uint32_t vertexBufferOffset) = 0;
@@ -76,7 +81,9 @@ public:
 
     void Draw(SoftRenderContext& ctx, 
               const std::vector<uint8_t>& uniformData,
-              const RenderCommand& cmd,
+              uint32_t vertexCount, 
+              uint32_t firstVertex, 
+              uint32_t instanceCount,
               uint32_t vboId,
               uint32_t vertexBufferOffset) override {
         
@@ -94,10 +101,10 @@ public:
         InjectResources(shader, ctx);
         
         // Draw
-        if (cmd.draw.instanceCount > 1) {
-             ctx.glDrawArraysInstanced(shader, GL_TRIANGLES, cmd.draw.firstVertex, cmd.draw.vertexCount, cmd.draw.instanceCount);
+        if (instanceCount > 1) {
+             ctx.glDrawArraysInstanced(shader, GL_TRIANGLES, firstVertex, vertexCount, instanceCount);
         } else {
-             ctx.glDrawArrays(shader, GL_TRIANGLES, cmd.draw.firstVertex, cmd.draw.vertexCount);
+             ctx.glDrawArrays(shader, GL_TRIANGLES, firstVertex, vertexCount);
         }
         
         RestoreState(ctx);
@@ -105,7 +112,10 @@ public:
 
     void DrawIndexed(SoftRenderContext& ctx, 
                      const std::vector<uint8_t>& uniformData,
-                     const RenderCommand& cmd,
+                     uint32_t indexCount, 
+                     uint32_t firstIndex, 
+                     int32_t baseVertex, 
+                     uint32_t instanceCount,
                      uint32_t vboId,
                      uint32_t iboId,
                      uint32_t vertexBufferOffset) override {
@@ -123,20 +133,18 @@ public:
         // SoftRenderContext::glDrawElements expects indices type. 
         // We assume GL_UNSIGNED_INT for now as per tinygl standard.
         // offset is bytes, so we cast to void*
-        void* offset = (void*)(uintptr_t)(cmd.drawIndexed.firstIndex * sizeof(uint32_t));
+        void* offset = (void*)(uintptr_t)(firstIndex * sizeof(uint32_t));
         
-        if (cmd.drawIndexed.instanceCount > 1) {
-            ctx.glDrawElementsInstanced(shader, GL_TRIANGLES, cmd.drawIndexed.indexCount, GL_UNSIGNED_INT, offset, cmd.drawIndexed.instanceCount);
+        if (instanceCount > 1) {
+            ctx.glDrawElementsInstanced(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset, instanceCount);
         } else {
-            ctx.glDrawElements(shader, GL_TRIANGLES, cmd.drawIndexed.indexCount, GL_UNSIGNED_INT, offset);
+            ctx.glDrawElements(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset);
         }
         
         RestoreState(ctx);
     }
 
 private:
-    // SetupInputLayout is removed, replaced by constructor VAO setup
-
     void SetupState(SoftRenderContext& ctx) {
         if (desc.depthTestEnabled) ctx.glEnable(GL_DEPTH_TEST); else ctx.glDisable(GL_DEPTH_TEST);
         if (desc.cullMode == CullMode::Back) {

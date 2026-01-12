@@ -1,110 +1,77 @@
 #pragma once
-#include <vector>
-#include <cstring>
-#include <rhi/commands.h>
+#include <rhi/command_buffer.h>
 #include <rhi/device.h>
 
 namespace rhi {
 
-/**
- * @brief Helper class to record RenderCommands.
- * Handles the serialization of commands and transient data (payload) into linear buffers.
- */
 class CommandEncoder {
 public:
-    CommandEncoder() {
-        // Pre-allocate some reasonable defaults to avoid early reallocations
-        commands.reserve(128);
-        payload.reserve(4096); 
-    }
+    CommandEncoder() : m_buffer(4096) {}
 
     void Reset() {
-        commands.clear();
-        payload.clear();
+        m_buffer.Reset();
     }
 
     // --- State Commands ---
 
     void SetPipeline(PipelineHandle pipeline) {
-        RenderCommand cmd;
-        cmd.type = CommandType::SetPipeline;
-        cmd.pipeline.handle = pipeline;
-        commands.push_back(cmd);
+        PacketSetPipeline pkt;
+        pkt.type = CommandType::SetPipeline;
+        pkt.size = sizeof(PacketSetPipeline);
+        pkt.handle = pipeline;
+        m_buffer.Write(pkt);
     }
 
     void SetViewport(float x, float y, float w, float h) {
-        RenderCommand cmd;
-        cmd.type = CommandType::SetViewport;
-        cmd.viewport = {x, y, w, h};
-        commands.push_back(cmd);
+        PacketSetViewport pkt;
+        pkt.type = CommandType::SetViewport;
+        pkt.size = sizeof(PacketSetViewport);
+        pkt.x = x; pkt.y = y; pkt.w = w; pkt.h = h;
+        m_buffer.Write(pkt);
     }
 
     void SetVertexBuffer(BufferHandle buffer, uint32_t offset = 0) {
-        RenderCommand cmd;
-        cmd.type = CommandType::SetVertexBuffer;
-        cmd.buffer.handle = buffer;
-        cmd.buffer.offset = offset;
-        commands.push_back(cmd);
+        PacketSetBuffer pkt;
+        pkt.type = CommandType::SetVertexBuffer;
+        pkt.size = sizeof(PacketSetBuffer);
+        pkt.handle = buffer;
+        pkt.offset = offset;
+        m_buffer.Write(pkt);
     }
 
     void SetIndexBuffer(BufferHandle buffer, uint32_t offset = 0) {
-        RenderCommand cmd;
-        cmd.type = CommandType::SetIndexBuffer;
-        cmd.buffer.handle = buffer;
-        cmd.buffer.offset = offset;
-        commands.push_back(cmd);
+        PacketSetBuffer pkt;
+        pkt.type = CommandType::SetIndexBuffer;
+        pkt.size = sizeof(PacketSetBuffer);
+        pkt.handle = buffer;
+        pkt.offset = offset;
+        m_buffer.Write(pkt);
     }
 
     void SetTexture(uint8_t slot, TextureHandle texture) {
-        RenderCommand cmd;
-        cmd.type = CommandType::SetTexture;
-        cmd.texture.handle = texture;
-        cmd.texture.slot = slot;
-        commands.push_back(cmd);
+        PacketSetTexture pkt;
+        pkt.type = CommandType::SetTexture;
+        pkt.size = sizeof(PacketSetTexture);
+        pkt.handle = texture;
+        pkt.slot = slot;
+        m_buffer.Write(pkt);
     }
 
     void Clear(float r, float g, float b, float a, bool color = true, bool depth = true, bool stencil = false) {
-        RenderCommand cmd;
-        cmd.type = CommandType::Clear;
-        cmd.clear.r = r;
-        cmd.clear.g = g;
-        cmd.clear.b = b;
-        cmd.clear.a = a;
-        cmd.clear.color = color;
-        cmd.clear.depth = depth;
-        cmd.clear.stencil = stencil;
-        cmd.clear.depthValue = 1.0f;
-        cmd.clear.stencilValue = 0;
-        commands.push_back(cmd);
-    }
-
-    // --- Generic ---
-    void Push(const RenderCommand& cmd) {
-        commands.push_back(cmd);
+        PacketClear pkt;
+        pkt.type = CommandType::Clear;
+        pkt.size = sizeof(PacketClear);
+        pkt.r = r; pkt.g = g; pkt.b = b; pkt.a = a;
+        pkt.color = color; pkt.depth = depth; pkt.stencil = stencil;
+        pkt.depthValue = 1.0f;
+        pkt.stencilValue = 0;
+        m_buffer.Write(pkt);
     }
 
     // --- Data Commands ---
 
-    /**
-     * @brief Updates uniform data for the next draw call.
-     * Copies the data into the internal payload buffer.
-     */
     void UpdateUniform(uint8_t slot, const void* data, size_t size) {
-        RenderCommand cmd;
-        cmd.type = CommandType::UpdateUniform;
-        
-        // Record offset
-        cmd.uniform.dataOffset = static_cast<uint32_t>(payload.size());
-        cmd.uniform.size = static_cast<uint32_t>(size);
-        cmd.uniform.slot = slot;
-        
-        // Copy data to payload
-        const uint8_t* bytes = static_cast<const uint8_t*>(data);
-        payload.insert(payload.end(), bytes, bytes + size);
-        
-        // TODO: Handle alignment requirements if necessary (e.g., ensure 4-byte or 16-byte alignment)
-        
-        commands.push_back(cmd);
+        m_buffer.WriteUniform(slot, data, size);
     }
 
     template <typename T>
@@ -115,33 +82,37 @@ public:
     // --- Draw Commands ---
 
     void Draw(uint32_t vertexCount, uint32_t firstVertex = 0, uint32_t instanceCount = 1) {
-        RenderCommand cmd;
-        cmd.type = CommandType::Draw;
-        cmd.draw.vertexCount = vertexCount;
-        cmd.draw.firstVertex = firstVertex;
-        cmd.draw.instanceCount = instanceCount;
-        commands.push_back(cmd);
+        PacketDraw pkt;
+        pkt.type = CommandType::Draw;
+        pkt.size = sizeof(PacketDraw);
+        pkt.vertexCount = vertexCount;
+        pkt.firstVertex = firstVertex;
+        pkt.instanceCount = instanceCount;
+        m_buffer.Write(pkt);
     }
 
     void DrawIndexed(uint32_t indexCount, uint32_t firstIndex = 0, int32_t baseVertex = 0, uint32_t instanceCount = 1) {
-        RenderCommand cmd;
-        cmd.type = CommandType::DrawIndexed;
-        cmd.drawIndexed.indexCount = indexCount;
-        cmd.drawIndexed.firstIndex = firstIndex;
-        cmd.drawIndexed.baseVertex = baseVertex;
-        cmd.drawIndexed.instanceCount = instanceCount;
-        commands.push_back(cmd);
+        PacketDrawIndexed pkt;
+        pkt.type = CommandType::DrawIndexed;
+        pkt.size = sizeof(PacketDrawIndexed);
+        pkt.indexCount = indexCount;
+        pkt.firstIndex = firstIndex;
+        pkt.baseVertex = baseVertex;
+        pkt.instanceCount = instanceCount;
+        m_buffer.Write(pkt);
     }
 
     // --- Submission ---
 
     void SubmitTo(IGraphicsDevice& device) {
-        device.Submit(commands.data(), commands.size(), payload.data(), payload.size());
+        device.Submit(m_buffer);
     }
 
+    // Allow access to buffer if needed
+    const CommandBuffer& GetBuffer() const { return m_buffer; }
+
 private:
-    std::vector<RenderCommand> commands;
-    std::vector<uint8_t> payload; 
+    CommandBuffer m_buffer;
 };
 
 }

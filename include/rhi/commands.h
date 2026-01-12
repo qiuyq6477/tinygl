@@ -1,75 +1,82 @@
 #pragma once
 #include <rhi/types.h>
+#include <cstdint>
 
 namespace rhi {
 
-enum class CommandType : uint8_t {
+enum class CommandType : uint16_t {
     SetPipeline,
     SetVertexBuffer,
     SetIndexBuffer,
-    SetTexture,      // Bind texture to a slot
-    UpdateUniform,   // Update uniform data from payload
+    SetTexture,
+    UpdateUniform,
     Draw,
     DrawIndexed,
     SetViewport,
     SetScissor,
-    Clear
+    Clear,
+    // Marker for end of buffer or no-op
+    NoOp
 };
 
-// A single rendering command. Designed to be POD and relatively small.
-struct RenderCommand {
+// Base header for all commands in the linear stream
+struct CommandPacket {
     CommandType type;
-    // Explicit padding or flags could go here
-    
-    union {
-        // SET_PIPELINE
-        struct { PipelineHandle handle; } pipeline;
-        
-        // SET_VERTEX_BUFFER / SET_INDEX_BUFFER
-        struct { BufferHandle handle; uint32_t offset; } buffer;
-        
-        // SET_TEXTURE
-        struct { TextureHandle handle; uint8_t slot; } texture;
+    uint16_t size; // Total size of the packet including this header
+};
 
-        // UPDATE_UNIFORM
-        struct {
-            uint32_t dataOffset; // Offset into the command packet's payload buffer
-            uint32_t size;       // Size of data to copy
-            // For now, soft rasterizer might treat 'slot' as binding point index
-            // or we might need named bindings later. Let's stick to slots.
-            uint8_t  slot; 
-        } uniform;
+// --- Packet Definitions ---
 
-        // DRAW
-        struct { 
-            uint32_t vertexCount; 
-            uint32_t firstVertex; 
-            uint32_t instanceCount; 
-        } draw;
+struct PacketSetPipeline : CommandPacket {
+    PipelineHandle handle;
+};
 
-        // DRAW_INDEXED
-        struct { 
-            uint32_t indexCount; 
-            uint32_t firstIndex; 
-            int32_t  baseVertex; 
-            uint32_t instanceCount;
-        } drawIndexed;
+struct PacketSetBuffer : CommandPacket {
+    BufferHandle handle;
+    uint32_t offset;
+};
 
-        // SET_VIEWPORT / SCISSOR
-        struct {
-            float x, y, w, h;
-        } viewport;
+struct PacketSetTexture : CommandPacket {
+    TextureHandle handle;
+    uint8_t slot;
+    uint8_t _padding[3]; // Align to 4 bytes
+};
 
-        // CLEAR
-        struct {
-            bool color;
-            bool depth;
-            bool stencil;
-            float r, g, b, a;
-            float depthValue;
-            int stencilValue;
-        } clear;
-    };
+struct PacketUpdateUniform : CommandPacket {
+    uint8_t slot;
+    uint8_t _padding[3]; // Align to 4 bytes
+    // Data follows immediately after this struct
+};
+
+struct PacketDraw : CommandPacket {
+    uint32_t vertexCount;
+    uint32_t firstVertex;
+    uint32_t instanceCount;
+};
+
+struct PacketDrawIndexed : CommandPacket {
+    uint32_t indexCount;
+    uint32_t firstIndex;
+    int32_t  baseVertex;
+    uint32_t instanceCount;
+};
+
+struct PacketSetViewport : CommandPacket {
+    float x, y, w, h;
+};
+
+struct PacketSetScissor : CommandPacket {
+    int x, y, w, h;
+};
+
+struct PacketClear : CommandPacket {
+    bool color;
+    bool depth;
+    bool stencil;
+    uint8_t _padding; // Align
+    float r, g, b, a;
+    float depthValue;
+    int stencilValue;
 };
 
 }

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <vector>
+#include <rhi/command_buffer.h>
 
 namespace rhi {
 
@@ -286,8 +287,8 @@ void GLDevice::DestroyPipeline(PipelineHandle handle) {
     }
 }
 
-void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const uint8_t* payload, size_t payloadSize) {
-    if (commandCount == 0) {
+void GLDevice::Submit(const CommandBuffer& buffer) {
+    if (buffer.IsEmpty()) {
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         return;
@@ -298,12 +299,17 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
     uint32_t currentIBO = 0;
     PipelineMeta* currentPipelineMeta = nullptr;
 
-    for (size_t i = 0; i < commandCount; ++i) {
-        const auto& cmd = commands[i];
-        switch (cmd.type) {
+    const uint8_t* ptr = buffer.GetData();
+    const uint8_t* end = ptr + buffer.GetSize();
+
+    while (ptr < end) {
+        const auto* header = reinterpret_cast<const CommandPacket*>(ptr);
+        
+        switch (header->type) {
             case CommandType::SetPipeline: {
-                if (currentPipelineId != cmd.pipeline.handle.id) {
-                    currentPipelineId = cmd.pipeline.handle.id;
+                const auto* pkt = reinterpret_cast<const PacketSetPipeline*>(ptr);
+                if (currentPipelineId != pkt->handle.id) {
+                    currentPipelineId = pkt->handle.id;
                     if (s_pipelines.count(currentPipelineId)) {
                         currentPipelineMeta = &s_pipelines[currentPipelineId];
                         UseProgram(currentPipelineMeta->program);
@@ -318,13 +324,10 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
                         for(int i=0; i<numBlocks; ++i) {
                             char name[64];
                             glGetActiveUniformBlockName(prog, i, 64, nullptr, name);
-                            // If name is "Slot0", bind to point 0. If "Slot1", point 1, etc.
-                            // If it starts with "Slot", we parse the number.
                             if(strncmp(name, "Slot", 4) == 0) {
                                 int slot = atoi(name + 4);
                                 glUniformBlockBinding(prog, i, slot);
                             } else {
-                                // Default fallback: bind block i to point i
                                 glUniformBlockBinding(prog, i, i);
                             }
                         }
@@ -333,8 +336,9 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
                 break;
             }
             case CommandType::SetVertexBuffer: {
-                if (currentVBO != cmd.buffer.handle.id) {
-                    currentVBO = cmd.buffer.handle.id;
+                const auto* pkt = reinterpret_cast<const PacketSetBuffer*>(ptr);
+                if (currentVBO != pkt->handle.id) {
+                    currentVBO = pkt->handle.id;
                     if (s_buffers.count(currentVBO)) {
                         BindBuffer(GL_ARRAY_BUFFER, s_buffers[currentVBO].id);
                     }
@@ -342,8 +346,9 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
                 break;
             }
             case CommandType::SetIndexBuffer: {
-                if (currentIBO != cmd.buffer.handle.id) {
-                    currentIBO = cmd.buffer.handle.id;
+                const auto* pkt = reinterpret_cast<const PacketSetBuffer*>(ptr);
+                if (currentIBO != pkt->handle.id) {
+                    currentIBO = pkt->handle.id;
                     if (s_buffers.count(currentIBO)) {
                         BindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_buffers[currentIBO].id);
                     }
@@ -351,24 +356,30 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
                 break;
             }
             case CommandType::SetTexture: {
-                glActiveTexture(GL_TEXTURE0 + cmd.texture.slot);
-                if (s_textures.count(cmd.texture.handle.id)) {
-                    glBindTexture(GL_TEXTURE_2D, s_textures[cmd.texture.handle.id]);
+                const auto* pkt = reinterpret_cast<const PacketSetTexture*>(ptr);
+                glActiveTexture(GL_TEXTURE0 + pkt->slot);
+                if (s_textures.count(pkt->handle.id)) {
+                    glBindTexture(GL_TEXTURE_2D, s_textures[pkt->handle.id]);
                 } else {
                     glBindTexture(GL_TEXTURE_2D, 0);
                 }
                 break;
             }
             case CommandType::UpdateUniform: {
-                if (cmd.uniform.dataOffset + cmd.uniform.size <= payloadSize && cmd.uniform.slot < 16) {
-                    memcpy(s_uniformStaging + cmd.uniform.slot * 256, 
-                           payload + cmd.uniform.dataOffset, 
-                           cmd.uniform.size);
+                const auto* pkt = reinterpret_cast<const PacketUpdateUniform*>(ptr);
+                const uint8_t* data = ptr + sizeof(PacketUpdateUniform);
+                size_t dataSize = header->size - sizeof(PacketUpdateUniform);
+
+                if (dataSize > 0 && pkt->slot < 16) {
+                    // Current GLDevice assumes fixed 256 byte slots for now, need to be careful not to overflow
+                    size_t copySize = std::min(dataSize, (size_t)256); 
+                    memcpy(s_uniformStaging + pkt->slot * 256, data, copySize);
                     s_uniformsDirty = true;
                 }
                 break;
             }
             case CommandType::Draw: {
+                const auto* pkt = reinterpret_cast<const PacketDraw*>(ptr);
                 if (currentPipelineMeta && currentVBO) {
                     if (s_uniformsDirty) {
                         glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
@@ -393,11 +404,12 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
                             (const void*)(uintptr_t)attr.offset
                         );
                     }
-                    glDrawArrays(ToGLPrimitive(currentPipelineMeta->desc.primitiveType), cmd.draw.firstVertex, cmd.draw.vertexCount);
+                    glDrawArrays(ToGLPrimitive(currentPipelineMeta->desc.primitiveType), pkt->firstVertex, pkt->vertexCount);
                 }
                 break;
             }
             case CommandType::DrawIndexed: {
+                const auto* pkt = reinterpret_cast<const PacketDrawIndexed*>(ptr);
                 if (currentPipelineMeta && currentVBO && currentIBO) {
                     if (s_uniformsDirty) {
                         glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
@@ -421,26 +433,33 @@ void GLDevice::Submit(const RenderCommand* commands, size_t commandCount, const 
                             (const void*)(uintptr_t)attr.offset
                         );
                     }
-                    glDrawElements(ToGLPrimitive(currentPipelineMeta->desc.primitiveType), cmd.drawIndexed.indexCount, GL_UNSIGNED_INT, (const void*)(uintptr_t)(cmd.drawIndexed.firstIndex * 4));
+                    glDrawElements(ToGLPrimitive(currentPipelineMeta->desc.primitiveType), pkt->indexCount, GL_UNSIGNED_INT, (const void*)(uintptr_t)(pkt->firstIndex * 4));
                 }
                 break;
             }
             case CommandType::Clear: {
+                const auto* pkt = reinterpret_cast<const PacketClear*>(ptr);
                 GLbitfield mask = 0;
-                if (cmd.clear.color) mask |= GL_COLOR_BUFFER_BIT;
-                if (cmd.clear.depth) mask |= GL_DEPTH_BUFFER_BIT;
-                if (cmd.clear.stencil) mask |= GL_STENCIL_BUFFER_BIT;
-                glClearColor(cmd.clear.r, cmd.clear.g, cmd.clear.b, cmd.clear.a);
+                if (pkt->color) mask |= GL_COLOR_BUFFER_BIT;
+                if (pkt->depth) mask |= GL_DEPTH_BUFFER_BIT;
+                if (pkt->stencil) mask |= GL_STENCIL_BUFFER_BIT;
+                glClearColor(pkt->r, pkt->g, pkt->b, pkt->a);
                 glClear(mask);
                 break;
             }
-            case CommandType::SetViewport:
-                glViewport((GLint)cmd.viewport.x, (GLint)cmd.viewport.y, (GLsizei)cmd.viewport.w, (GLsizei)cmd.viewport.h);
+            case CommandType::SetViewport: {
+                const auto* pkt = reinterpret_cast<const PacketSetViewport*>(ptr);
+                glViewport((GLint)pkt->x, (GLint)pkt->y, (GLsizei)pkt->w, (GLsizei)pkt->h);
                 break;
+            }
             case CommandType::SetScissor:
                 // TODO
                 break;
+            case CommandType::NoOp:
+                break;
         }
+
+        ptr += header->size;
     }
 }
 
