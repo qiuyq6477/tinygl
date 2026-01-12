@@ -1,0 +1,1 @@
+add_tinygl_test(rhi_soa_interleaved_test soa_interleaved_test.cpp)

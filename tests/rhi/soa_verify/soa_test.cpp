@@ -1,0 +1,139 @@
+#include "../../ITestCase.h"
+#include "../../test_registry.h"
+#include <tinygl/tinygl.h>
+#include <rhi/soft_device.h>
+#include <rhi/encoder.h>
+#include <framework/material.h>
+#include <vector>
+
+using namespace tinygl;
+using namespace framework;
+using namespace rhi;
+
+// Shader that accepts Position from Binding 0 and Color from Binding 1
+struct SoATriangleShader : public ShaderBuiltins {
+    
+    // Attributes
+    // In SoA mode, we map these manually to bindings in PipelineDesc
+    
+    void vertex(const Vec4* attribs, ShaderContext& ctx) {
+        // attribs[0] is Position (from Binding 0)
+        // attribs[1] is Color (from Binding 1)
+        gl_Position = attribs[0];
+        
+        // Pass color to fragment shader (using varying 0)
+        ctx.varyings[0] = attribs[1];
+    }
+
+    void fragment(const ShaderContext& ctx) {
+        gl_FragColor = ctx.varyings[0];
+    }
+};
+
+class SoATest : public ITestCase {
+public:
+    std::unique_ptr<SoftDevice> device;
+    CommandEncoder encoder;
+    
+    BufferHandle posBuffer;
+    BufferHandle colorBuffer;
+    PipelineHandle pipeline;
+    ShaderHandle shaderHandle;
+
+    void init(SoftRenderContext& ctx) override {
+        device = std::make_unique<SoftDevice>(ctx);
+
+        // 1. Prepare SoA Data (Planar)
+        // Stream 0: Positions (3 vertices * 3 floats)
+        std::vector<float> positions = {
+             0.0f,  0.5f, 0.0f, // Top
+            -0.5f, -0.5f, 0.0f, // Left
+             0.5f, -0.5f, 0.0f  // Right
+        };
+        
+        // Stream 1: Colors (3 vertices * 4 floats)
+        std::vector<float> colors = {
+            1.0f, 0.0f, 0.0f, 1.0f, // Red
+            0.0f, 1.0f, 0.0f, 1.0f, // Green
+            0.0f, 0.0f, 1.0f, 1.0f  // Blue
+        };
+
+        // 2. Create Buffers
+        BufferDesc posDesc;
+        posDesc.type = BufferType::VertexBuffer;
+        posDesc.size = positions.size() * sizeof(float);
+        posDesc.initialData = positions.data();
+        posBuffer = device->CreateBuffer(posDesc);
+        
+        BufferDesc colDesc;
+        colDesc.type = BufferType::VertexBuffer;
+        colDesc.size = colors.size() * sizeof(float);
+        colDesc.initialData = colors.data();
+        colorBuffer = device->CreateBuffer(colDesc);
+
+        // 3. Register Shader
+        shaderHandle = RegisterShader<SoATriangleShader>(*device);
+        
+        // 4. Create Pipeline with Multi-Stream Layout
+        PipelineDesc pipeDesc;
+        pipeDesc.shader = shaderHandle;
+        pipeDesc.useInterleavedAttributes = false; // ENABLE SOA MODE
+        pipeDesc.cullMode = CullMode::None;
+        
+        // Define Attributes and their bindings
+        // Note: For 'useInterleavedAttributes = false', the RHI maps:
+        // Attribute at shaderLocation N -> Binding Slot N
+        pipeDesc.inputLayout.attributes = {
+            { VertexFormat::Float3, 0, 0 }, // Loc 0 (Pos) -> Binding 0. Offset 0 within stream.
+            { VertexFormat::Float4, 0, 1 }  // Loc 1 (Col) -> Binding 1. Offset 0 within stream.
+        };
+        // Note: 'inputLayout.stride' is ignored/unused in Planar mode usually, 
+        // as we provide per-binding strides at Draw time.
+
+        pipeline = device->CreatePipeline(pipeDesc);
+    }
+
+    void destroy(SoftRenderContext& ctx) override {
+        if (device) {
+            device->DestroyPipeline(pipeline);
+            device->DestroyBuffer(posBuffer);
+            device->DestroyBuffer(colorBuffer);
+            device.reset();
+        }
+    }
+
+    void onRender(SoftRenderContext& ctx) override {
+        ctx.glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        ctx.glClear(GL_COLOR_BUFFER_BIT);
+
+        encoder.Reset();
+        
+        encoder.SetPipeline(pipeline);
+        
+        // Bind Stream 0: Positions
+        // Stride = 3 * sizeof(float) = 12
+        encoder.SetVertexStream(0, posBuffer, 0, 12);
+        
+        // Bind Stream 1: Colors
+        // Stride = 4 * sizeof(float) = 16
+        encoder.SetVertexStream(1, colorBuffer, 0, 16);
+        
+        encoder.Draw(3); 
+
+        if (device) {
+            encoder.SubmitTo(*device);
+        }
+    }
+
+    void onGui(mu_Context* ctx, const Rect& rect) override {
+        mu_layout_row(ctx, 1, (int[]) { -1 }, 0);
+        mu_text(ctx, "SoA / Multi-Stream Test");
+        mu_text(ctx, "Triangle should be Multi-Colored (Red/Green/Blue)");
+        mu_text(ctx, "Data fetched from 2 separate buffers.");
+    }
+    
+    void onEvent(const SDL_Event& e) override {}
+    void onUpdate(float dt) override {}
+};
+
+static TestRegistrar registrar("RHI", "SoAVerify", []() { return new SoATest(); });
