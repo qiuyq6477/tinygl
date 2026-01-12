@@ -2,22 +2,12 @@
 #include <rhi/gl_device.h>
 #include <rhi/shader_registry.h>
 #include <iostream>
-#include <unordered_map>
-#include <vector>
-#include <rhi/command_buffer.h>
+#include <cstring>
+#include <algorithm>
 
 namespace rhi {
 
 namespace {
-    // --- State Cache (Internal) ---
-    struct GLState {
-        GLuint boundVBO = 0;
-        GLuint boundIBO = 0;
-        GLuint boundVAO = 0;
-        GLuint boundProgram = 0;
-        GLuint boundTexture = 0;
-    } g_state;
-
     // --- Enum Conversions ---
     GLenum ToGLBufferTarget(BufferType type) {
         switch (type) {
@@ -62,37 +52,6 @@ namespace {
         }
     }
 
-    // --- State Helpers ---
-    void BindBuffer(GLenum target, GLuint id) {
-        if (target == GL_ARRAY_BUFFER) {
-            if (g_state.boundVBO != id) {
-                glBindBuffer(target, id);
-                g_state.boundVBO = id;
-            }
-        } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
-            if (g_state.boundIBO != id) {
-                glBindBuffer(target, id);
-                g_state.boundIBO = id;
-            } 
-        } else {
-            glBindBuffer(target, id);
-        }
-    }
-
-    void BindVertexArray(GLuint id) {
-        if (g_state.boundVAO != id) {
-            glBindVertexArray(id);
-            g_state.boundVAO = id;
-        }
-    }
-
-    void UseProgram(GLuint id) {
-        if (g_state.boundProgram != id) {
-            glUseProgram(id);
-            g_state.boundProgram = id;
-        }
-    }
-
     // --- Shader Compiler ---
     GLuint CompileShader(GLenum type, const std::string& source) {
         if (source.empty()) return 0;
@@ -133,67 +92,63 @@ namespace {
     }
 } // namespace
 
-// --- Resource Metadata ---
-struct BufferMeta {
-    GLuint id;
-    GLenum target;
-};
-
-struct PipelineMeta {
-    GLuint program;
-    GLuint vao;
-    PipelineDesc desc;
-};
-
-static std::unordered_map<uint32_t, BufferMeta> s_buffers;
-static std::unordered_map<uint32_t, GLuint> s_textures;
-static std::unordered_map<uint32_t, PipelineMeta> s_pipelines;
-static std::unordered_map<uint32_t, GLuint> s_shaderPrograms;
-
-static uint32_t s_nextBufferHandle = 1;
-static uint32_t s_nextTextureHandle = 1;
-static uint32_t s_nextPipelineHandle = 1;
-
-static GLuint s_globalUBO = 0;
-static uint8_t s_uniformStaging[16 * 256];
-static bool s_uniformsDirty = false;
-
-// Track bindings
-static constexpr int MAX_BINDINGS = 8;
-struct BindingState {
-    uint32_t bufferId = 0;
-    uint32_t offset = 0;
-    uint32_t stride = 0;
-};
-static BindingState s_bindings[MAX_BINDINGS];
-static uint32_t s_activeIBO = 0;
-
 GLDevice::GLDevice() {
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
         std::cerr << "GLDevice: GLAD not initialized!" << std::endl;
     }
-    g_state = {};
+    m_state = {};
+    std::memset(m_bindings, 0, sizeof(m_bindings));
 
     // Initialize Global UBO for Uniform Slots
-    glGenBuffers(1, &s_globalUBO);
-    glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(s_uniformStaging), nullptr, GL_STREAM_DRAW);
+    glGenBuffers(1, &m_globalUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_globalUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(m_uniformStaging), nullptr, GL_STREAM_DRAW);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 GLDevice::~GLDevice() {
-    if (s_globalUBO) glDeleteBuffers(1, &s_globalUBO);
-    for (auto& pair : s_buffers) glDeleteBuffers(1, &pair.second.id);
-    for (auto& pair : s_textures) glDeleteTextures(1, &pair.second);
-    for (auto& pair : s_pipelines) {
+    if (m_globalUBO) glDeleteBuffers(1, &m_globalUBO);
+    for (auto& pair : m_buffers) glDeleteBuffers(1, &pair.second.id);
+    for (auto& pair : m_textures) glDeleteTextures(1, &pair.second);
+    for (auto& pair : m_pipelines) {
         glDeleteVertexArrays(1, &pair.second.vao);
     }
-    for (auto& pair : s_shaderPrograms) glDeleteProgram(pair.second);
+    for (auto& pair : m_shaderPrograms) glDeleteProgram(pair.second);
     
-    s_buffers.clear();
-    s_textures.clear();
-    s_pipelines.clear();
-    s_shaderPrograms.clear();
+    m_buffers.clear();
+    m_textures.clear();
+    m_pipelines.clear();
+    m_shaderPrograms.clear();
+}
+
+void GLDevice::BindBuffer(GLenum target, GLuint id) {
+    if (target == GL_ARRAY_BUFFER) {
+        if (m_state.boundVBO != id) {
+            glBindBuffer(target, id);
+            m_state.boundVBO = id;
+        }
+    } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
+        if (m_state.boundIBO != id) {
+            glBindBuffer(target, id);
+            m_state.boundIBO = id;
+        } 
+    } else {
+        glBindBuffer(target, id);
+    }
+}
+
+void GLDevice::BindVertexArray(GLuint id) {
+    if (m_state.boundVAO != id) {
+        glBindVertexArray(id);
+        m_state.boundVAO = id;
+    }
+}
+
+void GLDevice::UseProgram(GLuint id) {
+    if (m_state.boundProgram != id) {
+        glUseProgram(id);
+        m_state.boundProgram = id;
+    }
 }
 
 BufferHandle GLDevice::CreateBuffer(const BufferDesc& desc) {
@@ -204,24 +159,24 @@ BufferHandle GLDevice::CreateBuffer(const BufferDesc& desc) {
     if (desc.size > 0) {
         glBufferData(target, desc.size, desc.initialData, ToGLUsage(desc.usage));
     }
-    uint32_t handle = s_nextBufferHandle++;
-    s_buffers[handle] = {id, target};
+    uint32_t handle = m_nextBufferHandle++;
+    m_buffers[handle] = {id, target};
     return {handle};
 }
 
 void GLDevice::DestroyBuffer(BufferHandle handle) {
-    if (s_buffers.count(handle.id)) {
-        GLuint id = s_buffers[handle.id].id;
+    if (m_buffers.count(handle.id)) {
+        GLuint id = m_buffers[handle.id].id;
         glDeleteBuffers(1, &id);
-        s_buffers.erase(handle.id);
-        if (g_state.boundVBO == id) g_state.boundVBO = 0;
-        if (g_state.boundIBO == id) g_state.boundIBO = 0;
+        m_buffers.erase(handle.id);
+        if (m_state.boundVBO == id) m_state.boundVBO = 0;
+        if (m_state.boundIBO == id) m_state.boundIBO = 0;
     }
 }
 
 void GLDevice::UpdateBuffer(BufferHandle handle, const void* data, size_t size, size_t offset) {
-    if (s_buffers.count(handle.id)) {
-        const auto& meta = s_buffers[handle.id];
+    if (m_buffers.count(handle.id)) {
+        const auto& meta = m_buffers[handle.id];
         BindBuffer(meta.target, meta.id);
         glBufferSubData(meta.target, offset, size, data);
     }
@@ -232,7 +187,7 @@ TextureHandle GLDevice::CreateTexture(const void* pixelData, int width, int heig
     glGenTextures(1, &id);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, id);
-    g_state.boundTexture = id;
+    m_state.boundTexture = id;
 
     GLenum format = GL_RGBA;
     if (channels == 3) format = GL_RGB;
@@ -246,25 +201,25 @@ TextureHandle GLDevice::CreateTexture(const void* pixelData, int width, int heig
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, pixelData);
     if (pixelData) glGenerateMipmap(GL_TEXTURE_2D);
 
-    uint32_t handle = s_nextTextureHandle++;
-    s_textures[handle] = id;
+    uint32_t handle = m_nextTextureHandle++;
+    m_textures[handle] = id;
     return {handle};
 }
 
 void GLDevice::DestroyTexture(TextureHandle handle) {
-    if (s_textures.count(handle.id)) {
-        GLuint id = s_textures[handle.id];
+    if (m_textures.count(handle.id)) {
+        GLuint id = m_textures[handle.id];
         glDeleteTextures(1, &id);
-        s_textures.erase(handle.id);
-        if (g_state.boundTexture == id) g_state.boundTexture = 0;
+        m_textures.erase(handle.id);
+        if (m_state.boundTexture == id) m_state.boundTexture = 0;
     }
 }
 
 PipelineHandle GLDevice::CreatePipeline(const PipelineDesc& desc) {
     GLuint program = 0;
     if (desc.shader.IsValid()) {
-        if (s_shaderPrograms.count(desc.shader.id)) {
-            program = s_shaderPrograms[desc.shader.id];
+        if (m_shaderPrograms.count(desc.shader.id)) {
+            program = m_shaderPrograms[desc.shader.id];
         } else {
             const auto* shaderDesc = ShaderRegistry::GetInstance().GetDesc(desc.shader);
             if (shaderDesc) {
@@ -272,7 +227,7 @@ PipelineHandle GLDevice::CreatePipeline(const PipelineDesc& desc) {
                 GLuint fs = CompileShader(GL_FRAGMENT_SHADER, shaderDesc->glsl.fragment);
                 if (vs && fs) {
                     program = LinkProgram(vs, fs);
-                    s_shaderPrograms[desc.shader.id] = program;
+                    m_shaderPrograms[desc.shader.id] = program;
                 }
                 if (vs) glDeleteShader(vs);
                 if (fs) glDeleteShader(fs);
@@ -290,15 +245,15 @@ PipelineHandle GLDevice::CreatePipeline(const PipelineDesc& desc) {
     }
     BindVertexArray(0);
 
-    uint32_t handle = s_nextPipelineHandle++;
-    s_pipelines[handle] = {program, vao, desc};
+    uint32_t handle = m_nextPipelineHandle++;
+    m_pipelines[handle] = {program, vao, desc};
     return {handle};
 }
 
 void GLDevice::DestroyPipeline(PipelineHandle handle) {
-    if (s_pipelines.count(handle.id)) {
-        glDeleteVertexArrays(1, &s_pipelines[handle.id].vao);
-        s_pipelines.erase(handle.id);
+    if (m_pipelines.count(handle.id)) {
+        glDeleteVertexArrays(1, &m_pipelines[handle.id].vao);
+        m_pipelines.erase(handle.id);
     }
 }
 
@@ -313,8 +268,8 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
     PipelineMeta* currentPipelineMeta = nullptr;
     
     // Reset frame state
-    std::memset(s_bindings, 0, sizeof(s_bindings));
-    s_activeIBO = 0;
+    std::memset(m_bindings, 0, sizeof(m_bindings));
+    m_activeIBO = 0;
 
     const uint8_t* ptr = buffer.GetData();
     const uint8_t* end = ptr + buffer.GetSize();
@@ -327,8 +282,8 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                 const auto* pkt = reinterpret_cast<const PacketSetPipeline*>(ptr);
                 if (currentPipelineId != pkt->handle.id) {
                     currentPipelineId = pkt->handle.id;
-                    if (s_pipelines.count(currentPipelineId)) {
-                        currentPipelineMeta = &s_pipelines[currentPipelineId];
+                    if (m_pipelines.count(currentPipelineId)) {
+                        currentPipelineMeta = &m_pipelines[currentPipelineId];
                         UseProgram(currentPipelineMeta->program);
                         BindVertexArray(currentPipelineMeta->vao);
 
@@ -355,18 +310,18 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
             case CommandType::SetVertexStream: {
                 const auto* pkt = reinterpret_cast<const PacketSetVertexStream*>(ptr);
                 if (pkt->bindingIndex < MAX_BINDINGS) {
-                    s_bindings[pkt->bindingIndex].bufferId = pkt->handle.id;
-                    s_bindings[pkt->bindingIndex].offset = pkt->offset;
-                    s_bindings[pkt->bindingIndex].stride = pkt->stride;
+                    m_bindings[pkt->bindingIndex].bufferId = pkt->handle.id;
+                    m_bindings[pkt->bindingIndex].offset = pkt->offset;
+                    m_bindings[pkt->bindingIndex].stride = pkt->stride;
                 }
                 break;
             }
             case CommandType::SetIndexBuffer: {
                 const auto* pkt = reinterpret_cast<const PacketSetIndexBuffer*>(ptr);
-                if (s_activeIBO != pkt->handle.id) {
-                    s_activeIBO = pkt->handle.id;
-                    if (s_buffers.count(s_activeIBO)) {
-                        BindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_buffers[s_activeIBO].id);
+                if (m_activeIBO != pkt->handle.id) {
+                    m_activeIBO = pkt->handle.id;
+                    if (m_buffers.count(m_activeIBO)) {
+                        BindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_buffers[m_activeIBO].id);
                     }
                 }
                 break;
@@ -374,8 +329,8 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
             case CommandType::SetTexture: {
                 const auto* pkt = reinterpret_cast<const PacketSetTexture*>(ptr);
                 glActiveTexture(GL_TEXTURE0 + pkt->slot);
-                if (s_textures.count(pkt->handle.id)) {
-                    glBindTexture(GL_TEXTURE_2D, s_textures[pkt->handle.id]);
+                if (m_textures.count(pkt->handle.id)) {
+                    glBindTexture(GL_TEXTURE_2D, m_textures[pkt->handle.id]);
                 } else {
                     glBindTexture(GL_TEXTURE_2D, 0);
                 }
@@ -389,22 +344,22 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                 if (dataSize > 0 && pkt->slot < 16) {
                     // Current GLDevice assumes fixed 256 byte slots for now, need to be careful not to overflow
                     size_t copySize = std::min(dataSize, (size_t)256); 
-                    memcpy(s_uniformStaging + pkt->slot * 256, data, copySize);
-                    s_uniformsDirty = true;
+                    memcpy(m_uniformStaging + pkt->slot * 256, data, copySize);
+                    m_uniformsDirty = true;
                 }
                 break;
             }
             case CommandType::Draw: {
                 const auto* pkt = reinterpret_cast<const PacketDraw*>(ptr);
                 if (currentPipelineMeta) {
-                    if (s_uniformsDirty) {
-                        glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
-                        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s_uniformStaging), s_uniformStaging);
-                        s_uniformsDirty = false;
+                    if (m_uniformsDirty) {
+                        glBindBuffer(GL_UNIFORM_BUFFER, m_globalUBO);
+                        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(m_uniformStaging), m_uniformStaging);
+                        m_uniformsDirty = false;
                         
                         // Bind slots
                         for(int i=0; i<16; ++i) {
-                            glBindBufferRange(GL_UNIFORM_BUFFER, i, s_globalUBO, i*256, 256);
+                            glBindBufferRange(GL_UNIFORM_BUFFER, i, m_globalUBO, i*256, 256);
                         }
                     }
 
@@ -415,11 +370,11 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                     for (const auto& attr : layout.attributes) {
                         uint32_t bindingIdx = interleaved ? 0 : attr.shaderLocation;
                         // For safety, fallback to 0 if we requested planar but didn't bind anything at N
-                        if (s_bindings[bindingIdx].bufferId == 0 && !interleaved) bindingIdx = 0;
+                        if (m_bindings[bindingIdx].bufferId == 0 && !interleaved) bindingIdx = 0;
 
-                        const auto& binding = s_bindings[bindingIdx];
-                        if (binding.bufferId != 0 && s_buffers.count(binding.bufferId)) {
-                             BindBuffer(GL_ARRAY_BUFFER, s_buffers[binding.bufferId].id);
+                        const auto& binding = m_bindings[bindingIdx];
+                        if (binding.bufferId != 0 && m_buffers.count(binding.bufferId)) {
+                             BindBuffer(GL_ARRAY_BUFFER, m_buffers[binding.bufferId].id);
                              // Use provided stride, fallback to binding stride, fallback to pipeline stride
                              // If interleaved, usually binding.stride is 0 (set by legacy SetVertexBuffer), 
                              // so we use layout.stride.
@@ -441,13 +396,13 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
             }
             case CommandType::DrawIndexed: {
                 const auto* pkt = reinterpret_cast<const PacketDrawIndexed*>(ptr);
-                if (currentPipelineMeta && s_activeIBO) {
-                    if (s_uniformsDirty) {
-                        glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
-                        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s_uniformStaging), s_uniformStaging);
-                        s_uniformsDirty = false;
+                if (currentPipelineMeta && m_activeIBO) {
+                    if (m_uniformsDirty) {
+                        glBindBuffer(GL_UNIFORM_BUFFER, m_globalUBO);
+                        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(m_uniformStaging), m_uniformStaging);
+                        m_uniformsDirty = false;
                         for(int i=0; i<16; ++i) {
-                            glBindBufferRange(GL_UNIFORM_BUFFER, i, s_globalUBO, i*256, 256);
+                            glBindBufferRange(GL_UNIFORM_BUFFER, i, m_globalUBO, i*256, 256);
                         }
                     }
 
@@ -456,11 +411,11 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                     
                     for (const auto& attr : layout.attributes) {
                         uint32_t bindingIdx = interleaved ? 0 : attr.shaderLocation;
-                        if (s_bindings[bindingIdx].bufferId == 0 && !interleaved) bindingIdx = 0;
+                        if (m_bindings[bindingIdx].bufferId == 0 && !interleaved) bindingIdx = 0;
 
-                        const auto& binding = s_bindings[bindingIdx];
-                        if (binding.bufferId != 0 && s_buffers.count(binding.bufferId)) {
-                             BindBuffer(GL_ARRAY_BUFFER, s_buffers[binding.bufferId].id);
+                        const auto& binding = m_bindings[bindingIdx];
+                        if (binding.bufferId != 0 && m_buffers.count(binding.bufferId)) {
+                             BindBuffer(GL_ARRAY_BUFFER, m_buffers[binding.bufferId].id);
                              GLsizei stride = binding.stride > 0 ? binding.stride : layout.stride;
                              glVertexAttribPointer(
                                 attr.shaderLocation,
