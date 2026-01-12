@@ -3,6 +3,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
+#include <rhi/shader_registry.h>
 #include <framework/material.h>
 #include <vector>
 
@@ -72,8 +73,8 @@ public:
         colorBuffer = device->CreateBuffer(colDesc);
 
         // 3. Register Shader
-        shaderHandle = RegisterShader<SoATriangleShader>(*device);
-        
+        shaderHandle = ShaderRegistry::RegisterShader<SoATriangleShader>("SoATriangleShader");
+
         // 4. Create Pipeline with Multi-Stream Layout
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;

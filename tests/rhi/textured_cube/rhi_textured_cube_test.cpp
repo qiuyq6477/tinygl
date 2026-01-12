@@ -3,6 +3,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
+#include <rhi/shader_registry.h>
 #include <framework/geometry.h>
 #include <framework/texture_manager.h>
 #include <framework/camera.h>
@@ -128,7 +129,7 @@ public:
         ebo = device->CreateBuffer(eboDesc);
 
         // 3. Create Pipeline
-        shaderHandle = RegisterShader<RhiCubeShader>(*device);
+        shaderHandle = ShaderRegistry::RegisterShader<RhiCubeShader>("RhiCubeShader");
         
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;

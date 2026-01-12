@@ -3,6 +3,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
+#include <rhi/shader_registry.h>
 #include <framework/material.h>
 #include <cmath>
 
@@ -67,7 +68,7 @@ public:
 
         // 2. Register Shader & Create Pipeline
         // This binds the runtime handle to the RhiTriangleShader template
-        shaderHandle = RegisterShader<RhiTriangleShader>(*device);
+        shaderHandle = ShaderRegistry::RegisterShader<RhiTriangleShader>("RhiTriangleShader");
         
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;

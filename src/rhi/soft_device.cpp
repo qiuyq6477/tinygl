@@ -1,4 +1,5 @@
 #include <rhi/soft_device.h>
+#include <rhi/shader_registry.h>
 #include <tinygl/base/log.h>
 #include <cstring>
 #include <rhi/command_buffer.h>
@@ -98,22 +99,15 @@ void SoftDevice::DestroyTexture(TextureHandle handle) {
 
 // --- Pipelines & Shaders ---
 
-ShaderHandle SoftDevice::CreateShaderHandle() {
-    return { m_nextShaderId++ };
-}
-
-void SoftDevice::RegisterShaderFactory(ShaderHandle handle, PipelineFactory factory) {
-    m_shaderFactories[handle.id] = factory;
-}
-
 PipelineHandle SoftDevice::CreatePipeline(const PipelineDesc& desc) {
-    auto factoryIt = m_shaderFactories.find(desc.shader.id);
-    if (factoryIt == m_shaderFactories.end()) {
-        LOG_ERROR("Unknown shader handle in CreatePipeline");
+    const ShaderDesc* shaderDesc = ShaderRegistry::GetInstance().GetDesc(desc.shader);
+    
+    if (!shaderDesc || !shaderDesc->softFactory) {
+        LOG_ERROR("Unknown or invalid shader handle in CreatePipeline");
         return {0};
     }
     
-    auto pipeline = factoryIt->second(m_ctx, desc);
+    auto pipeline = shaderDesc->softFactory(m_ctx, desc);
     uint32_t id = m_pipelines.Allocate(std::move(pipeline));
     return {id};
 }

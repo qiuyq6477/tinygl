@@ -266,7 +266,7 @@ PipelineHandle GLDevice::CreatePipeline(const PipelineDesc& desc) {
         if (s_shaderPrograms.count(desc.shader.id)) {
             program = s_shaderPrograms[desc.shader.id];
         } else {
-            const auto* shaderDesc = ShaderRegistry::Get().GetDesc(desc.shader.id);
+            const auto* shaderDesc = ShaderRegistry::GetInstance().GetDesc(desc.shader);
             if (shaderDesc) {
                 GLuint vs = CompileShader(GL_VERTEX_SHADER, shaderDesc->glsl.vertex);
                 GLuint fs = CompileShader(GL_FRAGMENT_SHADER, shaderDesc->glsl.fragment);

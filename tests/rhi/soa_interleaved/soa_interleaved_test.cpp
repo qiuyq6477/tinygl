@@ -3,6 +3,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
+#include <rhi/shader_registry.h>
 #include <framework/geometry.h>
 #include <vector>
 
@@ -84,7 +85,7 @@ public:
         ibo = device->CreateBuffer(idxDesc);
 
         // 4. Create Pipeline
-        shaderHandle = RegisterShader<SoAPlaneShader>(*device);
+        shaderHandle = ShaderRegistry::RegisterShader<SoAPlaneShader>("SoAPlaneShader");
         
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;

@@ -4,12 +4,13 @@
 #include <rhi/shader_registry.h>
 #include <iostream>
 #include <cmath>
+#include <string>
 
 using namespace framework;
 using namespace rhi;
 
 // --- Backend Agnostic Shader ID ---
-static constexpr uint32_t SHADER_TRIANGLE = 100;
+static const std::string SHADER_TRIANGLE = "TriangleShader";
 
 class GLVerifyApp : public Application {
 public:
@@ -32,16 +33,15 @@ protected:
         std::cout << "Backend: OpenGL" << std::endl;
 
         // 1. Register Shader in Global Registry (Data-Driven)
-        ShaderDesc triangleShader;
         // GL Backend Sources
-        triangleShader.glsl.vertex = R"(
+        std::string vertex = R"(
             #version 410 core
             layout(location = 0) in vec4 aPos;
             void main() {
                 gl_Position = aPos;
             }
         )";
-        triangleShader.glsl.fragment = R"(
+        std::string fragment = R"(
             #version 410 core
             layout(std140) uniform Slot0 {
                 vec4 uColor;
@@ -53,7 +53,7 @@ protected:
         )";
         // (Optional: Soft Backend Factory could be added here too)
         
-        ShaderRegistry::Get().Register(SHADER_TRIANGLE, triangleShader);
+        ShaderHandle shaderHandle = ShaderRegistry::GetInstance().RegisterShader(SHADER_TRIANGLE, vertex, fragment);
 
         // 2. Create Geometry
         float vertices[] = {
@@ -69,7 +69,7 @@ protected:
 
         // 3. Create Pipeline
         PipelineDesc pipeDesc;
-        pipeDesc.shader = { SHADER_TRIANGLE };
+        pipeDesc.shader = shaderHandle;
         pipeDesc.inputLayout.stride = 4 * sizeof(float);
         pipeDesc.inputLayout.attributes = {
             { VertexFormat::Float4, 0, 0 } // Loc 0

@@ -3,6 +3,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
+#include <rhi/shader_registry.h>
 #include <framework/material.h>
 #include <vector>
 #include <thread>
@@ -60,8 +61,8 @@ public:
         bufDesc.initialData = vertices.data();
         vbo = device->CreateBuffer(bufDesc);
 
-        shaderHandle = RegisterShader<SolidColorShader>(*device);
-        
+        shaderHandle = ShaderRegistry::RegisterShader<SolidColorShader>("SolidColorShader");
+
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;
         pipeDesc.cullMode = CullMode::None;
