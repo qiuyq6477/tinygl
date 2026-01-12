@@ -86,6 +86,12 @@ Strictly adhere to **Conventional Commits**:
     static TestRegistrar registry("Category", "TestName", []() { return new MyTest(); });
     ```
 
+#### Geometry Creation (Optional)
+If you need basic 3D primitives (Cube, Sphere, Plane, etc.), use the helpers in `geometry.h`:
+1. **Include:** `#include <framework/geometry.h>`
+2. **Usage:** `framework::Geometry cube = framework::geometry::createCube(1.0f);`
+3. **Data:** Access `cube.vertices`, `cube.indices`, or the interleaved `cube.allAttributes` to populate your VBOs.
+
 #### Camera Integration (Mandatory)
 All 3D test cases must include a camera to allow user navigation.
 1. **Include:** `#include <framework/camera.h>`
@@ -101,6 +107,22 @@ All 3D test cases must include a camera to allow user navigation.
 * `onUpdate(dt)`: **Logic.** Update simulation state, rotation angles, camera position, and animations. **Do NOT put logic or state updates in `onRender`.**
 * `onRender(ctx)`: **Draw.** Execute rendering commands (`glClear`, `glUseProgram`, `glDraw*`). Compute matrices here but rely on state updated in `onUpdate`.
 * `onGui(ctx, rect)`: **UI.** Render debug UI (sliders, buttons) using MicroUI. Use this to tweak parameters in real-time.
+
+### Shader Implementation Guidelines
+
+Shaders in TinyGL are implemented as C++ structs/classes. Follow these rules to avoid common API errors:
+
+1. **Base Class:** Inherit from `tinygl::ShaderBuiltins` to access variables like `gl_Position` and `gl_FragColor`.
+2. **Vertex Shader:**
+   - Signature: `void vertex(const Vec4* attribs, ShaderContext& ctx)`
+   - Access attributes via index: `attribs[0]`, `attribs[1]`, etc.
+   - Set output position: `gl_Position = ...`
+   - Pass varyings to fragment shader: **Assign directly** to `ctx.varyings[index]`. (e.g., `ctx.varyings[0] = color;`). Do NOT use non-existent methods like `setVarying`.
+3. **Fragment Shader:**
+   - Signature: `void fragment(const ShaderContext& ctx)`
+   - Access interpolated varyings: **Read directly** from `ctx.varyings[index]`. (e.g., `gl_FragColor = ctx.varyings[0];`). Do NOT use `getVarying`.
+   - Set output color: `gl_FragColor = ...`
+4. **Limits:** Ensure you don't exceed `MAX_ATTRIBS` or `MAX_VARYINGS` (defined in `gl_defs.h`).
 
 ### Coding Style
 * **Standard:** Modern C++20.
