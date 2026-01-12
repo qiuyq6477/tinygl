@@ -1,0 +1,1 @@
+add_tinygl_test(rhi_multithread_test multithread_test.cpp)
