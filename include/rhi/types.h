@@ -39,6 +39,37 @@ enum class CullMode {
     Back
 };
 
+enum class BlendFactor {
+    Zero,
+    One,
+    SrcColor,
+    OneMinusSrcColor,
+    SrcAlpha,
+    OneMinusSrcAlpha,
+    DstColor,
+    OneMinusDstColor,
+    DstAlpha,
+    OneMinusDstAlpha
+};
+
+enum class BlendOp {
+    Add,
+    Subtract,
+    ReverseSubtract,
+    Min,
+    Max
+};
+
+struct BlendState {
+    bool enabled = false;
+    BlendFactor srcRGB = BlendFactor::One;
+    BlendFactor dstRGB = BlendFactor::Zero;
+    BlendFactor srcAlpha = BlendFactor::One;
+    BlendFactor dstAlpha = BlendFactor::Zero;
+    BlendOp opRGB = BlendOp::Add;
+    BlendOp opAlpha = BlendOp::Add;
+};
+
 enum class IndexFormat {
     Uint16,
     Uint32
@@ -100,8 +131,8 @@ struct PipelineDesc {
     bool depthTestEnabled = true;
     bool depthWriteEnabled = true;
     
-    // Blend State (Simplified)
-    bool blendEnabled = false;
+    // Blend State
+    BlendState blend;
     
     const char* label = nullptr;
 };

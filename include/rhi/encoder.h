@@ -30,6 +30,14 @@ public:
         m_buffer.Write(pkt);
     }
 
+    void SetScissor(int x, int y, int w, int h) {
+        PacketSetScissor pkt;
+        pkt.type = CommandType::SetScissor;
+        pkt.size = sizeof(PacketSetScissor);
+        pkt.x = x; pkt.y = y; pkt.w = w; pkt.h = h;
+        m_buffer.Write(pkt);
+    }
+
     // Legacy/Convenience: Set Binding 0 with stride 0 (implied from pipeline)
     void SetVertexBuffer(BufferHandle buffer, uint32_t offset = 0) {
         SetVertexStream(0, buffer, offset, 0);

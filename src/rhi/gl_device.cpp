@@ -52,6 +52,33 @@ namespace {
         }
     }
 
+    GLenum ToGLBlendFactor(BlendFactor factor) {
+        switch (factor) {
+            case BlendFactor::Zero: return GL_ZERO;
+            case BlendFactor::One: return GL_ONE;
+            case BlendFactor::SrcColor: return GL_SRC_COLOR;
+            case BlendFactor::OneMinusSrcColor: return GL_ONE_MINUS_SRC_COLOR;
+            case BlendFactor::SrcAlpha: return GL_SRC_ALPHA;
+            case BlendFactor::OneMinusSrcAlpha: return GL_ONE_MINUS_SRC_ALPHA;
+            case BlendFactor::DstColor: return GL_DST_COLOR;
+            case BlendFactor::OneMinusDstColor: return GL_ONE_MINUS_DST_COLOR;
+            case BlendFactor::DstAlpha: return GL_DST_ALPHA;
+            case BlendFactor::OneMinusDstAlpha: return GL_ONE_MINUS_DST_ALPHA;
+            default: return GL_ONE;
+        }
+    }
+
+    GLenum ToGLBlendOp(BlendOp op) {
+        switch (op) {
+            case BlendOp::Add: return GL_FUNC_ADD;
+            case BlendOp::Subtract: return GL_FUNC_SUBTRACT;
+            case BlendOp::ReverseSubtract: return GL_FUNC_REVERSE_SUBTRACT;
+            case BlendOp::Min: return GL_MIN;
+            case BlendOp::Max: return GL_MAX;
+            default: return GL_FUNC_ADD;
+        }
+    }
+
     // --- Shader Compiler ---
     GLuint CompileShader(GLenum type, const std::string& source) {
         if (source.empty()) return 0;
@@ -303,6 +330,33 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                                 glUniformBlockBinding(prog, i, i);
                             }
                         }
+
+                        // Apply Pipeline State
+                        const auto& desc = currentPipelineMeta->desc;
+                        
+                        // Cull Mode
+                        if (desc.cullMode == CullMode::None) {
+                            glDisable(GL_CULL_FACE);
+                        } else {
+                            glEnable(GL_CULL_FACE);
+                            glCullFace(desc.cullMode == CullMode::Back ? GL_BACK : GL_FRONT);
+                        }
+
+                        // Depth State
+                        if (desc.depthTestEnabled) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+                        glDepthMask(desc.depthWriteEnabled ? GL_TRUE : GL_FALSE);
+
+                        // Blend State
+                        if (desc.blend.enabled) {
+                            glEnable(GL_BLEND);
+                            glBlendFuncSeparate(
+                                ToGLBlendFactor(desc.blend.srcRGB), ToGLBlendFactor(desc.blend.dstRGB),
+                                ToGLBlendFactor(desc.blend.srcAlpha), ToGLBlendFactor(desc.blend.dstAlpha)
+                            );
+                            glBlendEquationSeparate(ToGLBlendOp(desc.blend.opRGB), ToGLBlendOp(desc.blend.opAlpha));
+                        } else {
+                            glDisable(GL_BLEND);
+                        }
                     }
                 }
                 break;
@@ -446,9 +500,16 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                 glViewport((GLint)pkt->x, (GLint)pkt->y, (GLsizei)pkt->w, (GLsizei)pkt->h);
                 break;
             }
-            case CommandType::SetScissor:
-                // TODO
+            case CommandType::SetScissor: {
+                const auto* pkt = reinterpret_cast<const PacketSetScissor*>(ptr);
+                if (pkt->w >= 0 && pkt->h >= 0) {
+                    glEnable(GL_SCISSOR_TEST);
+                    glScissor(pkt->x, pkt->y, pkt->w, pkt->h);
+                } else {
+                    glDisable(GL_SCISSOR_TEST);
+                }
                 break;
+            }
             case CommandType::NoOp:
                 break;
         }

@@ -289,8 +289,16 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
                  break;
             }
             
-            case CommandType::SetScissor:
-                 break;
+            case CommandType::SetScissor: {
+                const auto* pkt = reinterpret_cast<const PacketSetScissor*>(ptr);
+                if (pkt->w >= 0 && pkt->h >= 0) {
+                    m_ctx.glEnable(GL_SCISSOR_TEST);
+                    m_ctx.glScissor(pkt->x, pkt->y, pkt->w, pkt->h);
+                } else {
+                    m_ctx.glDisable(GL_SCISSOR_TEST);
+                }
+                break;
+            }
                  
             case CommandType::NoOp:
                 break;
