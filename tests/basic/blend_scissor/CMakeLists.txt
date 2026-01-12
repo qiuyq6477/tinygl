@@ -1,0 +1,1 @@
+add_tinygl_test(blend_scissor_test blend_scissor_test.cpp)
