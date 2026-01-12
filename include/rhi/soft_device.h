@@ -104,16 +104,22 @@ private:
     uint32_t m_nextShaderId = 1;
     std::map<uint32_t, PipelineFactory> m_shaderFactories;
 
-    // --- Runtime Execution State (Optimized Scheme B: State Deduplication) ---
-    // Tracks currently bound handles to avoid redundant context calls
+    // --- Runtime Execution State ---
     
     uint32_t m_activePipelineId = 0;
-    uint32_t m_activeVBOId = 0;
+    
+    // Binding Slots
+    static constexpr int MAX_BINDINGS = 8;
+    struct BindingState {
+        uint32_t bufferId = 0;
+        uint32_t offset = 0;
+        uint32_t stride = 0;
+    } m_bindings[MAX_BINDINGS];
+
     uint32_t m_activeIBOId = 0;
     uint32_t m_activeTextureIds[8] = {0}; // Track basic slots
 
     ISoftPipeline* m_currentPipeline = nullptr;
-    uint32_t m_currentVertexBufferOffset = 0;
     
     // Uniform Storage
     // Use a flat buffer to accumulate uniform updates.

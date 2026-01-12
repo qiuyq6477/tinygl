@@ -7,21 +7,19 @@
 namespace rhi {
 
 // Abstract interface for a pipeline object in the SoftRender backend.
-// Hides the template type of the shader.
 class ISoftPipeline {
 public:
     virtual ~ISoftPipeline() = default;
 
-    // Called by SoftDevice::Submit when a Draw command is executed.
-    // ctx: The underlying SoftRenderContext
-    // uniformData: Pointer to the accumulated uniform data (slots)
     virtual void Draw(SoftRenderContext& ctx, 
                       const std::vector<uint8_t>& uniformData,
                       uint32_t vertexCount, 
                       uint32_t firstVertex, 
                       uint32_t instanceCount,
-                      uint32_t vboId,
-                      uint32_t vertexBufferOffset) = 0;
+                      const uint32_t* vboIds,
+                      const uint32_t* offsets,
+                      const uint32_t* strides,
+                      uint32_t bindingCount) = 0;
                       
     virtual void DrawIndexed(SoftRenderContext& ctx,
                              const std::vector<uint8_t>& uniformData,
@@ -29,23 +27,22 @@ public:
                              uint32_t firstIndex, 
                              int32_t baseVertex, 
                              uint32_t instanceCount,
-                             uint32_t vboId,
-                             uint32_t iboId,
-                             uint32_t vertexBufferOffset) = 0;
+                             const uint32_t* vboIds,
+                             const uint32_t* offsets,
+                             const uint32_t* strides,
+                             uint32_t bindingCount,
+                             uint32_t iboId) = 0;
 };
 
 // Template implementation bridging RHI to SoftRender templates
 template <typename ShaderT>
 class SoftPipeline : public ISoftPipeline {
 public:
-    // Store pipeline state that SoftRenderContext needs
-    // (e.g. blend mode, depth test, etc.)
     PipelineDesc desc;
     SoftRenderContext* m_ctx = nullptr;
     GLuint m_vao = 0;
 
     SoftPipeline(SoftRenderContext& ctx, const PipelineDesc& d) : desc(d), m_ctx(&ctx) {
-        // [DSA Phase 4] Initialize VAO state once
         m_ctx->glCreateVertexArrays(1, &m_vao);
         
         for (const auto& attr : desc.inputLayout.attributes) {
@@ -62,13 +59,11 @@ public:
                 case VertexFormat::UByte4N: size = 4; type = GL_UNSIGNED_BYTE; normalized = GL_TRUE; break;
             }
             
-            // Format
             m_ctx->glVertexArrayAttribFormat(m_vao, attr.shaderLocation, size, type, normalized, attr.offset);
             
-            // Binding (All attributes use Binding 0 for simple VBO)
-            m_ctx->glVertexArrayAttribBinding(m_vao, attr.shaderLocation, 0);
+            uint32_t bindingIndex = desc.useInterleavedAttributes ? 0 : attr.shaderLocation;
+            m_ctx->glVertexArrayAttribBinding(m_vao, attr.shaderLocation, bindingIndex);
             
-            // Enable
             m_ctx->glEnableVertexArrayAttrib(m_vao, attr.shaderLocation);
         }
     }
@@ -84,23 +79,25 @@ public:
               uint32_t vertexCount, 
               uint32_t firstVertex, 
               uint32_t instanceCount,
-              uint32_t vboId,
-              uint32_t vertexBufferOffset) override {
+              const uint32_t* vboIds,
+              const uint32_t* offsets,
+              const uint32_t* strides,
+              uint32_t bindingCount) override {
         
         SetupState(ctx);
-        
-        // [DSA Phase 4] Bind VAO and update VBO binding
         ctx.glBindVertexArray(m_vao);
-        ctx.glVertexArrayVertexBuffer(m_vao, 0, vboId, vertexBufferOffset, desc.inputLayout.stride);
-
-        // Instantiate Shader
-        ShaderT shader;
         
-        // Inject Uniforms
+        for (uint32_t i = 0; i < bindingCount; ++i) {
+             if (vboIds[i] != 0) {
+                 uint32_t effStride = strides[i] > 0 ? strides[i] : desc.inputLayout.stride;
+                 ctx.glVertexArrayVertexBuffer(m_vao, i, vboIds[i], offsets[i], effStride);
+             }
+        }
+
+        ShaderT shader;
         InjectUniforms(shader, uniformData);
         InjectResources(shader, ctx);
         
-        // Draw
         if (instanceCount > 1) {
              ctx.glDrawArraysInstanced(shader, GL_TRIANGLES, firstVertex, vertexCount, instanceCount);
         } else {
@@ -116,23 +113,26 @@ public:
                      uint32_t firstIndex, 
                      int32_t baseVertex, 
                      uint32_t instanceCount,
-                     uint32_t vboId,
-                     uint32_t iboId,
-                     uint32_t vertexBufferOffset) override {
+                     const uint32_t* vboIds,
+                     const uint32_t* offsets,
+                     const uint32_t* strides,
+                     uint32_t bindingCount,
+                     uint32_t iboId) override {
         SetupState(ctx);
-        
-        // [DSA Phase 4] Bind VAO and update VBO binding
         ctx.glBindVertexArray(m_vao);
-        ctx.glVertexArrayVertexBuffer(m_vao, 0, vboId, vertexBufferOffset, desc.inputLayout.stride);
-        ctx.glVertexArrayElementBuffer(m_vao, iboId); // [Fix] Bind IBO to VAO
+        
+        for (uint32_t i = 0; i < bindingCount; ++i) {
+             if (vboIds[i] != 0) {
+                 uint32_t effStride = strides[i] > 0 ? strides[i] : desc.inputLayout.stride;
+                 ctx.glVertexArrayVertexBuffer(m_vao, i, vboIds[i], offsets[i], effStride);
+             }
+        }
+        ctx.glVertexArrayElementBuffer(m_vao, iboId); 
         
         ShaderT shader;
         InjectUniforms(shader, uniformData);
         InjectResources(shader, ctx);
 
-        // SoftRenderContext::glDrawElements expects indices type. 
-        // We assume GL_UNSIGNED_INT for now as per tinygl standard.
-        // offset is bytes, so we cast to void*
         void* offset = (void*)(uintptr_t)(firstIndex * sizeof(uint32_t));
         
         if (instanceCount > 1) {
@@ -159,15 +159,12 @@ private:
     }
 
     void RestoreState(SoftRenderContext& ctx) {
-        // Reset state logic if needed
     }
 
     void InjectUniforms(ShaderT& shader, const std::vector<uint8_t>& uniformData) {
-        // Prioritize custom binding method if available
         if constexpr (requires { shader.BindUniforms(uniformData); }) {
             shader.BindUniforms(uniformData);
         } 
-        // Fallback: Slot 0 -> MaterialData (Legacy Assumption)
         else if constexpr (requires { shader.materialData; }) {
             if (uniformData.size() >= sizeof(shader.materialData)) {
                 std::memcpy(&shader.materialData, uniformData.data(), sizeof(shader.materialData));

@@ -30,19 +30,28 @@ public:
         m_buffer.Write(pkt);
     }
 
+    // Legacy/Convenience: Set Binding 0 with stride 0 (implied from pipeline)
     void SetVertexBuffer(BufferHandle buffer, uint32_t offset = 0) {
-        PacketSetBuffer pkt;
-        pkt.type = CommandType::SetVertexBuffer;
-        pkt.size = sizeof(PacketSetBuffer);
+        SetVertexStream(0, buffer, offset, 0);
+    }
+
+    // Advanced: Set specific binding slot
+    void SetVertexStream(uint32_t bindingIndex, BufferHandle buffer, uint32_t offset, uint32_t stride) {
+        PacketSetVertexStream pkt;
+        pkt.type = CommandType::SetVertexStream;
+        pkt.size = sizeof(PacketSetVertexStream);
         pkt.handle = buffer;
         pkt.offset = offset;
+        pkt.stride = stride;
+        pkt.bindingIndex = (uint16_t)bindingIndex;
+        pkt._padding = 0;
         m_buffer.Write(pkt);
     }
 
     void SetIndexBuffer(BufferHandle buffer, uint32_t offset = 0) {
-        PacketSetBuffer pkt;
+        PacketSetIndexBuffer pkt;
         pkt.type = CommandType::SetIndexBuffer;
-        pkt.size = sizeof(PacketSetBuffer);
+        pkt.size = sizeof(PacketSetIndexBuffer);
         pkt.handle = buffer;
         pkt.offset = offset;
         m_buffer.Write(pkt);
@@ -108,7 +117,6 @@ public:
         device.Submit(m_buffer);
     }
 
-    // Allow access to buffer if needed
     const CommandBuffer& GetBuffer() const { return m_buffer; }
 
 private:

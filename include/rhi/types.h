@@ -74,6 +74,10 @@ struct BufferDesc {
     size_t size = 0;
     const void* initialData = nullptr; // Optional
     const char* label = nullptr;       // For debugging
+    
+    // [Advanced] Hint for SoA optimizations (optional)
+    bool useSoALayout = false; 
+    uint32_t stride = 0; 
 };
 
 // Pipeline State Description
@@ -83,8 +87,12 @@ struct PipelineDesc {
     
     // Vertex Input Layout
     VertexInputState inputLayout;
+    
+    // [Advanced] Attribute Binding Mode
+    // true: All attributes sourced from Binding 0 (Interleaved).
+    // false: Attribute 'i' sourced from Binding 'i' (Planar/Multi-stream).
+    bool useInterleavedAttributes = true;
 
-    // Rasterization State
     CullMode cullMode = CullMode::Back;
     PrimitiveType primitiveType = PrimitiveType::Triangles;
     

@@ -6,7 +6,7 @@ namespace rhi {
 
 enum class CommandType : uint16_t {
     SetPipeline,
-    SetVertexBuffer,
+    SetVertexStream,
     SetIndexBuffer,
     SetTexture,
     UpdateUniform,
@@ -31,7 +31,17 @@ struct PacketSetPipeline : CommandPacket {
     PipelineHandle handle;
 };
 
-struct PacketSetBuffer : CommandPacket {
+// Used for Vertex Buffers (Planar or Interleaved)
+struct PacketSetVertexStream : CommandPacket {
+    BufferHandle handle;
+    uint32_t offset;
+    uint32_t stride; 
+    uint16_t bindingIndex;
+    uint16_t _padding;
+};
+
+// Used for Index Buffers
+struct PacketSetIndexBuffer : CommandPacket {
     BufferHandle handle;
     uint32_t offset;
 };

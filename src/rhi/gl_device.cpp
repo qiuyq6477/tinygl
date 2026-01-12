@@ -70,7 +70,10 @@ namespace {
                 g_state.boundVBO = id;
             }
         } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
-            glBindBuffer(target, id); 
+            if (g_state.boundIBO != id) {
+                glBindBuffer(target, id);
+                g_state.boundIBO = id;
+            } 
         } else {
             glBindBuffer(target, id);
         }
@@ -154,6 +157,16 @@ static uint32_t s_nextPipelineHandle = 1;
 static GLuint s_globalUBO = 0;
 static uint8_t s_uniformStaging[16 * 256];
 static bool s_uniformsDirty = false;
+
+// Track bindings
+static constexpr int MAX_BINDINGS = 8;
+struct BindingState {
+    uint32_t bufferId = 0;
+    uint32_t offset = 0;
+    uint32_t stride = 0;
+};
+static BindingState s_bindings[MAX_BINDINGS];
+static uint32_t s_activeIBO = 0;
 
 GLDevice::GLDevice() {
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
@@ -270,6 +283,8 @@ PipelineHandle GLDevice::CreatePipeline(const PipelineDesc& desc) {
     GLuint vao;
     glGenVertexArrays(1, &vao);
     BindVertexArray(vao);
+    
+    // Initial setup with enabled arrays. Pointers are set at Draw time.
     for (const auto& attr : desc.inputLayout.attributes) {
         glEnableVertexAttribArray(attr.shaderLocation);
     }
@@ -295,9 +310,11 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
     }
 
     uint32_t currentPipelineId = 0;
-    uint32_t currentVBO = 0;
-    uint32_t currentIBO = 0;
     PipelineMeta* currentPipelineMeta = nullptr;
+    
+    // Reset frame state
+    std::memset(s_bindings, 0, sizeof(s_bindings));
+    s_activeIBO = 0;
 
     const uint8_t* ptr = buffer.GetData();
     const uint8_t* end = ptr + buffer.GetSize();
@@ -335,22 +352,21 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                 }
                 break;
             }
-            case CommandType::SetVertexBuffer: {
-                const auto* pkt = reinterpret_cast<const PacketSetBuffer*>(ptr);
-                if (currentVBO != pkt->handle.id) {
-                    currentVBO = pkt->handle.id;
-                    if (s_buffers.count(currentVBO)) {
-                        BindBuffer(GL_ARRAY_BUFFER, s_buffers[currentVBO].id);
-                    }
+            case CommandType::SetVertexStream: {
+                const auto* pkt = reinterpret_cast<const PacketSetVertexStream*>(ptr);
+                if (pkt->bindingIndex < MAX_BINDINGS) {
+                    s_bindings[pkt->bindingIndex].bufferId = pkt->handle.id;
+                    s_bindings[pkt->bindingIndex].offset = pkt->offset;
+                    s_bindings[pkt->bindingIndex].stride = pkt->stride;
                 }
                 break;
             }
             case CommandType::SetIndexBuffer: {
-                const auto* pkt = reinterpret_cast<const PacketSetBuffer*>(ptr);
-                if (currentIBO != pkt->handle.id) {
-                    currentIBO = pkt->handle.id;
-                    if (s_buffers.count(currentIBO)) {
-                        BindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_buffers[currentIBO].id);
+                const auto* pkt = reinterpret_cast<const PacketSetIndexBuffer*>(ptr);
+                if (s_activeIBO != pkt->handle.id) {
+                    s_activeIBO = pkt->handle.id;
+                    if (s_buffers.count(s_activeIBO)) {
+                        BindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_buffers[s_activeIBO].id);
                     }
                 }
                 break;
@@ -380,7 +396,7 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
             }
             case CommandType::Draw: {
                 const auto* pkt = reinterpret_cast<const PacketDraw*>(ptr);
-                if (currentPipelineMeta && currentVBO) {
+                if (currentPipelineMeta) {
                     if (s_uniformsDirty) {
                         glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
                         glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s_uniformStaging), s_uniformStaging);
@@ -392,17 +408,32 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                         }
                     }
 
+                    // Apply Bindings to Attrib Pointers
                     const auto& layout = currentPipelineMeta->desc.inputLayout;
-                    GLsizei stride = layout.stride;
+                    bool interleaved = currentPipelineMeta->desc.useInterleavedAttributes;
+
                     for (const auto& attr : layout.attributes) {
-                        glVertexAttribPointer(
-                            attr.shaderLocation,
-                            ToGLSize(attr.format),
-                            ToGLType(attr.format),
-                            GL_FALSE,
-                            stride,
-                            (const void*)(uintptr_t)attr.offset
-                        );
+                        uint32_t bindingIdx = interleaved ? 0 : attr.shaderLocation;
+                        // For safety, fallback to 0 if we requested planar but didn't bind anything at N
+                        if (s_bindings[bindingIdx].bufferId == 0 && !interleaved) bindingIdx = 0;
+
+                        const auto& binding = s_bindings[bindingIdx];
+                        if (binding.bufferId != 0 && s_buffers.count(binding.bufferId)) {
+                             BindBuffer(GL_ARRAY_BUFFER, s_buffers[binding.bufferId].id);
+                             // Use provided stride, fallback to binding stride, fallback to pipeline stride
+                             // If interleaved, usually binding.stride is 0 (set by legacy SetVertexBuffer), 
+                             // so we use layout.stride.
+                             GLsizei stride = binding.stride > 0 ? binding.stride : layout.stride;
+                             
+                             glVertexAttribPointer(
+                                attr.shaderLocation,
+                                ToGLSize(attr.format),
+                                ToGLType(attr.format),
+                                GL_FALSE,
+                                stride,
+                                (const void*)(uintptr_t)(binding.offset + attr.offset)
+                            );
+                        }
                     }
                     glDrawArrays(ToGLPrimitive(currentPipelineMeta->desc.primitiveType), pkt->firstVertex, pkt->vertexCount);
                 }
@@ -410,28 +441,36 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
             }
             case CommandType::DrawIndexed: {
                 const auto* pkt = reinterpret_cast<const PacketDrawIndexed*>(ptr);
-                if (currentPipelineMeta && currentVBO && currentIBO) {
+                if (currentPipelineMeta && s_activeIBO) {
                     if (s_uniformsDirty) {
                         glBindBuffer(GL_UNIFORM_BUFFER, s_globalUBO);
                         glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s_uniformStaging), s_uniformStaging);
                         s_uniformsDirty = false;
-
                         for(int i=0; i<16; ++i) {
                             glBindBufferRange(GL_UNIFORM_BUFFER, i, s_globalUBO, i*256, 256);
                         }
                     }
 
                     const auto& layout = currentPipelineMeta->desc.inputLayout;
-                    GLsizei stride = layout.stride;
+                    bool interleaved = currentPipelineMeta->desc.useInterleavedAttributes;
+                    
                     for (const auto& attr : layout.attributes) {
-                        glVertexAttribPointer(
-                            attr.shaderLocation,
-                            ToGLSize(attr.format),
-                            ToGLType(attr.format),
-                            GL_FALSE,
-                            stride,
-                            (const void*)(uintptr_t)attr.offset
-                        );
+                        uint32_t bindingIdx = interleaved ? 0 : attr.shaderLocation;
+                        if (s_bindings[bindingIdx].bufferId == 0 && !interleaved) bindingIdx = 0;
+
+                        const auto& binding = s_bindings[bindingIdx];
+                        if (binding.bufferId != 0 && s_buffers.count(binding.bufferId)) {
+                             BindBuffer(GL_ARRAY_BUFFER, s_buffers[binding.bufferId].id);
+                             GLsizei stride = binding.stride > 0 ? binding.stride : layout.stride;
+                             glVertexAttribPointer(
+                                attr.shaderLocation,
+                                ToGLSize(attr.format),
+                                ToGLType(attr.format),
+                                GL_FALSE,
+                                stride,
+                                (const void*)(uintptr_t)(binding.offset + attr.offset)
+                            );
+                        }
                     }
                     glDrawElements(ToGLPrimitive(currentPipelineMeta->desc.primitiveType), pkt->indexCount, GL_UNSIGNED_INT, (const void*)(uintptr_t)(pkt->firstIndex * 4));
                 }
