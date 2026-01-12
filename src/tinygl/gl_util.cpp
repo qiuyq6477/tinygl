@@ -86,6 +86,12 @@ bool SoftRenderContext::convertToInternalFormat(const void* src_data, GLsizei sr
                 dst_pixels[i] = (0xFF << 24) | (b << 16) | (g << 8) | r; // AABBGGRR
             }
             return true;
+        } else if (src_format == GL_RED) {
+             for (size_t i = 0; i < pixel_count; ++i) {
+                uint8_t r = src_bytes[i];
+                dst_pixels[i] = (0xFF << 24) | (0 << 16) | (0 << 8) | r; // AABBGGRR
+            }
+            return true;
         } else {
             LOG_ERROR("Unsupported source format with GL_UNSIGNED_BYTE type.");
             return false;

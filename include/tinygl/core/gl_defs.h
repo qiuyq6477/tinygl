@@ -143,6 +143,9 @@ using GLfloat = float;
 #ifndef GL_RGB
 #define GL_RGB 0x1907
 #endif
+#ifndef GL_RED
+#define GL_RED 0x1903
+#endif
 #ifndef GL_DEPTH_COMPONENT
 #define GL_DEPTH_COMPONENT 0x1902
 #endif

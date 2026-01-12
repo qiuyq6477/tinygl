@@ -71,7 +71,10 @@ TextureHandle SoftDevice::CreateTexture(const void* pixelData, int width, int he
     m_ctx.glGenTextures(1, &res.glId);
     m_ctx.glBindTexture(GL_TEXTURE_2D, res.glId);
     
-    GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+    GLenum format = GL_RGBA;
+    if (channels == 3) format = GL_RGB;
+    else if (channels == 1) format = GL_RED;
+
     m_ctx.glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, pixelData);
     
     uint32_t id = m_textures.Allocate(std::move(res));

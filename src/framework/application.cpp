@@ -4,6 +4,8 @@
 #include <framework/application.h>
 #include <framework/ui_renderer.h>
 #include <rhi/gl_device.h>
+#include <rhi/soft_device.h>
+#include <rhi/encoder.h>
 
 #ifdef _WIN32
     #include <direct.h>
@@ -29,10 +31,7 @@ void Application::run() {
     initSDL();
     
     // 初始化 UI
-    // In GL mode, UI renderer currently relies on SoftRenderContext.
-    // For Phase 1, we might see no UI in GL mode or we need to bridge it.
-    // We'll proceed with standard init.
-    UIRenderer::init(&m_uiContext);
+    UIRenderer::init(&m_uiContext, m_graphicsDevice.get());
 
     // 初始化用户资源
     if (!onInit()) {
@@ -86,10 +85,13 @@ void Application::run() {
         // 5. Render (User submits draw calls to SoftRenderContext)
         onRender();
 
-        if (m_config.backend == AppConfig::Backend::Software) {
-            // 6. Render UI Overlay
-            UIRenderer::render(&m_uiContext, *m_context);
+        // 6. UI Render (RHI)
 
+        rhi::CommandEncoder encoder;
+        UIRenderer::render(&m_uiContext, encoder, m_config.width, m_config.height);
+        m_graphicsDevice->Submit(encoder.GetBuffer());
+
+        if (m_config.backend == AppConfig::Backend::Software) {
             // 7. Present (Blit SoftRenderContext buffer to SDL Window)
             uint32_t* buffer = m_context->getColorBuffer();
             if (buffer) {
@@ -108,7 +110,6 @@ void Application::run() {
             }
         } else {
             // OpenGL Present
-            // Note: UI is currently not rendered in GL mode as UIRenderer is software-only
             SDL_GL_SwapWindow(m_window);
         }
         
@@ -124,6 +125,7 @@ void Application::run() {
     }
 
     onDestroy();
+    UIRenderer::shutdown();
 }
 
 void Application::quit() {
@@ -187,6 +189,10 @@ void Application::initSDL() {
             std::cerr << "SDL_CreateTexture Error: " << SDL_GetError() << std::endl;
             exit(1);
         }
+        
+        // Create SoftDevice
+        m_graphicsDevice = std::make_unique<rhi::SoftDevice>(*m_context);
+
     } else {
         // Initialize OpenGL
         m_glContext = SDL_GL_CreateContext(m_window);
