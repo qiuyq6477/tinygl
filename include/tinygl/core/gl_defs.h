@@ -160,6 +160,12 @@ using GLfloat = float;
 #ifndef GL_CULL_FACE
 #define GL_CULL_FACE 0x0B44
 #endif
+#ifndef GL_SCISSOR_TEST
+#define GL_SCISSOR_TEST 0x0C11
+#endif
+#ifndef GL_BLEND
+#define GL_BLEND 0x0BE2
+#endif
 
 // Comparisons
 #ifndef GL_NEVER
@@ -185,6 +191,70 @@ using GLfloat = float;
 #endif
 #ifndef GL_ALWAYS
 #define GL_ALWAYS 0x0207
+#endif
+
+// Blending Factors
+#ifndef GL_ZERO
+#define GL_ZERO 0
+#endif
+#ifndef GL_ONE
+#define GL_ONE 1
+#endif
+#ifndef GL_SRC_COLOR
+#define GL_SRC_COLOR 0x0300
+#endif
+#ifndef GL_ONE_MINUS_SRC_COLOR
+#define GL_ONE_MINUS_SRC_COLOR 0x0301
+#endif
+#ifndef GL_SRC_ALPHA
+#define GL_SRC_ALPHA 0x0302
+#endif
+#ifndef GL_ONE_MINUS_SRC_ALPHA
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#endif
+#ifndef GL_DST_ALPHA
+#define GL_DST_ALPHA 0x0304
+#endif
+#ifndef GL_ONE_MINUS_DST_ALPHA
+#define GL_ONE_MINUS_DST_ALPHA 0x0305
+#endif
+#ifndef GL_DST_COLOR
+#define GL_DST_COLOR 0x0306
+#endif
+#ifndef GL_ONE_MINUS_DST_COLOR
+#define GL_ONE_MINUS_DST_COLOR 0x0307
+#endif
+#ifndef GL_SRC_ALPHA_SATURATE
+#define GL_SRC_ALPHA_SATURATE 0x0308
+#endif
+#ifndef GL_CONSTANT_COLOR
+#define GL_CONSTANT_COLOR 0x8001
+#endif
+#ifndef GL_ONE_MINUS_CONSTANT_COLOR
+#define GL_ONE_MINUS_CONSTANT_COLOR 0x8002
+#endif
+#ifndef GL_CONSTANT_ALPHA
+#define GL_CONSTANT_ALPHA 0x8003
+#endif
+#ifndef GL_ONE_MINUS_CONSTANT_ALPHA
+#define GL_ONE_MINUS_CONSTANT_ALPHA 0x8004
+#endif
+
+// Blending Equations
+#ifndef GL_FUNC_ADD
+#define GL_FUNC_ADD 0x8006
+#endif
+#ifndef GL_FUNC_SUBTRACT
+#define GL_FUNC_SUBTRACT 0x800A
+#endif
+#ifndef GL_FUNC_REVERSE_SUBTRACT
+#define GL_FUNC_REVERSE_SUBTRACT 0x800B
+#endif
+#ifndef GL_MIN
+#define GL_MIN 0x8007
+#endif
+#ifndef GL_MAX
+#define GL_MAX 0x8008
 #endif
 
 // Stencil Operations

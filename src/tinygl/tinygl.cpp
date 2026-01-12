@@ -22,20 +22,63 @@ void SoftRenderContext::glClearColor(float r, float g, float b, float a) {
 
 
 void SoftRenderContext::glClear(uint32_t buffersToClear) {
+    int minX = 0, minY = 0, maxX = fbWidth, maxY = fbHeight;
+    if (m_capabilities[GL_SCISSOR_TEST]) {
+        minX = std::max(0, m_scissorBox.x);
+        minY = std::max(0, m_scissorBox.y);
+        maxX = std::min(fbWidth, m_scissorBox.x + m_scissorBox.w);
+        maxY = std::min(fbHeight, m_scissorBox.y + m_scissorBox.h);
+    }
+
+    if (minX >= maxX || minY >= maxY) return;
+
+    bool fullClear = (minX == 0 && minY == 0 && maxX == fbWidth && maxY == fbHeight);
+
     if (buffersToClear & GL_COLOR_BUFFER_BIT) {
         uint8_t R = (uint8_t)(std::clamp(m_clearColor.x, 0.0f, 1.0f) * 255);
         uint8_t G = (uint8_t)(std::clamp(m_clearColor.y, 0.0f, 1.0f) * 255);
         uint8_t B = (uint8_t)(std::clamp(m_clearColor.z, 0.0f, 1.0f) * 255);
         uint8_t A = (uint8_t)(std::clamp(m_clearColor.w, 0.0f, 1.0f) * 255);
         uint32_t clearColorInt = (A << 24) | (B << 16) | (G << 8) | R;
-        // Use std::fill_n on the pointer
-        std::fill_n(m_colorBufferPtr, fbWidth * fbHeight, clearColorInt);
+        
+        if (fullClear) {
+            std::fill_n(m_colorBufferPtr, fbWidth * fbHeight, clearColorInt);
+        } else {
+            for (int y = minY; y < maxY; ++y) {
+                std::fill_n(m_colorBufferPtr + y * fbWidth + minX, maxX - minX, clearColorInt);
+            }
+        }
     }
-    if ((buffersToClear & GL_DEPTH_BUFFER_BIT) && m_depthMask) {
-        std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
+    if (buffersToClear & GL_DEPTH_BUFFER_BIT) {
+        // NOTE: glClear is NOT affected by glDepthMask in standard OpenGL, 
+        // but it IS affected by it in some old versions. 
+        // OpenGL 4.6 says: "The masked subset of the color, depth, and stencil buffers are cleared"
+        // So we should respect the masks.
+        if (m_depthMask) {
+            if (fullClear) {
+                std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
+            } else {
+                for (int y = minY; y < maxY; ++y) {
+                    std::fill_n(depthBuffer.data() + y * fbWidth + minX, maxX - minX, DEPTH_INFINITY);
+                }
+            }
+        }
     }
     if (buffersToClear & GL_STENCIL_BUFFER_BIT) {
-        std::fill(stencilBuffer.begin(), stencilBuffer.end(), (uint8_t)(m_clearStencil & 0xFF));
+        uint8_t s = (uint8_t)(m_clearStencil & 0xFF);
+        // Stencil mask also affects glClear
+        if (m_stencilWriteMask != 0) {
+             if (fullClear && m_stencilWriteMask == 0xFF) {
+                std::fill(stencilBuffer.begin(), stencilBuffer.end(), s);
+            } else {
+                for (int y = minY; y < maxY; ++y) {
+                    uint8_t* row = stencilBuffer.data() + y * fbWidth + minX;
+                    for (int x = 0; x < (maxX - minX); ++x) {
+                        row[x] = (row[x] & ~m_stencilWriteMask) | (s & m_stencilWriteMask);
+                    }
+                }
+            }
+        }
     }
 }
 

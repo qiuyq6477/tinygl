@@ -114,7 +114,23 @@ private:
     std::vector<uint32_t> m_indexCache;
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
+    struct ScissorBox {
+        GLint x, y;
+        GLsizei w, h;
+    };
+
+    struct BlendState {
+        GLenum srcRGB = GL_ONE;
+        GLenum dstRGB = GL_ZERO;
+        GLenum srcAlpha = GL_ONE;
+        GLenum dstAlpha = GL_ZERO;
+        GLenum equationRGB = GL_FUNC_ADD;
+        GLenum equationAlpha = GL_FUNC_ADD;
+    };
+
     Viewport m_viewport;
+    ScissorBox m_scissorBox;
+    BlendState m_blendState;
     GLenum m_polygonMode = GL_FILL; // 默认填充
     GLenum m_cullFaceMode = GL_BACK; // Default cull back faces
     GLenum m_frontFace = GL_CCW;     // Default counter-clockwise is front
@@ -134,9 +150,56 @@ private:
     std::unordered_map<GLenum, GLboolean> m_capabilities = {
         {GL_DEPTH_TEST, GL_TRUE}, // Default enabled for backward compatibility
         {GL_CULL_FACE, GL_FALSE}, // Default disabled
-        {GL_STENCIL_TEST, GL_FALSE}
+        {GL_STENCIL_TEST, GL_FALSE},
+        {GL_SCISSOR_TEST, GL_FALSE},
+        {GL_BLEND, GL_FALSE}
     };
     GLenum m_depthFunc = GL_LESS;
+
+    // Helper to calculate blending
+    inline Vec4 applyBlending(const Vec4& src, const Vec4& dst) {
+        auto getFactor = [&](GLenum factor, const Vec4& s, const Vec4& d) -> Vec4 {
+            switch (factor) {
+                case GL_ZERO: return Vec4(0, 0, 0, 0);
+                case GL_ONE: return Vec4(1, 1, 1, 1);
+                case GL_SRC_COLOR: return s;
+                case GL_ONE_MINUS_SRC_COLOR: return Vec4(1, 1, 1, 1) - s;
+                case GL_DST_COLOR: return d;
+                case GL_ONE_MINUS_DST_COLOR: return Vec4(1, 1, 1, 1) - d;
+                case GL_SRC_ALPHA: return Vec4(s.w, s.w, s.w, s.w);
+                case GL_ONE_MINUS_SRC_ALPHA: return Vec4(1 - s.w, 1 - s.w, 1 - s.w, 1 - s.w);
+                case GL_DST_ALPHA: return Vec4(d.w, d.w, d.w, d.w);
+                case GL_ONE_MINUS_DST_ALPHA: return Vec4(1 - d.w, 1 - d.w, 1 - d.w, 1 - d.w);
+                case GL_SRC_ALPHA_SATURATE: {
+                    float f = std::min(s.w, 1.0f - d.w);
+                    return Vec4(f, f, f, 1.0f);
+                }
+                // CONSTANT_COLOR and others could be added if needed
+                default: return Vec4(1, 1, 1, 1);
+            }
+        };
+
+        Vec4 srcFactorRGB = getFactor(m_blendState.srcRGB, src, dst);
+        Vec4 dstFactorRGB = getFactor(m_blendState.dstRGB, src, dst);
+        Vec4 srcFactorA = getFactor(m_blendState.srcAlpha, src, dst);
+        Vec4 dstFactorA = getFactor(m_blendState.dstAlpha, src, dst);
+
+        auto combine = [](const Vec4& s, const Vec4& sf, const Vec4& d, const Vec4& df, GLenum op) -> Vec4 {
+            switch (op) {
+                case GL_FUNC_ADD: return s * sf + d * df;
+                case GL_FUNC_SUBTRACT: return s * sf - d * df;
+                case GL_FUNC_REVERSE_SUBTRACT: return d * df - s * sf;
+                case GL_MIN: return Vec4(std::min(s.x, d.x), std::min(s.y, d.y), std::min(s.z, d.z), std::min(s.w, d.w));
+                case GL_MAX: return Vec4(std::max(s.x, d.x), std::max(s.y, d.y), std::max(s.z, d.z), std::max(s.w, d.w));
+                default: return s * sf + d * df;
+            }
+        };
+
+        Vec4 resRGB = combine(src, srcFactorRGB, dst, dstFactorRGB, m_blendState.equationRGB);
+        Vec4 resA = combine(src, srcFactorA, dst, dstFactorA, m_blendState.equationAlpha);
+
+        return Vec4(resRGB.x, resRGB.y, resRGB.z, resA.w);
+    }
 
     // Stencil Op Helper
     inline void applyStencilOp(GLenum op, uint8_t& val) {
@@ -227,6 +290,7 @@ public:
         fbHeight = height;
         // Viewport 初始化
         m_viewport = {0, 0, fbWidth, fbHeight};
+        m_scissorBox = {0, 0, fbWidth, fbHeight};
         
         vaos.forceAllocate(0); 
         colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
@@ -251,6 +315,31 @@ public:
     }
 
     void glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
+    
+    void glScissor(GLint x, GLint y, GLsizei width, GLsizei height) {
+        m_scissorBox = {x, y, width, height};
+    }
+
+    void glBlendFunc(GLenum sfactor, GLenum dfactor) {
+        glBlendFuncSeparate(sfactor, dfactor, sfactor, dfactor);
+    }
+
+    void glBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+        m_blendState.srcRGB = srcRGB;
+        m_blendState.dstRGB = dstRGB;
+        m_blendState.srcAlpha = srcAlpha;
+        m_blendState.dstAlpha = dstAlpha;
+    }
+
+    void glBlendEquation(GLenum mode) {
+        glBlendEquationSeparate(mode, mode);
+    }
+
+    void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
+        m_blendState.equationRGB = modeRGB;
+        m_blendState.equationAlpha = modeAlpha;
+    }
+
     // 设置多边形模式 API
     void glPolygonMode(GLenum face, GLenum mode);
 
@@ -401,10 +490,23 @@ public:
         int limitMinY = std::max(0, m_viewport.y);
         int limitMaxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
 
+        if (m_capabilities[GL_SCISSOR_TEST]) {
+            limitMinX = std::max(limitMinX, m_scissorBox.x);
+            limitMaxX = std::min(limitMaxX, m_scissorBox.x + m_scissorBox.w);
+            limitMinY = std::max(limitMinY, m_scissorBox.y);
+            limitMaxY = std::min(limitMaxY, m_scissorBox.y + m_scissorBox.h);
+        }
+
+        // Early out if scissor/viewport is empty
+        if (limitMinX >= limitMaxX || limitMinY >= limitMaxY) return;
+
         int minX = std::max(limitMinX, (int)std::min({v0.scn.x, v1.scn.x, v2.scn.x}));
         int maxX = std::min(limitMaxX - 1, (int)std::max({v0.scn.x, v1.scn.x, v2.scn.x}) + 1);
         int minY = std::max(limitMinY, (int)std::min({v0.scn.y, v1.scn.y, v2.scn.y}));
         int maxY = std::min(limitMaxY - 1, (int)std::max({v0.scn.y, v1.scn.y, v2.scn.y}) + 1);
+
+        // Early out if triangle is outside scissor/viewport
+        if (minX > maxX || minY > maxY) return;
 
         // 2. 面积计算 (Backface Culling)
         float area = (v1.scn.y - v0.scn.y) * (v2.scn.x - v0.scn.x) - 
@@ -579,6 +681,11 @@ public:
 
                                 if (stencilPass && depthPass) {
                                     if (m_depthMask) *pDepth = finalZ;
+                                    
+                                    if (m_capabilities[GL_BLEND]) {
+                                        Vec4 dstColor = ColorUtils::Uint32ToFloat(*pColor);
+                                        fColor = applyBlending(fColor, dstColor);
+                                    }
                                     *pColor = ColorUtils::FloatToUint32(fColor);
                                 }
                             }
@@ -629,15 +736,23 @@ public:
         float total_dist = std::sqrt(std::pow((float)x1 - x0, 2) + std::pow((float)y1 - y0, 2));
         if (total_dist < 1e-5f) total_dist = 1.0f;
 
-        // 视口边界
-        int minX = m_viewport.x;
-        int maxX = m_viewport.x + m_viewport.w;
-        int minY = m_viewport.y;
-        int maxY = m_viewport.y + m_viewport.h;
+        // 视口与裁剪边界
+        int minX = std::max(0, m_viewport.x);
+        int maxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+        int minY = std::max(0, m_viewport.y);
+        int maxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+
+        if (m_capabilities[GL_SCISSOR_TEST]) {
+            minX = std::max(minX, m_scissorBox.x);
+            maxX = std::min(maxX, m_scissorBox.x + m_scissorBox.w);
+            minY = std::max(minY, m_scissorBox.y);
+            maxY = std::min(maxY, m_scissorBox.y + m_scissorBox.h);
+        }
 
         // Optimization: Cache capability flags
         bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
         bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+        bool enableBlend = m_capabilities[GL_BLEND];
 
         while (true) {
             // 像素裁剪
@@ -713,6 +828,10 @@ public:
 
                             if (stencilPass && depthPass) {
                                 if (m_depthMask) depthBuffer[pix] = finalZ;
+                                if (enableBlend) {
+                                    Vec4 dstColor = ColorUtils::Uint32ToFloat(m_colorBufferPtr[pix]);
+                                    fColor = applyBlending(fColor, dstColor);
+                                }
                                 m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                             }
                         }
@@ -733,9 +852,21 @@ public:
         int x = (int)v.scn.x;
         int y = (int)v.scn.y;
 
-        // 简单的视口裁剪检查
-        if (x < m_viewport.x || x >= m_viewport.x + m_viewport.w ||
-            y < m_viewport.y || y >= m_viewport.y + m_viewport.h) return;
+        // 视口与裁剪边界
+        int minX = std::max(0, m_viewport.x);
+        int maxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
+        int minY = std::max(0, m_viewport.y);
+        int maxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+
+        if (m_capabilities[GL_SCISSOR_TEST]) {
+            minX = std::max(minX, m_scissorBox.x);
+            maxX = std::min(maxX, m_scissorBox.x + m_scissorBox.w);
+            minY = std::max(minY, m_scissorBox.y);
+            maxY = std::min(maxY, m_scissorBox.y + m_scissorBox.h);
+        }
+
+        // 简单的裁剪检查
+        if (x < minX || x >= maxX || y < minY || y >= maxY) return;
 
         int pix = y * fbWidth + x;
         
@@ -745,6 +876,7 @@ public:
         // Optimization: Cache capability flags
         bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
         bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+        bool enableBlend = m_capabilities[GL_BLEND];
 
         // 1. Early-Z
         bool earlyZPass = true;
@@ -797,6 +929,10 @@ public:
 
                 if (stencilPass && depthPass) {
                     if (m_depthMask) depthBuffer[pix] = finalZ;
+                    if (enableBlend) {
+                        Vec4 dstColor = ColorUtils::Uint32ToFloat(m_colorBufferPtr[pix]);
+                        fColor = applyBlending(fColor, dstColor);
+                    }
                     m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                 }
             }
