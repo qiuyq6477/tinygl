@@ -145,6 +145,7 @@ private:
     GLenum m_stencilPassDepthFail = GL_KEEP;
     GLenum m_stencilPassDepthPass = GL_KEEP;
     GLint m_clearStencil = 0;
+    float m_clearDepth = 1.0f;
 
     // Capabilities
     std::unordered_map<GLenum, GLboolean> m_capabilities = {
@@ -296,8 +297,7 @@ public:
         colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
         m_colorBufferPtr = colorBuffer.data();               // Default to internal buffer
 
-        // 【Fix 1】: Depth 初始化为极大值，确保 z=1.0 的物体能通过测试
-        depthBuffer.resize(fbWidth * fbHeight, DEPTH_INFINITY); 
+        depthBuffer.resize(fbWidth * fbHeight, m_clearDepth); 
         // Stencil Init
         stencilBuffer.resize(fbWidth * fbHeight, 0);
 
@@ -370,6 +370,10 @@ public:
     }
     void glClearStencil(GLint s){
         m_clearStencil = s;
+    }
+
+    void glClearDepth(float depth) {
+        m_clearDepth = depth;
     }
 
     void glEnable(GLenum cap) {

@@ -56,10 +56,10 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
         // So we should respect the masks.
         if (m_depthMask) {
             if (fullClear) {
-                std::fill(depthBuffer.begin(), depthBuffer.end(), DEPTH_INFINITY);
+                std::fill(depthBuffer.begin(), depthBuffer.end(), m_clearDepth);
             } else {
                 for (int y = minY; y < maxY; ++y) {
-                    std::fill_n(depthBuffer.data() + y * fbWidth + minX, maxX - minX, DEPTH_INFINITY);
+                    std::fill_n(depthBuffer.data() + y * fbWidth + minX, maxX - minX, m_clearDepth);
                 }
             }
         }
