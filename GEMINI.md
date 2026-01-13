@@ -212,3 +212,10 @@ Shaders in TinyGL are implemented as C++ structs/classes. Follow these rules to 
     - **Resource Pooling (Scheme A):** Replaced `std::map` with vector-based `ResourcePool` in `SoftDevice` for O(1) resource access and better cache locality.
     - **State Deduplication (Scheme B):** Implemented state tracking in `SoftDevice::Submit` to skip redundant pipeline, buffer, and texture binding commands.
 - **RHI Fix:** Resolved RHI Handle to GL ID mismatch in `SoftDevice::Submit`. Fixed a bug where internal handle indices were incorrectly passed as OpenGL object IDs, which caused corrupted index buffer bindings and `fetchAttribute OOB` errors.
+- Implemented RHI optimization: Compact Linear Stream (CommandBuffer/Packet-based) replacing the `RenderCommand` union. Removed Uniform size limits and prepared for multi-threading.
+- Implemented **Stateless Render Pass Architecture** in RHI:
+    - Introduced `RenderPassDesc`, `LoadAction`, and `StoreAction` to define pass-level environment.
+    - Added `BeginRenderPass` and `EndRenderPass` to `CommandEncoder`.
+    - Enforced **Statelessness**: Every `BeginRenderPass` automatically resets the global state (Scissor, Viewport) and invalidates the current Pipeline, preventing state leakage between passes.
+    - Implemented **LoadAction::Clear** in `SoftDevice` to automate framebuffer clearing at the start of a pass.
+    - Maintained backward compatibility for legacy `encoder.Clear()` calls.

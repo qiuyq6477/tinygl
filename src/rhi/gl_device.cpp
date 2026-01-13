@@ -285,11 +285,7 @@ void GLDevice::DestroyPipeline(PipelineHandle handle) {
 }
 
 void GLDevice::Submit(const CommandBuffer& buffer) {
-    if (buffer.IsEmpty()) {
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        return;
-    }
+    if (buffer.IsEmpty()) return;
 
     uint32_t currentPipelineId = 0;
     PipelineMeta* currentPipelineMeta = nullptr;
@@ -494,6 +490,45 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                 glClearColor(pkt->r, pkt->g, pkt->b, pkt->a);
                 glClear(mask);
                 break;
+            }
+            case CommandType::BeginPass: {
+                 const auto* pkt = reinterpret_cast<const PacketBeginPass*>(ptr);
+
+                 // 1. Invalidate Pipeline State (Stateless requirement)
+                 currentPipelineId = 0;
+                 currentPipelineMeta = nullptr;
+
+                 // 2. Reset Scissor State (Apply BEFORE Clear)
+                 if (pkt->scW >= 0 && pkt->scH >= 0) {
+                     glEnable(GL_SCISSOR_TEST);
+                     glScissor(pkt->scX, pkt->scY, pkt->scW, pkt->scH);
+                 } else {
+                     glDisable(GL_SCISSOR_TEST);
+                 }
+
+                 // 3. Reset Viewport State (if specified)
+                 if (pkt->vpW >= 0 && pkt->vpH >= 0) {
+                     glViewport(pkt->vpX, pkt->vpY, pkt->vpW, pkt->vpH);
+                 }
+
+                 // 4. Handle Load Actions (Clear)
+                 GLbitfield mask = 0;
+                 if (pkt->colorLoadOp == LoadAction::Clear) {
+                     glClearColor(pkt->clearColor[0], pkt->clearColor[1], pkt->clearColor[2], pkt->clearColor[3]);
+                     mask |= GL_COLOR_BUFFER_BIT;
+                 }
+                 if (pkt->depthLoadOp == LoadAction::Clear) {
+                     glClearDepth(pkt->clearDepth);
+                     mask |= GL_DEPTH_BUFFER_BIT;
+                 }
+                 if (mask != 0) {
+                     glClear(mask);
+                 }
+                 break;
+            }
+            case CommandType::EndPass: {
+                 // Store actions (No-op for Default Framebuffer)
+                 break;
             }
             case CommandType::SetViewport: {
                 const auto* pkt = reinterpret_cast<const PacketSetViewport*>(ptr);

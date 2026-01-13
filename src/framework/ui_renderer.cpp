@@ -397,6 +397,15 @@ void UIRenderer::render(mu_Context* ctx, CommandEncoder& encoder, int width, int
     s_ui.device->UpdateBuffer(s_ui.vbo, s_ui.vertices.data(), vSize);
     s_ui.device->UpdateBuffer(s_ui.ibo, s_ui.indices.data(), iSize);
 
+    // Setup Render Pass (Overlay Mode)
+    RenderPassDesc pass;
+    pass.colorLoadOp = LoadAction::Load; // Keep underlying scene
+    pass.depthLoadOp = LoadAction::Load; // Keep depth (though UI usually ignores it)
+    pass.initialScissor = {0, 0, width, height}; // Start with full screen
+    pass.initialViewport = {0, 0, width, height};
+
+    encoder.BeginRenderPass(pass);
+
     // Setup Pipeline
     encoder.SetPipeline(s_ui.pipeline);
     encoder.SetVertexStream(0, s_ui.vbo, 0, sizeof(UIVertex));
@@ -404,13 +413,6 @@ void UIRenderer::render(mu_Context* ctx, CommandEncoder& encoder, int width, int
     encoder.SetTexture(0, s_ui.texture);
     
     // Ortho Matrix
-    // Left=0, Right=width, Bottom=height, Top=0, Near=-1, Far=1
-    // Row-Major:
-    // 2/w  0    0   0
-    // 0    -2/h 0   0
-    // 0    0    -1  0
-    // -1   1    0   1
-    
     Mat4 ortho = Mat4::Identity();
     ortho.m[0] = 2.0f / width;
     ortho.m[5] = -2.0f / height;
@@ -430,7 +432,7 @@ void UIRenderer::render(mu_Context* ctx, CommandEncoder& encoder, int width, int
         }
     }
     
-    encoder.SetScissor(-1, -1, -1, -1); // Disable scissor
+    encoder.EndRenderPass();
 }
 
 }

@@ -137,4 +137,39 @@ struct PipelineDesc {
     const char* label = nullptr;
 };
 
+// --- Render Pass ---
+
+enum class LoadAction {
+    Load,     // Preserve existing content
+    Clear,    // Clear to a specific value
+    DontCare  // Content is undefined (performance optimization)
+};
+
+enum class StoreAction {
+    Store,    // Save content to memory
+    DontCare  // Discard content
+};
+
+struct RenderRect {
+    int x = 0, y = 0, w = -1, h = -1; // w < 0 implies "Invalid/Disabled" or "Full Screen" depending on context
+};
+
+struct RenderPassDesc {
+    LoadAction colorLoadOp = LoadAction::Clear;
+    StoreAction colorStoreOp = StoreAction::Store;
+    float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    LoadAction depthLoadOp = LoadAction::Clear;
+    StoreAction depthStoreOp = StoreAction::Store;
+    float clearDepth = 1.0f;
+
+    // Initial State to apply at start of Pass
+    // If w < 0, Scissor Test is DISABLED.
+    RenderRect initialScissor = {0, 0, -1, -1}; 
+    
+    // If w < 0, Viewport is reset to full framebuffer size (if supported by backend)
+    // or kept as is. For safety in "Stateless" mode, backend should likely reset to target size.
+    RenderRect initialViewport = {0, 0, -1, -1}; 
+};
+
 }

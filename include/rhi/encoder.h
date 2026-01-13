@@ -122,13 +122,61 @@ public:
     // --- Submission ---
 
     void SubmitTo(IGraphicsDevice& device) {
+        // Ensure pass is ended before submission
+        if (m_isInsidePass) {
+            // In a real engine, this might auto-end or error. 
+            // For now, let's just log or assume user error.
+            // Ideally: assert(!m_isInsidePass);
+        }
         device.Submit(m_buffer);
     }
 
     const CommandBuffer& GetBuffer() const { return m_buffer; }
 
+    // --- Render Pass (Stateless) ---
+
+    void BeginRenderPass(const RenderPassDesc& desc) {
+        // Validation: No nested passes
+        // assert(!m_isInsidePass); 
+        m_isInsidePass = true;
+
+        PacketBeginPass pkt;
+        pkt.type = CommandType::BeginPass;
+        pkt.size = sizeof(PacketBeginPass);
+        pkt.colorLoadOp = desc.colorLoadOp;
+        pkt.depthLoadOp = desc.depthLoadOp;
+        pkt.clearDepth = desc.clearDepth;
+        // Copy color array
+        for(int i=0; i<4; ++i) pkt.clearColor[i] = desc.clearColor[i];
+        
+        // Initial State
+        pkt.scX = desc.initialScissor.x;
+        pkt.scY = desc.initialScissor.y;
+        pkt.scW = desc.initialScissor.w;
+        pkt.scH = desc.initialScissor.h;
+        
+        pkt.vpX = desc.initialViewport.x;
+        pkt.vpY = desc.initialViewport.y;
+        pkt.vpW = desc.initialViewport.w;
+        pkt.vpH = desc.initialViewport.h;
+
+        m_buffer.Write(pkt);
+    }
+
+    void EndRenderPass() {
+        // Validation
+        // assert(m_isInsidePass);
+        m_isInsidePass = false;
+
+        PacketEndPass pkt;
+        pkt.type = CommandType::EndPass;
+        pkt.size = sizeof(PacketEndPass);
+        m_buffer.Write(pkt);
+    }
+
 private:
     CommandBuffer m_buffer;
+    bool m_isInsidePass = false;
 };
 
 }

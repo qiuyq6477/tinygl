@@ -15,6 +15,8 @@ enum class CommandType : uint16_t {
     SetViewport,
     SetScissor,
     Clear,
+    BeginPass,
+    EndPass,
     // Marker for end of buffer or no-op
     NoOp
 };
@@ -26,6 +28,20 @@ struct CommandPacket {
 };
 
 // --- Packet Definitions ---
+
+struct PacketBeginPass : CommandPacket {
+    LoadAction colorLoadOp;
+    float clearColor[4];
+    LoadAction depthLoadOp;
+    float clearDepth;
+    // Initial State
+    int scX, scY, scW, scH; // Scissor
+    int vpX, vpY, vpW, vpH; // Viewport
+};
+
+struct PacketEndPass : CommandPacket {
+    // Empty for now, acts as a barrier/marker
+};
 
 struct PacketSetPipeline : CommandPacket {
     PipelineHandle handle;

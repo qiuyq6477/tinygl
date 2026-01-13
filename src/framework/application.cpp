@@ -86,10 +86,11 @@ void Application::run() {
         onRender();
 
         // 6. UI Render (RHI)
-
         rhi::CommandEncoder encoder;
         UIRenderer::render(&m_uiContext, encoder, m_config.width, m_config.height);
-        m_graphicsDevice->Submit(encoder.GetBuffer());
+        if (!encoder.GetBuffer().IsEmpty()) {
+            m_graphicsDevice->Submit(encoder.GetBuffer());
+        }
 
         if (m_config.backend == AppConfig::Backend::Software) {
             // 7. Present (Blit SoftRenderContext buffer to SDL Window)
