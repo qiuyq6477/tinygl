@@ -121,7 +121,8 @@ void SoftRenderContext::transformToScreen(VOut& v) {
     // Y 轴: y + (1 - ndc) * 0.5 * h  (注意：这里假设屏幕原点在左上角)
     v.scn.x = m_viewport.x + (v.pos.x * rhw + 1.0f) * 0.5f * m_viewport.w;
     v.scn.y = m_viewport.y + (1.0f - v.pos.y * rhw) * 0.5f * m_viewport.h;
-    v.scn.z = v.pos.z * rhw;
+    // Map Z_ndc [-1, 1] to Window Depth [0, 1]
+    v.scn.z = (v.pos.z * rhw) * 0.5f + 0.5f;
     v.scn.w = rhw; // 存储 1/w 用于透视插值
 }
 

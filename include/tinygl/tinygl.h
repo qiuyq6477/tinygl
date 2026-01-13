@@ -157,6 +157,21 @@ private:
     };
     GLenum m_depthFunc = GL_LESS;
 
+    std::string GLenumToString(GLenum value) {
+        static const std::unordered_map<GLenum, std::string> enumMap = {
+            {GL_DEPTH_TEST,   "GL_DEPTH_TEST"},
+            {GL_CULL_FACE,    "GL_CULL_FACE"},
+            {GL_STENCIL_TEST, "GL_STENCIL_TEST"},
+            {GL_SCISSOR_TEST, "GL_SCISSOR_TEST"},
+            {GL_BLEND,        "GL_BLEND"}
+        };
+
+        auto it = enumMap.find(value);
+        if (it != enumMap.end()) {
+            return it->second;
+        }
+        return "UNKNOWN_ENUM (" + std::to_string(value) + ")";
+    }
     // Helper to calculate blending
     inline Vec4 applyBlending(const Vec4& src, const Vec4& dst) {
         auto getFactor = [&](GLenum factor, const Vec4& s, const Vec4& d) -> Vec4 {
@@ -377,10 +392,12 @@ public:
     }
 
     void glEnable(GLenum cap) {
+        LOG_WARN("glEnable called for cap: " + GLenumToString(cap));
         m_capabilities[cap] = GL_TRUE;
     }
 
     void glDisable(GLenum cap) {
+        LOG_WARN("glDisable called for cap: " + GLenumToString(cap));
         m_capabilities[cap] = GL_FALSE;
     }
 
@@ -605,11 +622,12 @@ public:
                     
                     if (zInv > 1e-6f) {
                         float z = 1.0f / zInv;
+                        float fragDepth = alpha * tv0.scn.z + beta * tv1.scn.z + gamma * tv2.scn.z;
                         
                         // 1. Early-Z Optimization (Read-only)
                         bool earlyZPass = true;
                         if (enableDepthTest) {
-                            earlyZPass = testDepth(z, *pDepth);
+                            earlyZPass = testDepth(fragDepth, *pDepth);
                         }
 
                         if (earlyZPass) {
@@ -643,7 +661,7 @@ public:
 
                             // 3. Fragment Shader
                             // Setup Builtins
-                            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, zInv); 
+                            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, fragDepth, zInv); 
                             shader.gl_FrontFacing = isFront;
                             shader.gl_Discard = false;
                             shader.gl_FragDepth.written = false;
@@ -653,7 +671,7 @@ public:
 
                             // 4. Discard Check
                             if (!shader.gl_Discard) {
-                                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
+                                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : fragDepth;
 
                                 bool stencilPass = true;
                                 bool depthPass = true;
@@ -772,12 +790,13 @@ public:
                 
                 if (zInv > 1e-5f) { // 避免除零
                     float z = 1.0f / zInv; // 恢复真实深度
+                    float fragDepth = v0.scn.z * (1.0f - t) + v1.scn.z * t;
                     int pix = y0 * fbWidth + x0;
                     
                     // 1. Early-Z Optimization
                     bool earlyZPass = true;
                     if (enableDepthTest) {
-                        earlyZPass = testDepth(z, depthBuffer[pix]);
+                        earlyZPass = testDepth(fragDepth, depthBuffer[pix]);
                     }
 
                     if (earlyZPass) {
@@ -794,7 +813,7 @@ public:
 
                         // 3. Shader
                         // Setup Builtins
-                        shader.gl_FragCoord = Vec4(x0 + 0.5f, y0 + 0.5f, z, zInv); 
+                        shader.gl_FragCoord = Vec4(x0 + 0.5f, y0 + 0.5f, fragDepth, zInv); 
                         shader.gl_FrontFacing = true;
                         shader.gl_Discard = false;
                         shader.gl_FragDepth.written = false;
@@ -804,7 +823,7 @@ public:
 
                         // 4. Discard & Late-Z
                         if (!shader.gl_Discard) {
-                            float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
+                            float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : fragDepth;
                             
                             bool stencilPass = true;
                             bool depthPass = true;
@@ -874,8 +893,8 @@ public:
 
         int pix = y * fbWidth + x;
         
-        // v.scn.z 存储的是 Z/W (NDC depth range 0-1 if transformed correctly, or clip z)
-        float z = v.scn.z; 
+        // v.scn.z 存储的是 Window Space Z (0-1)
+        float fragDepth = v.scn.z; 
 
         // Optimization: Cache capability flags
         bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
@@ -885,7 +904,7 @@ public:
         // 1. Early-Z
         bool earlyZPass = true;
         if (enableDepthTest) {
-            earlyZPass = testDepth(z, depthBuffer[pix]);
+            earlyZPass = testDepth(fragDepth, depthBuffer[pix]);
         }
 
         if (earlyZPass) {
@@ -895,7 +914,7 @@ public:
 
             // 3. Fragment Shader
             // Setup Builtins
-            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, z, v.scn.w); 
+            shader.gl_FragCoord = Vec4(x + 0.5f, y + 0.5f, fragDepth, v.scn.w); 
             shader.gl_FrontFacing = true;
             shader.gl_Discard = false;
             shader.gl_FragDepth.written = false;
@@ -905,7 +924,7 @@ public:
 
             // 4. Discard & Late-Z
             if (!shader.gl_Discard) {
-                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : z;
+                float finalZ = shader.gl_FragDepth.written ? shader.gl_FragDepth.value : fragDepth;
 
                 bool stencilPass = true;
                 bool depthPass = true;
