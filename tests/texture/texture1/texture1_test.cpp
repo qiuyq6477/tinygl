@@ -58,7 +58,7 @@ struct TextureShader : public ShaderBuiltins {
     }
 };
 
-class Texture1Test : public ITestCase {
+class Texture1Test : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // ... (Mesh Setup code remains same, skipping for brevity in replacement if possible, 

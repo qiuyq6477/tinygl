@@ -185,7 +185,7 @@ struct LightingMapsShader : public ShaderBuiltins {
     }
 };
 
-class LightingMapsTest : public ITestCase {
+class LightingMapsTest : public ITinyGLTestCase {
 public:
     Camera m_camera;
     GLuint m_vao = 0, m_vbo = 0, m_ebo = 0;

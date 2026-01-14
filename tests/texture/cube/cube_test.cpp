@@ -57,7 +57,7 @@ struct CubeShader : public ShaderBuiltins {
     }
 };
     
-class CubeTest : public ITestCase {
+class CubeTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // Load Texture via Manager

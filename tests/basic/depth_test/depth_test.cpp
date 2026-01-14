@@ -28,7 +28,7 @@ struct DepthShader : ShaderBuiltins {
     }
 };
 
-class DepthTest : public ITestCase {
+class DepthTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         float vertices[] = {

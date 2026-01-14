@@ -26,7 +26,7 @@ struct TextureFilterShader : public ShaderBuiltins {
     }
 };
 
-class TextureFilterTest : public ITestCase {
+class TextureFilterTest : public ITinyGLTestCase {
 public:
     GLuint m_vbo = 0;
     GLuint m_vao = 0;

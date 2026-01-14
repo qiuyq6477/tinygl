@@ -28,7 +28,7 @@ struct CameraShader : ShaderBuiltins{
     }
 };
 
-class CameraTest : public ITestCase {
+class CameraTest : public ITinyGLTestCase {
 public:
     Camera m_camera;
     GLuint m_vao = 0;

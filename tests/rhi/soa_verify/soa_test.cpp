@@ -31,7 +31,7 @@ struct SoATriangleShader : public ShaderBuiltins {
     }
 };
 
-class SoATest : public ITestCase {
+class SoATest : public ITinyGLTestCase {
 public:
     std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;

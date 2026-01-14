@@ -25,7 +25,7 @@ struct TriangleShader : public ShaderBuiltins {
     }
 };
 
-class TriangleTest : public ITestCase {
+class TriangleTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // Define vertices for a simple triangle

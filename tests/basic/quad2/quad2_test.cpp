@@ -38,7 +38,7 @@ struct BilinearShader : public ShaderBuiltins {
     }
 };
 
-class Quad2Test : public ITestCase {
+class Quad2Test : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         float vertices[] = {

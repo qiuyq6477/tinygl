@@ -30,19 +30,15 @@ struct RhiTriangleShader : public ShaderBuiltins {
     }
 };
 
-class RhiTriangleTest : public ITestCase {
+class RhiTriangleTest : public IRHITestCase {
 public:
-    std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;
     
     BufferHandle vbo;
     PipelineHandle pipeline;
     ShaderHandle shaderHandle;
 
-    void init(SoftRenderContext& ctx) override {
-        // Initialize RHI Device wrapping the context
-        device = std::make_unique<SoftDevice>(ctx);
-
+    void init(rhi::IGraphicsDevice* device) override {
         // 1. Create Resources
         // Triangle Vertices
         // Hack: Matching the stride expected by SoftDevice Phase 2 implementation
@@ -67,8 +63,46 @@ public:
         vbo = device->CreateBuffer(bufDesc);
 
         // 2. Register Shader & Create Pipeline
-        // This binds the runtime handle to the RhiTriangleShader template
-        shaderHandle = ShaderRegistry::RegisterShader<RhiTriangleShader>("RhiTriangleShader");
+        // This binds the runtime handle to the RhiTriangleShader template AND provides GLSL for GLDevice
+        ShaderDesc desc;
+        desc.softFactory = [](SoftRenderContext& ctx, const PipelineDesc& pDesc) {
+            return std::make_unique<SoftPipeline<RhiTriangleShader>>(ctx, pDesc);
+        };
+        desc.glsl.vertex = R"(#version 330 core
+layout(location = 0) in vec4 aPos;
+layout(std140) uniform MaterialData {
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    float opacity;
+    float alphaCutoff;
+    int alphaTest;
+    int doubleSided;
+};
+void main() {
+    gl_Position = aPos;
+}
+)";
+        desc.glsl.fragment = R"(#version 330 core
+out vec4 FragColor;
+layout(std140) uniform MaterialData {
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    float opacity;
+    float alphaCutoff;
+    int alphaTest;
+    int doubleSided;
+};
+void main() {
+    FragColor = diffuse;
+}
+)";
+        shaderHandle = ShaderRegistry::GetInstance().Register("RhiTriangleShader", desc);
         
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;
@@ -86,27 +120,31 @@ public:
         pipeline = device->CreatePipeline(pipeDesc);
     }
 
-    void destroy(SoftRenderContext& ctx) override {
+    void destroy(rhi::IGraphicsDevice* device) override {
         // Cleanup RHI resources
         if (device) {
             device->DestroyPipeline(pipeline);
             device->DestroyBuffer(vbo);
-            device.reset();
         }
     }
 
-    void onRender(SoftRenderContext& ctx) override {
-        // Clear screen (RHI doesn't wrap clear yet)
-        ctx.glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-        ctx.glClear(GL_COLOR_BUFFER_BIT);
-
-        // 3. Record Commands
+    void onRender(rhi::IGraphicsDevice* device, int width, int height) override {
         encoder.Reset();
-        
+       
+        RenderPassDesc passDesc;
+        passDesc.colorLoadOp = LoadAction::Clear;
+        passDesc.clearColor[0] = 0.1f;
+        passDesc.clearColor[1] = 0.1f;
+        passDesc.clearColor[2] = 0.15f;
+        passDesc.clearColor[3] = 1.0f;
+        passDesc.depthLoadOp = LoadAction::Clear;
+        passDesc.clearDepth = 1.0f;
+        passDesc.initialViewport = {0, 0, width, height};
+        encoder.BeginRenderPass(passDesc);
+
         encoder.SetPipeline(pipeline);
         encoder.SetVertexBuffer(vbo);
         
-        // Dynamic Uniform Update: Change color over time
         static float time = 0.0f;
         time += 0.02f;
         
@@ -118,11 +156,9 @@ public:
         encoder.UpdateUniform(0, matData);
         
         encoder.Draw(3); 
+        encoder.EndRenderPass();
 
-        // 4. Submit
-        if (device) {
-            encoder.SubmitTo(*device);
-        }
+        encoder.SubmitTo(*device);
     }
 
     void onGui(mu_Context* ctx, const Rect& rect) override {

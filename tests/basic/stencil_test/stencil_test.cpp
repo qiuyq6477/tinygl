@@ -42,7 +42,7 @@ struct StencilShader : ShaderBuiltins {
     }
 };
 
-class StencilTest : public ITestCase {
+class StencilTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // Setup Camera
@@ -205,6 +205,6 @@ private:
     float m_outlineScale = 1.1f;
 };
 
-static TestRegistrar registrar("Basic", "StencilTest", []() -> ITestCase* { return new StencilTest(); });
+static TestRegistrar registrar("Basic", "StencilTest", []() -> ITinyGLTestCase* { return new StencilTest(); });
 
 

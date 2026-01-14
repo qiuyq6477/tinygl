@@ -60,7 +60,7 @@ struct InstancedCubeShader : public tinygl::ShaderBuiltins {
 
 
 
-class InstanceTest : public ITestCase {
+class InstanceTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // 立方体顶点 (Local Space)

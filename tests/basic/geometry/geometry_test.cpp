@@ -40,7 +40,7 @@ struct GeometryShader : ShaderBuiltins {
     }
 };
 
-class GeometryTest : public ITestCase {
+class GeometryTest : public ITinyGLTestCase {
     GLuint vao = 0, vbo = 0, ebo = 0;
     int currentShapeIdx = 1; // Start with Cube
     float rotation = 0.0f;

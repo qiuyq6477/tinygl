@@ -35,7 +35,7 @@ struct MipmapShader : public ShaderBuiltins {
     }
 };
 
-class MipmapTest : public ITestCase {
+class MipmapTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         m_softCtx = &ctx;

@@ -37,7 +37,7 @@ struct SoAPlaneShader : public ShaderBuiltins {
     }
 };
 
-class SoAInterleavedTest : public ITestCase {
+class SoAInterleavedTest : public ITinyGLTestCase {
 public:
     std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;

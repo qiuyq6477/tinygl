@@ -22,7 +22,7 @@ struct ColorShader : public ShaderBuiltins {
     }
 };
 
-class RhiBlendScissorTest : public ITestCase {
+class RhiBlendScissorTest : public ITinyGLTestCase {
 public:
     std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;

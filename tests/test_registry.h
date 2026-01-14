@@ -7,8 +7,9 @@
 #include <memory>
 #include "ITestCase.h"
 
-// Factory function type
-using TestCaseFactory = std::function<ITestCase*()>;
+// Factory function types
+using TinyGLTestFactory = std::function<ITinyGLTestCase*()>;
+using RHITestFactory = std::function<IRHITestCase*()>;
 
 class TestCaseRegistry {
 public:
@@ -17,23 +18,36 @@ public:
         return instance;
     }
 
-    void registerTestCase(const std::string& group, const std::string& name, TestCaseFactory factory) {
-        m_tests[group][name] = factory;
+    void registerTestCase(const std::string& group, const std::string& name, TinyGLTestFactory factory) {
+        m_tinyglTests[group][name] = factory;
     }
 
-    // Returns a map of Group -> { Name -> Factory }
-    const std::map<std::string, std::map<std::string, TestCaseFactory>>& getTests() const {
-        return m_tests;
+    void registerTestCase(const std::string& group, const std::string& name, RHITestFactory factory) {
+        m_rhiTests[group][name] = factory;
+    }
+
+    // Accessors
+    const std::map<std::string, std::map<std::string, TinyGLTestFactory>>& getTinyGLTests() const {
+        return m_tinyglTests;
+    }
+
+    const std::map<std::string, std::map<std::string, RHITestFactory>>& getRHITests() const {
+        return m_rhiTests;
     }
 
 private:
-    std::map<std::string, std::map<std::string, TestCaseFactory>> m_tests;
+    std::map<std::string, std::map<std::string, TinyGLTestFactory>> m_tinyglTests;
+    std::map<std::string, std::map<std::string, RHITestFactory>> m_rhiTests;
 };
 
 // Helper class for static registration
 class TestRegistrar {
 public:
-    TestRegistrar(const std::string& group, const std::string& name, TestCaseFactory factory) {
+    TestRegistrar(const std::string& group, const std::string& name, TinyGLTestFactory factory) {
+        TestCaseRegistry::get().registerTestCase(group, name, factory);
+    }
+    
+    TestRegistrar(const std::string& group, const std::string& name, RHITestFactory factory) {
         TestCaseRegistry::get().registerTestCase(group, name, factory);
     }
 };

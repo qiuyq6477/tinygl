@@ -16,7 +16,7 @@ struct ColorShader : public tinygl::ShaderBuiltins {
     }
 };
 
-class BlendScissorTest : public ITestCase {
+class BlendScissorTest : public ITinyGLTestCase {
     GLuint vbo = 0;
     GLuint vao = 0;
     ColorShader shader;

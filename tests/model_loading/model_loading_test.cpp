@@ -128,7 +128,7 @@ struct NormalShader : public ShaderBuiltins {
     }
 };
 
-class ModelLoadingTest : public ITestCase {
+class ModelLoadingTest : public ITinyGLTestCase {
 public:
     Camera camera;
     Model* currentModel = nullptr;

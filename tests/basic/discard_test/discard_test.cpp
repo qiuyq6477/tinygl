@@ -45,7 +45,7 @@ struct DiscardShader : ShaderBuiltins {
     }
 };
 
-class DiscardTest : public ITestCase {
+class DiscardTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         camera = Camera({.position = Vec4(0.0f, 1.0f, 3.0f, 1.0f)});
@@ -157,4 +157,4 @@ private:
     std::vector<GrassInstance> grassInstances;
 };
 
-static TestRegistrar registrar("Basic", "DiscardTest", []() -> ITestCase* { return new DiscardTest(); });
+static TestRegistrar registrar("Basic", "DiscardTest", []() -> ITinyGLTestCase* { return new DiscardTest(); });

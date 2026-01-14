@@ -26,7 +26,7 @@ struct SolidColorShader : public ShaderBuiltins {
     }
 };
 
-class MultiThreadRecordTest : public ITestCase {
+class MultiThreadRecordTest : public ITinyGLTestCase {
 public:
     std::unique_ptr<SoftDevice> device;
     

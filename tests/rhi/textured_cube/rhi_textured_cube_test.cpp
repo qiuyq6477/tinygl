@@ -75,7 +75,7 @@ struct RhiCubeShader : public ShaderBuiltins {
     }
 };
 
-class RhiTexturedCubeTest : public ITestCase {
+class RhiTexturedCubeTest : public ITinyGLTestCase {
 public:
     std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;

@@ -113,7 +113,7 @@ struct LightCubeShader : public ShaderBuiltins {
     }
 };
 
-class BlinnPhongTest : public ITestCase {
+class BlinnPhongTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // Define a cube with normals

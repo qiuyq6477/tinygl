@@ -153,7 +153,7 @@ protected:
 
         mu_begin_window_ex(ctx, "Test Explorer", uiPanelRect, MU_OPT_NOCLOSE | MU_OPT_NORESIZE);
         
-        const auto& allTests = TestCaseRegistry::get().getTests();
+        const auto& allTests = TestCaseRegistry::get().getTinyGLTests();
         for (const auto& groupPair : allTests) {
             const std::string& groupName = groupPair.first;
             
@@ -203,7 +203,7 @@ protected:
             m_context->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
             m_context->glBindTexture(GL_TEXTURE_2D, 0);
 
-            const auto& allTests = TestCaseRegistry::get().getTests();
+            const auto& allTests = TestCaseRegistry::get().getTinyGLTests();
             if (allTests.count(group) && allTests.at(group).count(name)) {
                 m_currentTest = allTests.at(group).at(name)();
                 if (m_currentTest) {
@@ -222,7 +222,7 @@ protected:
     void printRegisteredTests() {
         std::cout << "-------------------------" << std::endl;
         std::cout << "Registered Test Cases:" << std::endl;
-        const auto& allTests = TestCaseRegistry::get().getTests();
+        const auto& allTests = TestCaseRegistry::get().getTinyGLTests();
         if (allTests.empty()) {
             std::cout << "  (None)" << std::endl;
         } else {
@@ -239,7 +239,7 @@ protected:
 protected:
     std::unique_ptr<SoftRenderContext> m_context;
     mu_Context m_uiContext;
-    ITestCase* m_currentTest = nullptr;
+    ITinyGLTestCase* m_currentTest = nullptr;
     std::string m_selectedGroup;
     std::string m_selectedTestName;
     

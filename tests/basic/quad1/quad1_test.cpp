@@ -23,7 +23,7 @@ struct GradientShader : public ShaderBuiltins {
     }
 };
 
-class Quad1Test : public ITestCase {
+class Quad1Test : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         // 矩形的 4 个顶点

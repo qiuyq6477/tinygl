@@ -3,6 +3,7 @@
 #include <rhi/soft_device.h>
 #include <rhi/gl_device.h>
 #include <framework/ui_renderer.h>
+#include <optional>
 
 class RhiRunnerApp : public Application {
 public:
@@ -37,7 +38,7 @@ protected:
         }
 
         // Initialize Device (Default to GL if available)
-        setBackend(m_glContext ? Backend::OpenGL : Backend::Software);
+        doSetBackend(Backend::Software);
 
         initBlitResources();
 
@@ -46,6 +47,10 @@ protected:
     }
 
     void setBackend(Backend b) {
+        m_nextBackend = b;
+    }
+
+    void doSetBackend(Backend b) {
         if (b == Backend::OpenGL && !m_glContext) {
             std::cerr << "Cannot switch to OpenGL: No Context" << std::endl;
             return;
@@ -69,7 +74,7 @@ protected:
     
     void onDestroy() override {
         if (m_currentTest) {
-            m_currentTest->destroy(*m_context);
+            m_currentTest->destroy(m_device.get());
             delete m_currentTest;
             m_currentTest = nullptr;
         }
@@ -107,48 +112,25 @@ protected:
         mu_end(&m_uiContext);
 
         if (m_backend == Backend::OpenGL) {
-            // --- OpenGL Backend ---
-            
-            // 1. Clear Default Framebuffer
-            // glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-            // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            
-            // 2. Render Test
             if (m_currentTest && renderWidth > 0) {
-                glViewport(0, 0, renderWidth, totalHeight);
-                m_currentTest->onRender(*m_context); 
+                m_currentTest->onRender(m_device.get(), renderWidth, totalHeight); 
             }
             
-            // 3. Render UI (RHI -> GL)
             rhi::CommandEncoder encoder;
             UIRenderer::render(&m_uiContext, encoder, totalWidth, totalHeight);
             m_device->Submit(encoder.GetBuffer());
             
-            // 4. Present
             SDL_GL_SwapWindow(getWindow());
 
         } else if(m_backend == Backend::Software) {
-            // --- Software Backend (via RHI SoftDevice) ---
+            if (m_currentTest && renderWidth > 0) {
+                m_currentTest->onRender(m_device.get(), renderWidth, totalHeight);
+            }
             
-            // 1. Clear Soft Context
-            // m_context->glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-            // m_context->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            
-            // // 2. Render Test
-            // if (m_currentTest && renderWidth > 0) {
-            //     m_context->glViewport(0, 0, renderWidth, totalHeight);
-            //     m_currentTest->onRender(*m_context);
-            // }
-            
-            // 3. Render UI (RHI -> SoftDevice -> m_context)
             rhi::CommandEncoder encoder;
             UIRenderer::render(&m_uiContext, encoder, totalWidth, totalHeight);
             m_device->Submit(encoder.GetBuffer());
             
-            // 4. Blit SoftBuffer to Screen using OpenGL Quad
-            // This allows us to keep the GL Context active and just draw the software result as a texture.
-            
-            // Upload to Texture
             uint32_t* buffer = m_context->getColorBuffer();
             if (buffer) {
                 glBindTexture(GL_TEXTURE_2D, m_blitTexture);
@@ -171,6 +153,28 @@ protected:
             // 5. Present
             SDL_GL_SwapWindow(getWindow());
         }
+
+        // Handle deferred backend switch
+        if (m_nextBackend.has_value()) {
+            Backend next = *m_nextBackend;
+            m_nextBackend = std::nullopt;
+            
+            std::string group = m_selectedGroup;
+            std::string name = m_selectedTestName;
+
+            if (m_currentTest) {
+                m_currentTest->destroy(m_device.get());
+                delete m_currentTest;
+                m_currentTest = nullptr;
+            }
+
+            doSetBackend(next);
+
+            if (!group.empty() && !name.empty()) {
+                m_selectedGroup = ""; // Force reload
+                switchTest(group, name);
+            }
+        }
     }
 
     void onGUI() override {         
@@ -183,7 +187,15 @@ protected:
 
         mu_begin_window_ex(ctx, "Test Explorer", uiPanelRect, MU_OPT_NOCLOSE | MU_OPT_NORESIZE);
         
-        const auto& allTests = TestCaseRegistry::get().getTests();
+        // Backend Toggles
+        mu_layout_row(ctx, 1, (int[]) { -1 }, 0);
+        const char* backendLabel = (m_backend == Backend::OpenGL) ? "Backend: OpenGL" : "Backend: Software";
+        if (mu_button(ctx, backendLabel)) {
+            Backend next = (m_backend == Backend::OpenGL) ? Backend::Software : Backend::OpenGL;
+            setBackend(next);
+        }
+
+        const auto& allTests = TestCaseRegistry::get().getRHITests();
         for (const auto& groupPair : allTests) {
             const std::string& groupName = groupPair.first;
             
@@ -223,16 +235,16 @@ protected:
 
         try {
             if (m_currentTest) {
-                m_currentTest->destroy(*m_context);
+                m_currentTest->destroy(m_device.get());
                 delete m_currentTest;
                 m_currentTest = nullptr;
             }
 
-            const auto& allTests = TestCaseRegistry::get().getTests();
+            const auto& allTests = TestCaseRegistry::get().getRHITests();
             if (allTests.count(group) && allTests.at(group).count(name)) {
                 m_currentTest = allTests.at(group).at(name)();
                 if (m_currentTest) {
-                    m_currentTest->init(*m_context);
+                    m_currentTest->init(m_device.get());
                 }
             }
         } catch (const std::exception& e) {
@@ -247,7 +259,7 @@ protected:
     void printRegisteredTests() {
         std::cout << "-------------------------" << std::endl;
         std::cout << "Registered Test Cases:" << std::endl;
-        const auto& allTests = TestCaseRegistry::get().getTests();
+        const auto& allTests = TestCaseRegistry::get().getRHITests();
         if (allTests.empty()) {
             std::cout << "  (None)" << std::endl;
         } else {
@@ -338,12 +350,12 @@ private:
         glBindVertexArray(m_blitVAO);
         glBindBuffer(GL_ARRAY_BUFFER, m_blitVBO);
         float vertices[] = {
-            -1.0f,  1.0f, 0.0f, 1.0f,
-            -1.0f, -1.0f, 0.0f, 0.0f,
-            1.0f, -1.0f, 1.0f, 0.0f,
-            -1.0f,  1.0f, 0.0f, 1.0f,
-            1.0f, -1.0f, 1.0f, 0.0f,
-            1.0f,  1.0f, 1.0f, 1.0f
+            -1.0f,  1.0f, 0.0f, 0.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f,
+            1.0f, -1.0f, 1.0f, 1.0f,
+            -1.0f,  1.0f, 0.0f, 0.0f,
+            1.0f, -1.0f, 1.0f, 1.0f,
+            1.0f,  1.0f, 1.0f, 0.0f
         };
         glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
@@ -366,11 +378,12 @@ private:
     }
 
     Backend m_backend = Backend::OpenGL;
+    std::optional<Backend> m_nextBackend;
     SDL_GLContext m_glContext = nullptr;
     std::unique_ptr<SoftRenderContext> m_context;
     std::unique_ptr<rhi::IGraphicsDevice> m_device;
     mu_Context m_uiContext;
-    ITestCase* m_currentTest = nullptr;
+    IRHITestCase* m_currentTest = nullptr;
     std::string m_selectedGroup;
     std::string m_selectedTestName;
     // Blit Resources

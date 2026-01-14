@@ -7,7 +7,7 @@
 using namespace tinygl;
 using namespace framework;
 
-class CopyBufferTest : public ITestCase {
+class CopyBufferTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
         float data1[] = { 1.0f, 2.0f, 3.0f, 4.0f };
