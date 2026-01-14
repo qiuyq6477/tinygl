@@ -14,7 +14,7 @@ struct AppConfig {
     int width = 800;
     int height = 600;
     bool resizable = false;
-    enum class Backend { Software, OpenGL } backend = Backend::Software;
+    uint32_t windowFlags = 0;
 };
 
 class TINYGL_API Application {
@@ -44,8 +44,8 @@ protected:
     // GUI 绘制：每帧调用。在此处调用 microui 函数。
     virtual void onGUI() {}
 
-    // 渲染：每帧调用。在此处提交绘制命令。
-    virtual void onRender() {}
+    // 核心渲染帧：由子类实现具体的渲染逻辑（包括场景和UI）
+    virtual void renderFrame() = 0;
 
     // 事件：处理 SDL 事件。返回 true 表示事件已被消费。
     virtual void onEvent(const SDL_Event& event) {}
@@ -55,46 +55,24 @@ protected:
 
     // --- 辅助函数 ---
     
-    // 获取渲染上下文
-    // Note: Returns reference to internal soft context. 
-    // If Backend is OpenGL, this might be null/invalid if we don't maintain a dual buffer.
-    // For now, we keep it for backward compatibility with software-only tests.
-    SoftRenderContext& getContext() { return *m_context; }
     const AppConfig& getConfig() const { return m_config; }
-
-    // 获取 UI 上下文
-    mu_Context* getUIContext() { return &m_uiContext; }
-
-    // 获取 RHI 设备
-    rhi::IGraphicsDevice* getGraphicsDevice() { return m_graphicsDevice.get(); }
 
     // 获取窗口宽高
     int getWidth() const { return m_config.width; }
     int getHeight() const { return m_config.height; }
 
-private:
+    // 获取 SDL 窗口 (供子类使用，例如 SwapBuffer)
+    SDL_Window* getWindow() { return m_window; }
+
+protected:
     void initSDL();
     void cleanupSDL();
-    void handleResize(int w, int h);
 
-private:
     AppConfig m_config;
     bool m_isRunning = false;
 
     // SDL Resources
     SDL_Window* m_window = nullptr;
-    SDL_Renderer* m_renderer = nullptr;
-    SDL_Texture* m_texture = nullptr;
-    SDL_GLContext m_glContext = nullptr;
-
-    // TinyGL Context
-    std::unique_ptr<SoftRenderContext> m_context;
-    
-    // RHI Device (Backend agnostic)
-    std::unique_ptr<rhi::IGraphicsDevice> m_graphicsDevice;
-    
-    // UI Context
-    mu_Context m_uiContext;
 
     // Timing
     uint64_t m_lastTime = 0;

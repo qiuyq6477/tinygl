@@ -104,10 +104,17 @@ public:
     }
 
     void onRender(SoftRenderContext& ctx) override {
-        ctx.glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        ctx.glClear(GL_COLOR_BUFFER_BIT);
-
         encoder.Reset();
+
+        RenderPassDesc passDesc;
+        passDesc.colorLoadOp = LoadAction::Clear;
+        passDesc.clearColor[0] = 0.1f;
+        passDesc.clearColor[1] = 0.1f;
+        passDesc.clearColor[2] = 0.1f;
+        passDesc.clearColor[3] = 1.0f;
+        passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+        
+        encoder.BeginRenderPass(passDesc);
         
         encoder.SetPipeline(pipeline);
         
@@ -120,6 +127,8 @@ public:
         encoder.SetVertexStream(1, colorBuffer, 0, 16);
         
         encoder.Draw(3); 
+
+        encoder.EndRenderPass();
 
         if (device) {
             encoder.SubmitTo(*device);

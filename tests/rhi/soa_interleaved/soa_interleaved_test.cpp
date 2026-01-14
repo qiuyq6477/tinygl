@@ -115,9 +115,6 @@ public:
     }
 
     void onRender(SoftRenderContext& ctx) override {
-        ctx.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         // Rotating Cube
         static float angle = 0.0f;
         angle += 1.0f;
@@ -129,6 +126,19 @@ public:
         Mat4 mvp = proj * view * model;
 
         encoder.Reset();
+
+        RenderPassDesc passDesc;
+        passDesc.colorLoadOp = LoadAction::Clear;
+        passDesc.clearColor[0] = 0.2f;
+        passDesc.clearColor[1] = 0.2f;
+        passDesc.clearColor[2] = 0.2f;
+        passDesc.clearColor[3] = 1.0f;
+        passDesc.depthLoadOp = LoadAction::Clear;
+        passDesc.clearDepth = 1.0f;
+        passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+
+        encoder.BeginRenderPass(passDesc);
+
         encoder.SetPipeline(pipeline);
 
         // Pass Uniform (Slot 0 for mvp by default if shader has it as first member or handled by SoftPipeline)
@@ -137,7 +147,7 @@ public:
         
         // Bind Stream 0: Positions
         // Offset = 0. Stride = 16 (Float4)
-        encoder.SetVertexStream(0, combinedBuffer, posOffset, 16);
+        encoder.SetVertexStream(0, combinedBuffer, 0, 16);
         
         // Bind Stream 1: Normals
         // Offset = nrmOffset. Stride = 12 (Float3)
@@ -146,6 +156,8 @@ public:
         encoder.SetIndexBuffer(ibo);
         
         encoder.DrawIndexed(indexCount); 
+
+        encoder.EndRenderPass();
 
         if (device) {
             encoder.SubmitTo(*device);

@@ -88,7 +88,7 @@ struct PacketDrawIndexed : CommandPacket {
 };
 
 struct PacketSetViewport : CommandPacket {
-    float x, y, w, h;
+    int x, y, w, h;
 };
 
 struct PacketSetScissor : CommandPacket {

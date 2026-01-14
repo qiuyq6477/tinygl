@@ -37,7 +37,19 @@ namespace {
     }
 
     GLenum ToGLType(VertexFormat format) {
-        return GL_FLOAT; 
+        switch (format) {
+            case VertexFormat::Float1: 
+            case VertexFormat::Float2: 
+            case VertexFormat::Float3: 
+            case VertexFormat::Float4: return GL_FLOAT;
+            case VertexFormat::UByte4: 
+            case VertexFormat::UByte4N: return GL_UNSIGNED_BYTE;
+            default: return GL_FLOAT;
+        }
+    }
+
+    GLboolean IsNormalized(VertexFormat format) {
+        return (format == VertexFormat::UByte4N) ? GL_TRUE : GL_FALSE;
     }
 
     GLint ToGLSize(VertexFormat format) {
@@ -123,7 +135,6 @@ GLDevice::GLDevice() {
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
         std::cerr << "GLDevice: GLAD not initialized!" << std::endl;
     }
-    m_state = {};
     std::memset(m_bindings, 0, sizeof(m_bindings));
 
     // Initialize Global UBO for Uniform Slots
@@ -150,32 +161,22 @@ GLDevice::~GLDevice() {
 
 void GLDevice::BindBuffer(GLenum target, GLuint id) {
     if (target == GL_ARRAY_BUFFER) {
-        if (m_state.boundVBO != id) {
-            glBindBuffer(target, id);
-            m_state.boundVBO = id;
-        }
+        glBindBuffer(target, id);
     } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
-        if (m_state.boundIBO != id) {
-            glBindBuffer(target, id);
-            m_state.boundIBO = id;
-        } 
+        glBindBuffer(target, id);
     } else {
         glBindBuffer(target, id);
     }
 }
 
+
+
 void GLDevice::BindVertexArray(GLuint id) {
-    if (m_state.boundVAO != id) {
-        glBindVertexArray(id);
-        m_state.boundVAO = id;
-    }
+    glBindVertexArray(id);
 }
 
 void GLDevice::UseProgram(GLuint id) {
-    if (m_state.boundProgram != id) {
-        glUseProgram(id);
-        m_state.boundProgram = id;
-    }
+    glUseProgram(id);
 }
 
 BufferHandle GLDevice::CreateBuffer(const BufferDesc& desc) {
@@ -196,8 +197,6 @@ void GLDevice::DestroyBuffer(BufferHandle handle) {
         GLuint id = m_buffers[handle.id].id;
         glDeleteBuffers(1, &id);
         m_buffers.erase(handle.id);
-        if (m_state.boundVBO == id) m_state.boundVBO = 0;
-        if (m_state.boundIBO == id) m_state.boundIBO = 0;
     }
 }
 
@@ -214,7 +213,6 @@ TextureHandle GLDevice::CreateTexture(const void* pixelData, int width, int heig
     glGenTextures(1, &id);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, id);
-    m_state.boundTexture = id;
 
     GLenum format = GL_RGBA;
     if (channels == 3) format = GL_RGB;
@@ -238,7 +236,6 @@ void GLDevice::DestroyTexture(TextureHandle handle) {
         GLuint id = m_textures[handle.id];
         glDeleteTextures(1, &id);
         m_textures.erase(handle.id);
-        if (m_state.boundTexture == id) m_state.boundTexture = 0;
     }
 }
 
@@ -434,7 +431,7 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                                 attr.shaderLocation,
                                 ToGLSize(attr.format),
                                 ToGLType(attr.format),
-                                GL_FALSE,
+                                IsNormalized(attr.format),
                                 stride,
                                 (const void*)(uintptr_t)(binding.offset + attr.offset)
                             );
@@ -471,7 +468,7 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                                 attr.shaderLocation,
                                 ToGLSize(attr.format),
                                 ToGLType(attr.format),
-                                GL_FALSE,
+                                IsNormalized(attr.format),
                                 stride,
                                 (const void*)(uintptr_t)(binding.offset + attr.offset)
                             );
@@ -520,6 +517,7 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                  if (pkt->depthLoadOp == LoadAction::Clear) {
                      glClearDepth(pkt->clearDepth);
                      mask |= GL_DEPTH_BUFFER_BIT;
+                     glDepthMask(GL_TRUE); // Ensure we can write to depth buffer
                  }
                  if (mask != 0) {
                      glClear(mask);

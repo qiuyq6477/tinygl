@@ -164,16 +164,27 @@ public:
     }
 
     void onRender(SoftRenderContext& ctx) override {
-        ctx.glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-        ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         encoder.Reset();
 
-        // Viewport
+        // 1. Setup Render Pass
         const auto& vp = ctx.glGetViewport();
-        encoder.SetViewport(vp.x, vp.y, vp.w, vp.h);
+        
+        RenderPassDesc passDesc;
+        passDesc.colorLoadOp = LoadAction::Clear;
+        passDesc.clearColor[0] = 0.2f;
+        passDesc.clearColor[1] = 0.3f;
+        passDesc.clearColor[2] = 0.3f;
+        passDesc.clearColor[3] = 1.0f;
+        passDesc.depthLoadOp = LoadAction::Clear;
+        passDesc.clearDepth = 1.0f;
+        passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+        
+        // Use current viewport as initial viewport for the pass
+        passDesc.initialViewport = {vp.x, vp.y, vp.w, vp.h};
 
-        // Calculate MVP
+        encoder.BeginRenderPass(passDesc);
+
+        // 2. Calculate MVP
         float aspect = (float)vp.w / (float)vp.h;
         // Camera Aspect might need update if window resized
         camera.aspect = aspect;
@@ -190,7 +201,7 @@ public:
         SimdMat4 u;
         u.load(mvp);
 
-        // Encode Commands
+        // 3. Encode Commands
         encoder.SetPipeline(pipeline);
         encoder.SetVertexBuffer(vbo);
         encoder.SetIndexBuffer(ebo);
@@ -206,7 +217,9 @@ public:
         // Draw Indexed
         encoder.DrawIndexed(m_indexCount);
 
-        // Submit
+        encoder.EndRenderPass();
+
+        // 4. Submit
         if (device) {
             encoder.SubmitTo(*device);
         }

@@ -2,6 +2,7 @@
 #include <rhi/commands.h>
 #include <rhi/encoder.h>
 #include <rhi/shader_registry.h>
+#include <rhi/gl_device.h>
 #include <iostream>
 #include <cmath>
 #include <string>
@@ -15,17 +16,27 @@ public:
         "GL Blend & Scissor Test", 
         800, 600, 
         false, 
-        AppConfig::Backend::OpenGL
+        SDL_WINDOW_OPENGL
     }) {}
 
 protected:
+    std::unique_ptr<IGraphicsDevice> m_device;
+    SDL_GLContext m_glContext = nullptr;
     BufferHandle m_vbo = {0};
     PipelineHandle m_opaquePipeline = {0};
     PipelineHandle m_blendPipeline = {0};
     CommandEncoder m_encoder;
 
     bool onInit() override {
-        IGraphicsDevice* device = getGraphicsDevice();
+        // 1. Create OpenGL Context manually
+        m_glContext = SDL_GL_CreateContext(getWindow());
+        if (!m_glContext) {
+            std::cerr << "Failed to create OpenGL context: " << SDL_GetError() << std::endl;
+            return false;
+        }
+        
+        m_device = std::make_unique<GLDevice>();
+        IGraphicsDevice* device = m_device.get();
         if (!device) return false;
 
         std::cout << "Backend: OpenGL" << std::endl;
@@ -84,16 +95,18 @@ protected:
     }
 
     void onDestroy() override {
-        IGraphicsDevice* device = getGraphicsDevice();
+        IGraphicsDevice* device = m_device.get();
         if (device) {
             device->DestroyPipeline(m_opaquePipeline);
             device->DestroyPipeline(m_blendPipeline);
             device->DestroyBuffer(m_vbo);
         }
+        m_device.reset();
+        if (m_glContext) SDL_GL_DeleteContext(m_glContext);
     }
 
-    void onRender() override {
-        IGraphicsDevice* device = getGraphicsDevice();
+    void renderFrame() override {
+        IGraphicsDevice* device = m_device.get();
         if (device) {
             m_encoder.Reset();
             
@@ -126,6 +139,9 @@ protected:
             m_encoder.Draw(6);
             
             m_encoder.SubmitTo(*device);
+            device->Present();
+
+            SDL_GL_SwapWindow(getWindow());
         }
     }
 };

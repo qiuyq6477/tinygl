@@ -14,6 +14,7 @@ add_library(tinygl_framework SHARED
     framework/geometry.cpp
     framework/application.cpp
     framework/ui_renderer.cpp
+    framework/ui_renderer_fast.cpp
     framework/mesh.cpp
     framework/model.cpp
     framework/texture.cpp

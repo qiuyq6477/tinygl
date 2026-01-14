@@ -93,15 +93,24 @@ public:
     void onRender(SoftRenderContext& ctx) override {
         encoder.Reset();
 
-        // 1. Scissor Test for Clear
+        // 1. Setup Render Pass
+        RenderPassDesc passDesc;
+        passDesc.colorLoadOp = LoadAction::Clear;
+        passDesc.clearColor[0] = 0.1f;
+        passDesc.clearColor[1] = 0.1f;
+        passDesc.clearColor[2] = 0.15f;
+        passDesc.clearColor[3] = 1.0f;
+        passDesc.depthLoadOp = LoadAction::Clear;
+        passDesc.clearDepth = 1.0f;
+        passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+
         if (enableScissor) {
-            encoder.SetScissor((int)scissorX, (int)scissorY, (int)scissorW, (int)scissorH);
+            passDesc.initialScissor = {(int)scissorX, (int)scissorY, (int)scissorW, (int)scissorH};
         } else {
-            encoder.SetScissor(0, 0, -1, -1); // Disable convention
+            passDesc.initialScissor = {0, 0, -1, -1}; // Disable
         }
 
-        // Clear color (should be clipped if scissor is on)
-        encoder.Clear(0.1f, 0.1f, 0.15f, 1.0f);
+        encoder.BeginRenderPass(passDesc);
 
         // 2. Draw Opaque Quad
         encoder.SetPipeline(opaquePipe);
@@ -117,6 +126,8 @@ public:
         mat2.diffuse = Vec4(0.0f, 1.0f, 0.0f, 0.5f); // Semi-transparent green
         encoder.UpdateUniform(0, mat2);
         encoder.Draw(6, 6);
+
+        encoder.EndRenderPass();
 
         encoder.SubmitTo(*device);
     }

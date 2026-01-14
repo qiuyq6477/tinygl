@@ -83,9 +83,6 @@ public:
     }
 
     void onRender(SoftRenderContext& ctx) override {
-        ctx.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-        ctx.glClear(GL_COLOR_BUFFER_BIT);
-
         // Simulate multi-threaded recording
         // We will have 2 encoders:
         // Encoder A draws the Left Triangle (Red)
@@ -96,6 +93,18 @@ public:
 
         // Job A: Record commands for Red Triangle
         auto jobA = [&]() {
+            encoderA.Reset();
+            
+            RenderPassDesc pass;
+            pass.colorLoadOp = LoadAction::Clear;
+            pass.clearColor[0] = 0.2f;
+            pass.clearColor[1] = 0.2f;
+            pass.clearColor[2] = 0.2f;
+            pass.clearColor[3] = 1.0f;
+            pass.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+            
+            encoderA.BeginRenderPass(pass);
+            
             encoderA.SetPipeline(pipeline);
             encoderA.SetVertexBuffer(vbo);
             
@@ -105,10 +114,20 @@ public:
             
             // Draw first 3 vertices
             encoderA.Draw(3, 0);
+
+            encoderA.EndRenderPass();
         };
 
         // Job B: Record commands for Blue Triangle
         auto jobB = [&]() {
+            encoderB.Reset();
+
+            RenderPassDesc pass;
+            pass.colorLoadOp = LoadAction::Load; // DON'T CLEAR, keep encoderA's output
+            pass.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+            
+            encoderB.BeginRenderPass(pass);
+            
             encoderB.SetPipeline(pipeline);
             encoderB.SetVertexBuffer(vbo); // Redundant binding, but necessary for isolated buffer
             
@@ -118,10 +137,11 @@ public:
             
             // Draw next 3 vertices (offset 3)
             encoderB.Draw(3, 3);
+
+            encoderB.EndRenderPass();
         };
 
-        // Execute jobs (sequentially here for determinism, but could be threaded)
-        // In a real scenario: std::thread t1(jobA); std::thread t2(jobB); t1.join(); t2.join();
+        // Execute jobs in parallel
         std::thread t1(jobA);
         std::thread t2(jobB);
         t1.join();

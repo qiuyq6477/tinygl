@@ -141,7 +141,7 @@ layout(location = 0) in vec2 aPos;
 layout(location = 1) in vec2 aUV;
 layout(location = 2) in vec4 aColor;
 
-layout(std140) uniform Globals {
+layout(std140) uniform Slot0 {
     mat4 projection;
 };
 
@@ -400,9 +400,12 @@ void UIRenderer::render(mu_Context* ctx, CommandEncoder& encoder, int width, int
     // Setup Render Pass (Overlay Mode)
     RenderPassDesc pass;
     pass.colorLoadOp = LoadAction::Load; // Keep underlying scene
-    pass.depthLoadOp = LoadAction::Load; // Keep depth (though UI usually ignores it)
-    pass.initialScissor = {0, 0, width, height}; // Start with full screen
-    pass.initialViewport = {0, 0, width, height};
+    pass.depthLoadOp = LoadAction::Load; // Keep depth
+    
+    // Constrain UI to right 300px
+    int uiWidth = 300;
+    pass.initialScissor = {width - uiWidth, 0, uiWidth, height};
+    pass.initialViewport = {0, 0, width, height}; // Viewport stays full screen to maintain coordinate system
 
     encoder.BeginRenderPass(pass);
 
