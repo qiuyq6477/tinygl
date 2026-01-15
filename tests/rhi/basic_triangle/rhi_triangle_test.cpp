@@ -139,7 +139,12 @@ void main() {
         passDesc.clearColor[3] = 1.0f;
         passDesc.depthLoadOp = LoadAction::Clear;
         passDesc.clearDepth = 1.0f;
+        
+        // Use Render Area to restrict clear to viewport (Test Area)
+        passDesc.renderArea = {0, 0, width, height};
+        
         passDesc.initialViewport = {0, 0, width, height};
+
         encoder.BeginRenderPass(passDesc);
 
         encoder.SetPipeline(pipeline);

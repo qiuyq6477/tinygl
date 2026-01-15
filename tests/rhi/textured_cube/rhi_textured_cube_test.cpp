@@ -178,6 +178,7 @@ public:
         passDesc.depthLoadOp = LoadAction::Clear;
         passDesc.clearDepth = 1.0f;
         passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+        passDesc.renderArea = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
         
         // Use current viewport as initial viewport for the pass
         passDesc.initialViewport = {vp.x, vp.y, vp.w, vp.h};

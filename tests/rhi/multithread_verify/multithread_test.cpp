@@ -135,6 +135,7 @@ void main() {
             pass.clearColor[2] = 0.2f;
             pass.clearColor[3] = 1.0f;
             pass.initialViewport = {0, 0, width, height};
+            pass.renderArea = {0, 0, width, height};
             
             encoderA.BeginRenderPass(pass);
             

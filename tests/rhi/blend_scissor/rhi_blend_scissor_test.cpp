@@ -139,6 +139,10 @@ void main() {
         passDesc.clearColor[3] = 1.0f;
         passDesc.depthLoadOp = LoadAction::Clear;
         passDesc.clearDepth = 1.0f;
+        
+        // Restrict Clear to the Test Viewport Area
+        passDesc.renderArea = {0, 0, width, height};
+        
         passDesc.initialViewport = {0, 0, width, height};
 
         if (enableScissor) {

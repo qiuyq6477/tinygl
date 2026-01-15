@@ -37,6 +37,7 @@ struct PacketBeginPass : CommandPacket {
     // Initial State
     int scX, scY, scW, scH; // Scissor
     int vpX, vpY, vpW, vpH; // Viewport
+    int raX, raY, raW, raH; // Render Area (for Clear)
 };
 
 struct PacketEndPass : CommandPacket {

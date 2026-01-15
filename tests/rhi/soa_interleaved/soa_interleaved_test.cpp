@@ -164,6 +164,7 @@ void main() {
         passDesc.depthLoadOp = LoadAction::Clear;
         passDesc.clearDepth = 1.0f;
         passDesc.initialViewport = {0, 0, width, height};
+        passDesc.renderArea = {0, 0, width, height};
 
         encoder.BeginRenderPass(passDesc);
 

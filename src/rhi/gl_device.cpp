@@ -495,10 +495,17 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                  currentPipelineId = 0;
                  currentPipelineMeta = nullptr;
 
-                 // 2. Handle Load Actions (Clear)
-                 // Ensure Scissor is DISABLED for Clear (Standard RenderPass behavior clears full attachment)
-                 glDisable(GL_SCISSOR_TEST);
+                 // 2. Configure Scissor for LoadAction (Clear)
+                 // If Render Area is specified, use it to constrain the clear.
+                 // Otherwise, disable scissor to clear the full attachment (standard behavior).
+                 if (pkt->raW >= 0 && pkt->raH >= 0) {
+                     glEnable(GL_SCISSOR_TEST);
+                     glScissor(pkt->raX, pkt->raY, pkt->raW, pkt->raH);
+                 } else {
+                     glDisable(GL_SCISSOR_TEST);
+                 }
 
+                 // 3. Handle Load Actions (Clear)
                  GLbitfield mask = 0;
                  if (pkt->colorLoadOp == LoadAction::Clear) {
                     glClearColor(pkt->clearColor[0], pkt->clearColor[1], pkt->clearColor[2], pkt->clearColor[3]);
@@ -513,14 +520,16 @@ void GLDevice::Submit(const CommandBuffer& buffer) {
                     glClear(mask);
                  }
 
-                 // 3. Apply Scissor State
+                 // 4. Apply Initial Scissor State for Drawing
                  if (pkt->scW >= 0 && pkt->scH >= 0) {
                     glEnable(GL_SCISSOR_TEST);
                     glScissor(pkt->scX, pkt->scY, pkt->scW, pkt->scH);
+                 } else {
+                    // If no initial scissor, default to disabled (or keep full screen if that was intent, but "disabled" is safer stateless default)
+                    glDisable(GL_SCISSOR_TEST);
                  }
-                 // If invalid scissor, it remains disabled from step 2.
 
-                 // 4. Reset Viewport State (if specified)
+                 // 5. Reset Viewport State (if specified)
                  if (pkt->vpW >= 0 && pkt->vpH >= 0) {
                     glViewport(pkt->vpX, pkt->vpY, pkt->vpW, pkt->vpH);
                  }

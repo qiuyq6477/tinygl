@@ -160,6 +160,11 @@ public:
         pkt.vpW = desc.initialViewport.w;
         pkt.vpH = desc.initialViewport.h;
 
+        pkt.raX = desc.renderArea.x;
+        pkt.raY = desc.renderArea.y;
+        pkt.raW = desc.renderArea.w;
+        pkt.raH = desc.renderArea.h;
+
         m_buffer.Write(pkt);
     }
 

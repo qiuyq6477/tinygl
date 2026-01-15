@@ -167,6 +167,11 @@ struct RenderPassDesc {
     // If w < 0, Scissor Test is DISABLED.
     RenderRect initialScissor = {0, 0, -1, -1}; 
     
+    // Explicit Render Area (Scissor) for LoadAction::Clear
+    // If w < 0, defaults to clearing the entire attachment (Standard behavior)
+    // If specified, Scissor Test is enabled JUST for the Clear operation, then reset to initialScissor.
+    RenderRect renderArea = {0, 0, -1, -1};
+
     // If w < 0, Viewport is reset to full framebuffer size (if supported by backend)
     // or kept as is. For safety in "Stateless" mode, backend should likely reset to target size.
     RenderRect initialViewport = {0, 0, -1, -1}; 
