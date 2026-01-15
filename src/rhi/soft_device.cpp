@@ -321,6 +321,7 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
                  if (pkt->depthLoadOp == LoadAction::Clear) {
                     m_ctx.glClearDepth(pkt->clearDepth);
                     mask |= GL_DEPTH_BUFFER_BIT;
+                    m_ctx.glDepthMask(GL_TRUE); // Ensure we can write to depth buffer
                  }
                  if (mask != 0) {
                     m_ctx.glClear(mask);
