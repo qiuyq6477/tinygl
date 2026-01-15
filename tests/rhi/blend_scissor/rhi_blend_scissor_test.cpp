@@ -106,6 +106,8 @@ void main() {
         opaqueDesc.cullMode = CullMode::None;
         opaqueDesc.inputLayout.stride = sizeof(Vec4);
         opaqueDesc.inputLayout.attributes = {{ VertexFormat::Float4, 0, 0 }};
+        opaqueDesc.depthTestEnabled = false;
+        opaqueDesc.depthWriteEnabled = false;
         opaqueDesc.blend.enabled = false;
         opaquePipe = device->CreatePipeline(opaqueDesc);
 
@@ -140,7 +142,9 @@ void main() {
         passDesc.initialViewport = {0, 0, width, height};
 
         if (enableScissor) {
-            passDesc.initialScissor = {(int)scissorX, (int)scissorY, (int)scissorW, (int)scissorH};
+            // Convert Top-Left (UI) Y to Bottom-Left (GL) Y
+            int glY = height - ((int)scissorY + (int)scissorH);
+            passDesc.initialScissor = {(int)scissorX, glY, (int)scissorW, (int)scissorH};
         } else {
             passDesc.initialScissor = {0, 0, -1, -1}; // Disable
         }
