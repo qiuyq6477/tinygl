@@ -29,7 +29,7 @@ The project follows a layered architecture divided into three main components:
     * **Interface:** Exposes the `Application` base class for users to inherit from.
 
 3. **Tests & Demos (`tests/`):**
-    * **Type:** Executable (`test_runner`) + Static Libraries linking against `tinygl_framework`.
+    * **Type:** Executable (`tinygl_tester`) + Static Libraries linking against `tinygl_framework`.
     * **Structure:** Each test case is compiled as a static library that self-registers into a global registry.
     * **Purpose:** Verification of implemented OpenGL features (e.g., `glDrawArrays`, Texturing, Mipmaps, Instancing, Lighting).
     * **Runner:** A unified GUI application to browse and run different graphical tests.
@@ -58,11 +58,11 @@ ninja
 
 ### Running Tests
 
-The primary executable is `test_runner` located in `tests/`:
+The primary executable is `tinygl_tester` located in `tests/`:
 
 ```bash
 # Run the test runner (it will likely open a window with a menu to select tests)
-./tests/test_runner
+./tests/tinygl_tester
 ```
 
 ## Development Conventions
@@ -136,7 +136,7 @@ Shaders in TinyGL are implemented as C++ structs/classes. Follow these rules to 
 
 * `include/tinygl/tinygl.h`: **The Brain.** The software rasterizer implementation.
 * `src/framework/application.cpp`: Main application loop and SDL integration.
-* `tests/test_runner.cpp`: Entry point for the test suite.
+* `tests/tinygl_tester.cpp`: Entry point for the test suite.
 * `API_STATUS.md`: Tracks implemented vs. missing OpenGL features.
 * `CMakeLists.txt`: Root build configuration.
 

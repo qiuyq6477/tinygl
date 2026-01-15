@@ -31,9 +31,8 @@ struct SoATriangleShader : public ShaderBuiltins {
     }
 };
 
-class SoATest : public ITinyGLTestCase {
+class SoATest : public IRHITestCase {
 public:
-    std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;
     
     BufferHandle posBuffer;
@@ -41,9 +40,7 @@ public:
     PipelineHandle pipeline;
     ShaderHandle shaderHandle;
 
-    void init(SoftRenderContext& ctx) override {
-        device = std::make_unique<SoftDevice>(ctx);
-
+    void init(rhi::IGraphicsDevice* device) override {
         // 1. Prepare SoA Data (Planar)
         // Stream 0: Positions (3 vertices * 3 floats)
         std::vector<float> positions = {
@@ -73,7 +70,27 @@ public:
         colorBuffer = device->CreateBuffer(colDesc);
 
         // 3. Register Shader
-        shaderHandle = ShaderRegistry::RegisterShader<SoATriangleShader>("SoATriangleShader");
+        ShaderDesc desc;
+        desc.softFactory = [](SoftRenderContext& ctx, const PipelineDesc& pDesc) {
+            return std::make_unique<SoftPipeline<SoATriangleShader>>(ctx, pDesc);
+        };
+        desc.glsl.vertex = R"(#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec4 aColor;
+out vec4 vertexColor;
+void main() {
+    gl_Position = vec4(aPos, 1.0);
+    vertexColor = aColor;
+}
+)";
+        desc.glsl.fragment = R"(#version 330 core
+in vec4 vertexColor;
+out vec4 FragColor;
+void main() {
+    FragColor = vertexColor;
+}
+)";
+        shaderHandle = ShaderRegistry::GetInstance().Register("SoATriangleShader", desc);
 
         // 4. Create Pipeline with Multi-Stream Layout
         PipelineDesc pipeDesc;
@@ -94,16 +111,15 @@ public:
         pipeline = device->CreatePipeline(pipeDesc);
     }
 
-    void destroy(SoftRenderContext& ctx) override {
+    void destroy(rhi::IGraphicsDevice* device) override {
         if (device) {
             device->DestroyPipeline(pipeline);
             device->DestroyBuffer(posBuffer);
             device->DestroyBuffer(colorBuffer);
-            device.reset();
         }
     }
 
-    void onRender(SoftRenderContext& ctx) override {
+    void onRender(rhi::IGraphicsDevice* device, int width, int height) override {
         encoder.Reset();
 
         RenderPassDesc passDesc;
@@ -112,27 +128,23 @@ public:
         passDesc.clearColor[1] = 0.1f;
         passDesc.clearColor[2] = 0.1f;
         passDesc.clearColor[3] = 1.0f;
-        passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+        passDesc.initialViewport = {0, 0, width, height};
         
         encoder.BeginRenderPass(passDesc);
         
         encoder.SetPipeline(pipeline);
         
         // Bind Stream 0: Positions
-        // Stride = 3 * sizeof(float) = 12
-        encoder.SetVertexStream(0, posBuffer, 0, 12);
+        encoder.SetVertexStream(0, posBuffer, 0, 3 * sizeof(float));
         
         // Bind Stream 1: Colors
-        // Stride = 4 * sizeof(float) = 16
-        encoder.SetVertexStream(1, colorBuffer, 0, 16);
+        encoder.SetVertexStream(1, colorBuffer, 0, 4 * sizeof(float));
         
         encoder.Draw(3); 
 
         encoder.EndRenderPass();
 
-        if (device) {
-            encoder.SubmitTo(*device);
-        }
+        encoder.SubmitTo(*device);
     }
 
     void onGui(mu_Context* ctx, const Rect& rect) override {

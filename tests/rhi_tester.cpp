@@ -1,9 +1,13 @@
 #include <third_party/glad/glad.h>
-#include "test_runner_app.h"
 #include <rhi/soft_device.h>
 #include <rhi/gl_device.h>
 #include <framework/ui_renderer.h>
+#include <framework/application.h>
 #include <optional>
+#include "test_registry.h"
+
+using namespace tinygl;
+using namespace framework;
 
 class RhiRunnerApp : public Application {
 public:
@@ -392,3 +396,15 @@ private:
     GLuint m_blitVBO = 0;
     GLuint m_blitProgram = 0;
 };
+
+int main(int argc, char** argv) {
+    AppConfig config;
+    config.title = "TinyGL RHI Runner";
+    config.width = 1280;
+    config.height = 720;
+    config.resizable = false;
+    config.windowFlags = SDL_WINDOW_OPENGL;
+    RhiRunnerApp app(config);
+    app.run();
+    return 0;
+}

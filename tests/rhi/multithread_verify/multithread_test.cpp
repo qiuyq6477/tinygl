@@ -26,10 +26,8 @@ struct SolidColorShader : public ShaderBuiltins {
     }
 };
 
-class MultiThreadRecordTest : public ITinyGLTestCase {
+class MultiThreadRecordTest : public IRHITestCase {
 public:
-    std::unique_ptr<SoftDevice> device;
-    
     // Resources shared across threads
     BufferHandle vbo;
     PipelineHandle pipeline;
@@ -39,9 +37,7 @@ public:
         Vec4 pos;
     };
 
-    void init(SoftRenderContext& ctx) override {
-        device = std::make_unique<SoftDevice>(ctx);
-
+    void init(rhi::IGraphicsDevice* device) override {
         // Define a full-screen quad (2 triangles)
         std::vector<VertexPacked> vertices = {
             // Triangle 1 (Top-Left)
@@ -61,7 +57,45 @@ public:
         bufDesc.initialData = vertices.data();
         vbo = device->CreateBuffer(bufDesc);
 
-        shaderHandle = ShaderRegistry::RegisterShader<SolidColorShader>("SolidColorShader");
+        ShaderDesc desc;
+        desc.softFactory = [](SoftRenderContext& ctx, const PipelineDesc& pDesc) {
+            return std::make_unique<SoftPipeline<SolidColorShader>>(ctx, pDesc);
+        };
+        desc.glsl.vertex = R"(#version 330 core
+layout(location = 0) in vec4 aPos;
+layout(std140) uniform MaterialData {
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    float opacity;
+    float alphaCutoff;
+    int alphaTest;
+    int doubleSided;
+};
+void main() {
+    gl_Position = aPos;
+}
+)";
+        desc.glsl.fragment = R"(#version 330 core
+out vec4 FragColor;
+layout(std140) uniform MaterialData {
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    float opacity;
+    float alphaCutoff;
+    int alphaTest;
+    int doubleSided;
+};
+void main() {
+    FragColor = diffuse;
+}
+)";
+        shaderHandle = ShaderRegistry::GetInstance().Register("SolidColorShader", desc);
 
         PipelineDesc pipeDesc;
         pipeDesc.shader = shaderHandle;
@@ -74,15 +108,14 @@ public:
         pipeline = device->CreatePipeline(pipeDesc);
     }
 
-    void destroy(SoftRenderContext& ctx) override {
+    void destroy(rhi::IGraphicsDevice* device) override {
         if (device) {
             device->DestroyPipeline(pipeline);
             device->DestroyBuffer(vbo);
-            device.reset();
         }
     }
 
-    void onRender(SoftRenderContext& ctx) override {
+    void onRender(rhi::IGraphicsDevice* device, int width, int height) override {
         // Simulate multi-threaded recording
         // We will have 2 encoders:
         // Encoder A draws the Left Triangle (Red)
@@ -101,7 +134,7 @@ public:
             pass.clearColor[1] = 0.2f;
             pass.clearColor[2] = 0.2f;
             pass.clearColor[3] = 1.0f;
-            pass.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+            pass.initialViewport = {0, 0, width, height};
             
             encoderA.BeginRenderPass(pass);
             
@@ -124,7 +157,7 @@ public:
 
             RenderPassDesc pass;
             pass.colorLoadOp = LoadAction::Load; // DON'T CLEAR, keep encoderA's output
-            pass.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+            pass.initialViewport = {0, 0, width, height};
             
             encoderB.BeginRenderPass(pass);
             

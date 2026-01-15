@@ -22,9 +22,8 @@ struct ColorShader : public ShaderBuiltins {
     }
 };
 
-class RhiBlendScissorTest : public ITinyGLTestCase {
+class RhiBlendScissorTest : public IRHITestCase {
 public:
-    std::unique_ptr<SoftDevice> device;
     CommandEncoder encoder;
     
     BufferHandle vbo;
@@ -35,8 +34,7 @@ public:
     bool enableScissor = true;
     float scissorX = 100, scissorY = 100, scissorW = 600, scissorH = 400;
 
-    void init(SoftRenderContext& ctx) override {
-        device = std::make_unique<SoftDevice>(ctx);
+    void init(rhi::IGraphicsDevice* device) override {
 
         float vertices[] = {
             // Quad 1: Bottom-Left to Center
@@ -62,7 +60,45 @@ public:
         bufDesc.initialData = vertices;
         vbo = device->CreateBuffer(bufDesc);
 
-        shaderHandle = ShaderRegistry::RegisterShader<ColorShader>("RhiColorShader");
+        ShaderDesc desc;
+        desc.softFactory = [](SoftRenderContext& ctx, const PipelineDesc& pDesc) {
+            return std::make_unique<SoftPipeline<ColorShader>>(ctx, pDesc);
+        };
+        desc.glsl.vertex = R"(#version 330 core
+layout(location = 0) in vec4 aPos;
+layout(std140) uniform MaterialData {
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    float opacity;
+    float alphaCutoff;
+    int alphaTest;
+    int doubleSided;
+};
+void main() {
+    gl_Position = aPos;
+}
+)";
+        desc.glsl.fragment = R"(#version 330 core
+out vec4 FragColor;
+layout(std140) uniform MaterialData {
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    float opacity;
+    float alphaCutoff;
+    int alphaTest;
+    int doubleSided;
+};
+void main() {
+    FragColor = diffuse;
+}
+)";
+        shaderHandle = ShaderRegistry::GetInstance().Register("RhiColorShader", desc);
         
         // Opaque Pipeline
         PipelineDesc opaqueDesc;
@@ -81,16 +117,15 @@ public:
         blendPipe = device->CreatePipeline(blendDesc);
     }
 
-    void destroy(SoftRenderContext& ctx) override {
+    void destroy(rhi::IGraphicsDevice* device) override {
         if (device) {
             device->DestroyPipeline(opaquePipe);
             device->DestroyPipeline(blendPipe);
             device->DestroyBuffer(vbo);
-            device.reset();
         }
     }
 
-    void onRender(SoftRenderContext& ctx) override {
+    void onRender(rhi::IGraphicsDevice* device, int width, int height) override {
         encoder.Reset();
 
         // 1. Setup Render Pass
@@ -102,7 +137,7 @@ public:
         passDesc.clearColor[3] = 1.0f;
         passDesc.depthLoadOp = LoadAction::Clear;
         passDesc.clearDepth = 1.0f;
-        passDesc.initialViewport = {0, 0, ctx.glGetViewport().w, ctx.glGetViewport().h};
+        passDesc.initialViewport = {0, 0, width, height};
 
         if (enableScissor) {
             passDesc.initialScissor = {(int)scissorX, (int)scissorY, (int)scissorW, (int)scissorH};

@@ -9,11 +9,11 @@ define_property(GLOBAL PROPERTY TINYGL_TEST_LIBS
 )
 define_property(GLOBAL PROPERTY TINYGL_RHI_TEST_LIBS
     BRIEF_DOCS "List of RHI test case libraries"
-    FULL_DOCS "List of RHI test case libraries to link into rhi_runner"
+    FULL_DOCS "List of RHI test case libraries to link into rhi_tester"
 )
 define_property(GLOBAL PROPERTY TINYGL_CORE_TEST_LIBS
     BRIEF_DOCS "List of Core test case libraries"
-    FULL_DOCS "List of Core test case libraries to link into test_runner"
+    FULL_DOCS "List of Core test case libraries to link into tinygl_tester"
 )
 
 # Find SDL2 (Required for camera test which uses SDL directly)
@@ -59,44 +59,44 @@ get_property(RHI_TEST_LIBS GLOBAL PROPERTY TINYGL_RHI_TEST_LIBS)
 get_property(CORE_TEST_LIBS GLOBAL PROPERTY TINYGL_CORE_TEST_LIBS)
 
 # --- Test Runner (Core) ---
-add_executable(test_runner test_runner.cpp)
-target_link_libraries(test_runner PRIVATE tinygl_framework ${SDL2_LIBRARIES})
+add_executable(tinygl_tester tinygl_tester.cpp)
+target_link_libraries(tinygl_tester PRIVATE tinygl_framework ${SDL2_LIBRARIES})
 
 if (CORE_TEST_LIBS)
     if(APPLE)
-        target_link_libraries(test_runner PRIVATE -Wl,-all_load ${CORE_TEST_LIBS})
+        target_link_libraries(tinygl_tester PRIVATE -Wl,-all_load ${CORE_TEST_LIBS})
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR MINGW)
-        target_link_libraries(test_runner PRIVATE -Wl,--whole-archive ${CORE_TEST_LIBS} -Wl,--no-whole-archive)
+        target_link_libraries(tinygl_tester PRIVATE -Wl,--whole-archive ${CORE_TEST_LIBS} -Wl,--no-whole-archive)
     elseif(MSVC)
         foreach(lib ${CORE_TEST_LIBS})
-            target_link_libraries(test_runner PRIVATE "/WHOLEARCHIVE:${lib}")
+            target_link_libraries(tinygl_tester PRIVATE "/WHOLEARCHIVE:${lib}")
         endforeach()
     else()
-        target_link_libraries(test_runner PRIVATE ${CORE_TEST_LIBS})
+        target_link_libraries(tinygl_tester PRIVATE ${CORE_TEST_LIBS})
     endif()
 endif()
 
 # --- RHI Runner (RHI Only) ---
-add_executable(rhi_runner rhi_runner.cpp ../src/third_party/glad.c)
-target_link_libraries(rhi_runner PRIVATE tinygl_framework ${SDL2_LIBRARIES})
+add_executable(rhi_tester rhi_tester.cpp ../src/third_party/glad.c)
+target_link_libraries(rhi_tester PRIVATE tinygl_framework ${SDL2_LIBRARIES})
 
 if (RHI_TEST_LIBS)
     if(APPLE)
-        target_link_libraries(rhi_runner PRIVATE -Wl,-all_load ${RHI_TEST_LIBS})
+        target_link_libraries(rhi_tester PRIVATE -Wl,-all_load ${RHI_TEST_LIBS})
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR MINGW)
-        target_link_libraries(rhi_runner PRIVATE -Wl,--whole-archive ${RHI_TEST_LIBS} -Wl,--no-whole-archive)
+        target_link_libraries(rhi_tester PRIVATE -Wl,--whole-archive ${RHI_TEST_LIBS} -Wl,--no-whole-archive)
     elseif(MSVC)
         foreach(lib ${RHI_TEST_LIBS})
-            target_link_libraries(rhi_runner PRIVATE "/WHOLEARCHIVE:${lib}")
+            target_link_libraries(rhi_tester PRIVATE "/WHOLEARCHIVE:${lib}")
         endforeach()
     else()
-        target_link_libraries(rhi_runner PRIVATE ${RHI_TEST_LIBS})
+        target_link_libraries(rhi_tester PRIVATE ${RHI_TEST_LIBS})
     endif()
 endif()
 
 # [Windows] Copy tinygl_framework.dll to runner directories
 if(WIN32)
-    foreach(TARGET test_runner rhi_runner)
+    foreach(TARGET tinygl_tester rhi_tester)
         add_custom_command(TARGET ${TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:tinygl_framework>

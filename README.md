@@ -47,13 +47,13 @@ ninja
 
 ### Running Tests
 
-The primary executable is `test_runner`.
+The primary executable is `tinygl_tester`.
 
 **Windows Note:** Ensure `SDL2.dll`, `libassimp-*.dll`, and other runtime dependencies are in the same directory as the executable or in your system PATH. The build system attempts to copy internal DLLs automatically, but you may need to copy MinGW runtime DLLs manually if running outside the MSYS2 shell.
 
 ```bash
 # Run the test runner (opens a GUI window)
-./tests/test_runner
+./tests/tinygl_tester
 ```
 
 ## Features
@@ -78,7 +78,7 @@ The primary executable is `test_runner`.
   - `math_simd.h`: SIMD-accelerated math primitives.
 - `src/`: Framework and core implementations.
 - `tests/`: 
-  - `test_runner`: A GUI-based test explorer.
+  - `tinygl_tester`: A GUI-based test explorer.
   - `perf/`: Performance benchmarks (Swizzling, Texture sampling).
 
 ## License
