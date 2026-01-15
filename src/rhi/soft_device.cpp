@@ -299,20 +299,10 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
                  m_activePipelineId = 0;
                  m_currentPipeline = nullptr;
 
-                 // 2. Reset Scissor State (Apply BEFORE Clear so Clear respects it)
-                 if (pkt->scW >= 0 && pkt->scH >= 0) {
-                    m_ctx.glEnable(GL_SCISSOR_TEST);
-                    m_ctx.glScissor(pkt->scX, pkt->scY, pkt->scW, pkt->scH);
-                 } else {
-                    m_ctx.glDisable(GL_SCISSOR_TEST);
-                 }
+                 // 2. Handle Load Actions (Clear)
+                 // Ensure Scissor is DISABLED for Clear (Standard RenderPass behavior clears full attachment)
+                 m_ctx.glDisable(GL_SCISSOR_TEST);
 
-                 // 3. Reset Viewport State (if specified)
-                 if (pkt->vpW >= 0 && pkt->vpH >= 0) {
-                    m_ctx.glViewport(pkt->vpX, pkt->vpY, pkt->vpW, pkt->vpH);
-                 }
-
-                 // 4. Handle Load Actions (Clear)
                  GLbitfield mask = 0;
                  if (pkt->colorLoadOp == LoadAction::Clear) {
                     m_ctx.glClearColor(pkt->clearColor[0], pkt->clearColor[1], pkt->clearColor[2], pkt->clearColor[3]);
@@ -325,6 +315,18 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
                  }
                  if (mask != 0) {
                     m_ctx.glClear(mask);
+                 }
+
+                 // 3. Apply Scissor State
+                 if (pkt->scW >= 0 && pkt->scH >= 0) {
+                    m_ctx.glEnable(GL_SCISSOR_TEST);
+                    m_ctx.glScissor(pkt->scX, pkt->scY, pkt->scW, pkt->scH);
+                 }
+                 // If invalid scissor, it remains disabled from step 2.
+
+                 // 4. Reset Viewport State (if specified)
+                 if (pkt->vpW >= 0 && pkt->vpH >= 0) {
+                    m_ctx.glViewport(pkt->vpX, pkt->vpY, pkt->vpW, pkt->vpH);
                  }
                  break;
             }
