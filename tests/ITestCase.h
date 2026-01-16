@@ -40,9 +40,9 @@ public:
 };
 
 
-class IRHITestCase {
+class ITestCase {
 public:
-    virtual ~IRHITestCase() = default;
+    virtual ~ITestCase() = default;
 
     // Called when the test case is selected
     // Use this to create resources (buffers, textures, shaders)

@@ -79,7 +79,7 @@ struct Entity {
     Mat4 transform;
 };
 
-class RHIECSTest : public IRHITestCase {
+class RHIECSTest : public ITestCase {
 public:
     framework::Camera camera;
     AssetHandle<Prefab> prefabHandle;

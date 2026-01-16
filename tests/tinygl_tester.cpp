@@ -1,5 +1,4 @@
-﻿#pragma once
-#include <iostream>
+﻿#include <iostream>
 #include <framework/application.h>
 #include <tinygl/tinygl.h>
 #include <ITestCase.h>

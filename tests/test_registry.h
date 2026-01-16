@@ -9,7 +9,7 @@
 
 // Factory function types
 using TinyGLTestFactory = std::function<ITinyGLTestCase*()>;
-using RHITestFactory = std::function<IRHITestCase*()>;
+using RHITestFactory = std::function<ITestCase*()>;
 
 class TestCaseRegistry {
 public:

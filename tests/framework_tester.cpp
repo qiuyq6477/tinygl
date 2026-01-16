@@ -212,10 +212,16 @@ protected:
             std::string groupPath = groupPair.first;
             std::string fullOriginalPath = groupPair.first; // Keep original for lookup
             
-            // Optional: Strip "framework/" prefix for cleaner UI in Framework Tester
+            // Strip "framework/" prefix and the last directory component (e.g., "framework/rhi/basic_triangle" -> "rhi")
+            // This groups tests directly under their category folder.
             const std::string prefix = "framework/";
-            if (groupPath.rfind(prefix, 0) == 0) { // starts_with
+            if (groupPath.rfind(prefix, 0) == 0) {
                 groupPath = groupPath.substr(prefix.length());
+            }
+            
+            size_t lastSlash = groupPath.find_last_of('/');
+            if (lastSlash != std::string::npos) {
+                groupPath = groupPath.substr(0, lastSlash);
             }
 
             TestNode* current = &root;
@@ -431,7 +437,7 @@ private:
     std::unique_ptr<SoftRenderContext> m_context;
     std::unique_ptr<rhi::IGraphicsDevice> m_device;
     mu_Context m_uiContext;
-    IRHITestCase* m_currentTest = nullptr;
+    ITestCase* m_currentTest = nullptr;
     std::string m_selectedGroup;
     std::string m_selectedTestName;
     // Blit Resources

@@ -27,7 +27,7 @@ struct SolidColorShader : public ShaderBuiltins {
     }
 };
 
-class MultiThreadRecordTest : public IRHITestCase {
+class MultiThreadRecordTest : public ITestCase {
 public:
     // Resources shared across threads
     BufferHandle vbo;

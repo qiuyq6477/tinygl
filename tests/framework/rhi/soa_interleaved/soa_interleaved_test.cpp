@@ -46,7 +46,7 @@ struct SoAPlaneShader : public ShaderBuiltins {
     }
 };
 
-class SoAInterleavedTest : public IRHITestCase {
+class SoAInterleavedTest : public ITestCase {
 public:
     CommandEncoder encoder;
     

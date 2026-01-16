@@ -31,7 +31,7 @@ struct RhiTriangleShader : public ShaderBuiltins {
     }
 };
 
-class RhiTriangleTest : public IRHITestCase {
+class RhiTriangleTest : public ITestCase {
 public:
     CommandEncoder encoder;
     

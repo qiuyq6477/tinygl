@@ -23,7 +23,7 @@ struct ColorShader : public ShaderBuiltins {
     }
 };
 
-class RhiBlendScissorTest : public IRHITestCase {
+class RhiBlendScissorTest : public ITestCase {
 public:
     CommandEncoder encoder;
     

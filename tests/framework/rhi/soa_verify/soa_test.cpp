@@ -32,7 +32,7 @@ struct SoATriangleShader : public ShaderBuiltins {
     }
 };
 
-class SoATest : public IRHITestCase {
+class SoATest : public ITestCase {
 public:
     CommandEncoder encoder;
     
