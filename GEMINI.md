@@ -87,7 +87,7 @@ Strictly adhere to **Conventional Commits**:
     ```
     *This helper automatically defines `TINYGL_TEST_GROUP` as the relative path from the `tests/` root.*
 3. **Implementation:** 
-    * Inherit from `ITinyGLTestCase` (for Core tests) or `IRHITestCase` (for Framework tests).
+    * Inherit from `ITinyGLTestCase` (for Core tests) or `ITestCase` (for Framework tests).
     * Use angle bracket includes for test utilities: 
       ```cpp
       #include <ITestCase.h>
