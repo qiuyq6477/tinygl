@@ -1,0 +1,1 @@
+add_tinygl_test(rhi_textured_cube_test rhi_textured_cube_test.cpp)

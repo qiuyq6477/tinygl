@@ -1,0 +1,209 @@
+﻿#include <ITestCase.h>
+#include <test_registry.h>
+#include <tinygl/tinygl.h>
+#include <framework/texture_manager.h>
+#include <vector>
+#include <cstdio>
+
+using namespace tinygl;
+using namespace framework;
+
+struct Vertex {
+    float pos[3];
+    uint8_t color[3];
+    float uv[2];
+};
+
+struct CubeShader : public ShaderBuiltins {
+    TextureObject* texture = nullptr;
+    SimdMat4 mvp; 
+    Vec4 tintColor = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    // Interface Block for Varyings
+    struct VS_Out {
+        Vec4& uv;
+        Vec4& color;
+        VS_Out(Vec4* v) : uv(v[0]), color(v[1]) {}
+    };
+
+    // Vertex Shader
+    void vertex(const Vec4* attribs, ShaderContext& outCtx) {
+        VS_Out out(outCtx.varyings);
+        out.uv = attribs[2]; // UV
+        out.color = attribs[1]; // Color
+
+        float posArr[4] = {attribs[0].x, attribs[0].y, attribs[0].z, 1.0f};
+        Simd4f pos = Simd4f::load(posArr);
+        Simd4f res = mvp.transformPoint(pos);
+        
+        float outArr[4];
+        res.store(outArr);
+        gl_Position = Vec4(outArr[0], outArr[1], outArr[2], outArr[3]);
+    }
+
+    // Fragment Shader
+    void fragment(ShaderContext& inCtx) {
+        VS_Out in(inCtx.varyings);
+
+        Vec4 texColor = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+        if (texture) {
+            texColor = texture->sample(in.uv.x, in.uv.y);
+        }
+        
+        // Example usage of built-in discard (uncomment to test)
+        // if (gl_FragCoord.x < 100) discard();
+
+        gl_FragColor = mix(in.color, texColor, 0.5f) * tintColor;
+    }
+};
+    
+class CubeTest : public ITinyGLTestCase {
+public:
+    void init(SoftRenderContext& ctx) override {
+        // Load Texture via Manager
+        m_texRef = TextureManager::Load(ctx, "assets/container.jpg");
+        
+        if (m_texRef && m_texRef->id != 0) {
+            m_tex = m_texRef->id;
+            // Texture loaded successfully, bind it to Unit 0 for consistency with shader assumption if any
+            ctx.glActiveTexture(GL_TEXTURE0); 
+            ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
+            
+            printf("Loaded texture: %dx%d\n", m_texRef->width, m_texRef->height);
+        } else {
+            printf("Failed to load texture, falling back to checkerboard.\n");
+            // Create fallback manually
+            ctx.glGenTextures(1, &m_tex);
+            ctx.glActiveTexture(GL_TEXTURE0);
+            ctx.glBindTexture(GL_TEXTURE_2D, m_tex);
+            
+            // Generate Checkerboard Pattern
+            std::vector<uint32_t> pixels(256 * 256);
+            for(int i=0; i<256*256; i++) {
+                int x = i % 256;
+                int y = i / 256;
+                bool isWhite = ((x / 32) + (y / 32)) % 2 != 0;
+                pixels[i] = isWhite ? 0xFFFFFFFF : 0xFF000000;
+            }
+            ctx.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            
+            // Note: m_texRef is null here, meaning texture won't be auto-cleaned by shared_ptr
+            // But m_tex is a raw GL handle that we must clean up manually if we created it manually.
+            // TextureManager textures clean themselves up via ~Texture().
+            // So if fallback, we set m_manualTexCleanup = true.
+            m_manualTexCleanup = true;
+        }
+
+        // Setup Geometry (Same as original demo)
+        Vertex vertices[] = {
+            // Front
+            {{-1,-1, 1}, {255,0,0}, {0,0}}, {{ 1,-1, 1}, {255,0,0}, {1,0}},
+            {{ 1, 1, 1}, {255,0,0}, {1,1}}, {{-1, 1, 1}, {255,0,0}, {0,1}},
+            // Back
+            {{ 1,-1,-1}, {0,255,0}, {0,0}}, {{-1,-1,-1}, {0,255,0}, {1,0}},
+            {{-1, 1,-1}, {0,255,0}, {1,1}}, {{ 1, 1,-1}, {0,255,0}, {0,1}},
+            // Left
+            {{-1,-1,-1}, {0,0,255}, {0,0}}, {{-1,-1, 1}, {0,0,255}, {1,0}},
+            {{-1, 1, 1}, {0,0,255}, {1,1}}, {{-1, 1,-1}, {0,0,255}, {0,1}},
+            // Right
+            {{ 1,-1, 1}, {255,255,0}, {0,0}}, {{ 1,-1,-1}, {255,255,0}, {1,0}},
+            {{ 1, 1,-1}, {255,255,0}, {1,1}}, {{ 1, 1, 1}, {255,255,0}, {0,1}},
+            // Top
+            {{-1, 1, 1}, {0,255,255}, {0,0}}, {{ 1, 1, 1}, {0,255,255}, {1,0}},
+            {{ 1, 1,-1}, {0,255,255}, {1,1}}, {{-1, 1,-1}, {0,255,255}, {0,1}},
+            // Bottom
+            {{-1,-1,-1}, {255,0,255}, {0,0}}, {{ 1,-1,-1}, {255,0,255}, {1,0}},
+            {{ 1,-1, 1}, {255,0,255}, {1,1}}, {{-1,-1, 1}, {255,0,255}, {0,1}}
+        };
+
+        for(int i=0; i<6; i++) {
+            uint32_t base = i*4;
+            m_cubeIndices[i*6+0]=base; m_cubeIndices[i*6+1]=base+1; m_cubeIndices[i*6+2]=base+2;
+            m_cubeIndices[i*6+3]=base+2; m_cubeIndices[i*6+4]=base+3; m_cubeIndices[i*6+5]=base;
+        }
+
+        ctx.glGenVertexArrays(1, &m_vao); 
+        ctx.glBindVertexArray(m_vao);
+        ctx.glGenBuffers(1, &m_vbo); 
+        ctx.glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+        ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        ctx.glGenBuffers(1, &m_ebo); 
+        ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+        ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(m_cubeIndices), m_cubeIndices, GL_STATIC_DRAW);
+
+        GLsizei stride = sizeof(Vertex);
+        ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, (void*)offsetof(Vertex, pos));
+        ctx.glEnableVertexAttribArray(0);
+        ctx.glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, true, stride, (void*)offsetof(Vertex, color));
+        ctx.glEnableVertexAttribArray(1);
+        ctx.glVertexAttribPointer(2, 2, GL_FLOAT, false, stride, (void*)offsetof(Vertex, uv));
+        ctx.glEnableVertexAttribArray(2);
+    }
+
+    void destroy(SoftRenderContext& ctx) override {
+        ctx.glDeleteBuffers(1, &m_vbo);
+        ctx.glDeleteBuffers(1, &m_ebo);
+        ctx.glDeleteVertexArrays(1, &m_vao);
+        if (m_manualTexCleanup) {
+            ctx.glDeleteTextures(1, &m_tex);
+        }
+        m_texRef.reset(); // Auto cleanup if managed
+    }
+
+    void onUpdate(float dt) override {
+        m_rotationAngle += m_speed * dt;
+        // Wrap at 720 degrees to maintain continuity for the X-axis rotation 
+        // which runs at half speed (360 * 0.5 = 180, causing a flip if wrapped early).
+        if (m_rotationAngle > 720.0f) m_rotationAngle -= 720.0f;
+    }
+
+    void onGui(mu_Context* ctx, const Rect& rect) override {
+        mu_label(ctx, "Cube Controls");
+        mu_label(ctx, "Rotation Speed");
+        mu_slider(ctx, &m_speed, 0.0f, 360.0f);
+        mu_label(ctx, "Rotation Angle");
+        mu_slider(ctx, &m_rotationAngle, 0.0f, 720.0f);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Angle: %.1f", m_rotationAngle);
+        mu_label(ctx, buf);
+
+        mu_label(ctx, "Tint Color");
+        mu_slider(ctx, &m_colorR, 0, 1);
+        mu_slider(ctx, &m_colorG, 0, 1);
+        mu_slider(ctx, &m_colorB, 0, 1);
+        
+        mu_draw_rect(ctx, mu_layout_next(ctx), mu_color(m_colorR*255, m_colorG*255, m_colorB*255, 255));
+    }
+
+    void onRender(SoftRenderContext& ctx) override {
+        shader.texture = ctx.getTextureObject(m_tex);
+        shader.tintColor = {m_colorR, m_colorG, m_colorB, 1.0f};
+
+        // Calculate aspect ratio from current viewport
+        const auto& vp = ctx.glGetViewport();
+        float aspect = (float)vp.w / (float)vp.h;
+        
+        Mat4 model = Mat4::Translate(0, 0, -7.0f) * Mat4::RotateY(m_rotationAngle) * Mat4::RotateX(m_rotationAngle * 0.5f);
+        Mat4 proj = Mat4::Perspective(90.0f, aspect, 0.1f, 100.0f);
+        Mat4 mvp = proj * Mat4::Identity() * model;
+        shader.mvp.load(mvp);
+
+        ctx.glDrawElements(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void*)0);
+    }
+
+private:
+    GLuint m_vao = 0, m_vbo = 0, m_ebo = 0, m_tex = 0;
+    std::shared_ptr<Texture> m_texRef;
+    bool m_manualTexCleanup = false;
+    
+    uint32_t m_cubeIndices[36];
+    float m_rotationAngle = 0.0f;
+    float m_speed = 45.0f;
+    float m_colorR = 1.0f;
+    float m_colorG = 1.0f;
+    float m_colorB = 1.0f;
+
+    CubeShader shader;
+};
+
+static TestRegistrar registrar("Texture", "Cube", []() { return new CubeTest(); });

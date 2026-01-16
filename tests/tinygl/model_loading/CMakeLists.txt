@@ -1,0 +1,1 @@
+add_tinygl_test(model_loading_lib model_loading_test.cpp)

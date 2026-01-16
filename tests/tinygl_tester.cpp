@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 #include <iostream>
 #include <framework/application.h>
 #include <tinygl/tinygl.h>
-#include "ITestCase.h"
-#include "test_registry.h"
+#include <ITestCase.h>
+#include <test_registry.h>
 #include <framework/ui_renderer_fast.h>
 
 using namespace tinygl;

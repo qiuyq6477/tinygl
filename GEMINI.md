@@ -29,10 +29,12 @@ The project follows a layered architecture divided into three main components:
     * **Interface:** Exposes the `Application` base class for users to inherit from.
 
 3. **Tests & Demos (`tests/`):**
-    * **Type:** Executable (`tinygl_tester`) + Static Libraries linking against `tinygl_framework`.
-    * **Structure:** Each test case is compiled as a static library that self-registers into a global registry.
-    * **Purpose:** Verification of implemented OpenGL features (e.g., `glDrawArrays`, Texturing, Mipmaps, Instancing, Lighting).
-    * **Runner:** A unified GUI application to browse and run different graphical tests.
+    * **Type:** Executables (`tinygl_tester`, `framework_tester`) + Static Libraries linking against `tinygl_framework`.
+    * **Structure:** Each test case is compiled as a static library. Group names are automatically derived from the directory structure relative to the `tests/` root.
+    * **Purpose:** 
+        * `tinygl_tester`: Verification of core software rendering features (SoftRenderContext).
+        * `framework_tester`: Verification of engine-level systems (RHI, ECS, Assets, Physics) supporting runtime backend switching (Software/OpenGL).
+    * **Runner:** GUI applications that render a nested tree structure matching the disk directory layout.
 
 ## Building and Running
 
@@ -58,11 +60,14 @@ ninja
 
 ### Running Tests
 
-The primary executable is `tinygl_tester` located in `tests/`:
+The project provides two primary test runners in `tests/`:
 
 ```bash
-# Run the test runner (it will likely open a window with a menu to select tests)
+# 1. Core Software Rendering Tests
 ./tests/tinygl_tester
+
+# 2. Engine Framework & RHI Tests (supports switching between Soft/GL backends)
+./tests/framework_tester
 ```
 
 ## Development Conventions
@@ -75,16 +80,29 @@ Strictly adhere to **Conventional Commits**:
 
 ### Adding a New Test
 
-1. **Directory Structure:** Create a new directory in `tests/<category>/<test_name>`.
-2. **Build Configuration:** Add a `CMakeLists.txt`:
+1. **Directory Structure:** Create a new directory in `tests/tinygl/<category>/<test_name>` or `tests/framework/<category>/<test_name>`.
+2. **Build Configuration:** Add a `CMakeLists.txt` using the `add_tinygl_test` helper:
     ```cmake
-    add_tinygl_test(test_name_lib test_source.cpp)
+    add_tinygl_test(target_name source_file.cpp)
     ```
-3. **Implementation:** Implement the test class inheriting from `ITestCase`.
-4. **Registration:** Register the test using the `TestRegistrar` helper at the end of your cpp file:
+    *This helper automatically defines `TINYGL_TEST_GROUP` as the relative path from the `tests/` root.*
+3. **Implementation:** 
+    * Inherit from `ITinyGLTestCase` (for Core tests) or `IRHITestCase` (for Framework tests).
+    * Use angle bracket includes for test utilities: 
+      ```cpp
+      #include <ITestCase.h>
+      #include <test_registry.h>
+      ```
+4. **Registration:** Register the test using the `TestRegistrar` helper and the auto-generated `TINYGL_TEST_GROUP` macro:
     ```cpp
-    static TestRegistrar registry("Category", "TestName", []() { return new MyTest(); });
+    static TestRegistrar registry(TINYGL_TEST_GROUP, "TestName", []() { return new MyTest(); });
     ```
+
+#### Asset Management
+All test assets are centralized in `tests/assets/` and are automatically copied to the build directory.
+1. **Reference:** Access assets via the `"assets/..."` relative path.
+2. **Example:** `TextureManager::Load(ctx, "assets/container.jpg");`
+3. **Avoid:** Do not use relative paths like `../../assets/`.
 
 #### Geometry Creation (Optional)
 If you need basic 3D primitives (Cube, Sphere, Plane, etc.), use the helpers in `geometry.h`:

@@ -1,0 +1,1 @@
+add_tinygl_test(lighting_maps_test lighting_maps_test.cpp)

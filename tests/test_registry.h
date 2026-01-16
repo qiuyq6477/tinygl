@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include <string>
 #include <map>
 #include <functional>
 #include <vector>
 #include <memory>
-#include "ITestCase.h"
+#include <ITestCase.h>
 
 // Factory function types
 using TinyGLTestFactory = std::function<ITinyGLTestCase*()>;
