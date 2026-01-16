@@ -4,12 +4,13 @@
 #include <rhi/encoder.h>
 #include <rhi/shader_registry.h>
 #include <rhi/soft_pipeline.h>
-#include <framework/material.h>
+#include <material.h>
 #include <tinygl/tinygl.h>
 
 using namespace tinygl;
 using namespace framework;
 using namespace rhi;
+using namespace tests;
 
 struct PerDrawData {
     Mat4 mvp;

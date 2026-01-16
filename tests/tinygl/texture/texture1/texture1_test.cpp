@@ -1,12 +1,13 @@
 ﻿#include <ITestCase.h>
 #include <test_registry.h>
 #include <tinygl/tinygl.h>
-#include <framework/texture_manager.h>
+#include <texture_manager.h>
 #include <vector>
 #include <cstdio>
 
 using namespace tinygl;
 using namespace framework;
+using namespace tests;
 
 struct Vertex {
     float pos[3];

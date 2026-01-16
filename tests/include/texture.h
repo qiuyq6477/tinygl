@@ -3,9 +3,9 @@
 #include <string>
 #include <tinygl/tinygl.h>
 
-namespace framework {
+namespace tests {
 
-class TINYGL_API Texture {
+class Texture {
 public:
     GLuint id = 0;
     int width = 0;
@@ -34,4 +34,4 @@ private:
     SoftRenderContext* m_ctx = nullptr;
 };
 
-} // namespace tinygl
+} // namespace tests

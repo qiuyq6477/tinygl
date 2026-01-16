@@ -1,9 +1,9 @@
-#include <framework/model.h>
-#include <framework/texture_manager.h>
+#include <model.h>
+#include <texture_manager.h>
 #include <tinygl/base/log.h>
 #include <stb_image.h>
 
-namespace framework {
+namespace tests {
 
 Model::~Model() {
 }
@@ -214,4 +214,4 @@ std::vector<GLuint> Model::loadMaterialTextures(aiMaterial *mat, aiTextureType t
     return textures;
 }
 
-} // namespace tinygl
+} // namespace tests

@@ -1,7 +1,7 @@
-#include <framework/mesh.h>
-#include <framework/shader_pass.h>
+#include <mesh.h>
+#include <shader_pass.h>
 
-namespace framework {
+namespace tests {
 
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<uint32_t> indices, Material material, SoftRenderContext& ctx)
     : vertices(std::move(vertices)), indices(std::move(indices)), material(std::move(material)), m_ctx(&ctx)
@@ -114,4 +114,4 @@ void Mesh::setupMesh() {
     m_ctx->glBindVertexArray(0);
 }
 
-} // namespace tinygl
+} // namespace tests

@@ -4,10 +4,10 @@
 #include <string>
 #include <tinygl/base/tmath.h>
 #include <tinygl/tinygl.h>
-#include <framework/material.h>
-#include <framework/render_defs.h>
+#include <material.h>
+#include <render_defs.h>
 
-namespace framework {
+namespace tests {
 
 struct Vertex {
     Vec4 Position; // Use Vec4 (w=1)
@@ -15,7 +15,7 @@ struct Vertex {
     Vec4 TexCoords; // Use Vec4 (xy)
 };
 
-class TINYGL_API Mesh {
+class Mesh {
 public:
     // Mesh Data
     std::vector<Vertex> vertices;
@@ -48,4 +48,4 @@ private:
     void setupMesh();
 };
 
-} // namespace tinygl
+} // namespace tests

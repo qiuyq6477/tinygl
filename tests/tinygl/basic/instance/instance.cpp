@@ -3,13 +3,13 @@
 #include <framework/camera.h>
 #include <ITestCase.h>
 #include <test_registry.h>
-// 瀹炰緥鏁版嵁缁撴瀯 (Instance Data)
-// 鎴戜滑灏嗘妸杩欎簺鏁版嵁浼犵粰 VBO锛屽苟璁剧疆 Divisor = 1
+// 实例数据结构 (Instance Data)
+// 我们将把这些数据传给 VBO，并设置 Divisor = 1
 struct InstanceData {
-    float x, y, z;       // Offset (浣嶇疆)
+    float x, y, z;       // Offset (位置)
     float r, g, b;       // Color
-    float spdX, spdY;    // Rotation Speed (X杞撮€熷害, Y杞撮€熷害)
-    float phase;         // Initial Phase (鍒濆瑙掑害鍋忕Щ)
+    float spdX, spdY;    // Rotation Speed (X轴速度, Y轴速度)
+    float phase;         // Initial Phase (初始角度偏移)
 };
 
 
@@ -29,31 +29,31 @@ struct InstancedCubeShader : public tinygl::ShaderBuiltins {
         Vec4 color    = attribs[2];
         Vec4 rotParams= attribs[3];
 
-        // 1. 灏嗛鑹蹭紶閫掔粰 Fragment Shader
+        // 1. 将颜色传递给 Fragment Shader
         ctx.varyings[0] = color;
 
-        // 2. 鍦?Shader 涓姩鎬佽绠楁棆杞煩闃?
-        // 杩欐牱鎴戜滑涓嶉渶瑕佹瘡甯у湪 CPU 鏇存柊 100 涓煩闃?
+        // 2. 在 Shader 中动态计算旋转矩阵
+        // 这样我们不需要每帧在 CPU 更新 100 个矩阵
         float angleX = rotParams.x * time + rotParams.z; // speed * time + phase
         float angleY = rotParams.y * time + rotParams.z;
 
-        // 绠€鍗曠殑鏃嬭浆鐭╅樀缁勫悎 (Y * X)
+        // 简单的旋转矩阵组合 (Y * X)
         Mat4 matRot = Mat4::RotateY(angleY * 50.0f) * Mat4::RotateX(angleX * 50.0f);
         
-        // 3. 搴旂敤鏃嬭浆
+        // 3. 应用旋转
         Vec4 rotatedPos = matRot * localPos;
 
-        // 4. 搴旂敤瀹炰緥鍋忕Щ (World Space)
+        // 4. 应用实例偏移 (World Space)
         Vec4 worldPos = rotatedPos + offset;
         worldPos.w = 1.0f;
 
-        // 5. 搴旂敤 View Projection
+        // 5. 应用 View Projection
         gl_Position = viewProj * worldPos;
     }
 
     // Fragment Shader
     void fragment(const ShaderContext& ctx) {
-        // 鐩存帴杈撳嚭鎻掑€煎悗鐨勯鑹?
+        // 直接输出插值后的颜色
         gl_FragColor = ctx.varyings[0];
     }
 };
@@ -63,8 +63,8 @@ struct InstancedCubeShader : public tinygl::ShaderBuiltins {
 class InstanceTest : public ITinyGLTestCase {
 public:
     void init(SoftRenderContext& ctx) override {
-        // 绔嬫柟浣撻《鐐?(Local Space)
-        // 涓轰簡绠€鍗曪紝涓嶄娇鐢ㄦ硶绾垮拰UV锛屽彧鐢ㄤ綅缃?
+        // 立方体顶点 (Local Space)
+        // 为了简单，不使用法线和UV，只用位置
         float cubeVertices[] = {
             // Front face
             -0.5f, -0.5f,  0.5f,
@@ -77,7 +77,7 @@ public:
             0.5f,  0.5f, -0.5f,
             0.5f, -0.5f, -0.5f,
         };
-        // 绔嬫柟浣撶储寮?
+        // 立方体索引
         uint32_t cubeIndices[] = {
             0, 1, 2, 2, 3, 0, // Front
             4, 5, 6, 6, 7, 4, // Back
@@ -90,7 +90,7 @@ public:
         ctx.glGenVertexArrays(1, &vao);
         ctx.glBindVertexArray(vao);
 
-        // 1. 鍒涘缓骞朵笂浼?Cube Mesh
+        // 1. 创建并上传 Cube Mesh
         ctx.glGenBuffers(1, &vbo);
         ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
         ctx.glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
@@ -99,58 +99,58 @@ public:
         ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         ctx.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
 
-        // 2. 鐢熸垚 100 涓疄渚嬬殑闅忔満鏁版嵁
+        // 2. 生成 100 个实例的随机数据
         instances.resize(INSTANCE_COUNT);
         for (int i = 0; i < INSTANCE_COUNT; ++i) {
-            // 鍦?-4 鍒?4 鐨勭┖闂村唴闅忔満鍒嗗竷
+            // 在 -4 到 4 的空间内随机分布
             instances[i].x = ((float)rand() / RAND_MAX) * 8.0f - 4.0f;
             instances[i].y = ((float)rand() / RAND_MAX) * 8.0f - 4.0f;
-            instances[i].z = ((float)rand() / RAND_MAX) * 8.0f - 6.0f; // 绋嶅井鎷夊紑涓€鐐规繁搴?
+            instances[i].z = ((float)rand() / RAND_MAX) * 8.0f - 6.0f; // 稍微拉开一点深度
 
-            // 闅忔満棰滆壊
+            // 随机颜色
             instances[i].r = (float)rand() / RAND_MAX;
             instances[i].g = (float)rand() / RAND_MAX;
             instances[i].b = (float)rand() / RAND_MAX;
 
-            // 闅忔満鏃嬭浆鍙傛暟
+            // 随机旋转参数
             instances[i].spdX = ((float)rand() / RAND_MAX) * 2.0f + 0.5f; // 0.5 ~ 2.5
             instances[i].spdY = ((float)rand() / RAND_MAX) * 2.0f + 0.5f;
             instances[i].phase = ((float)rand() / RAND_MAX) * 3.14f * 2.0f;
         }
 
-        // 3. 鍒涘缓骞朵笂浼?Instance Buffer
+        // 3. 创建并上传 Instance Buffer
         ctx.glGenBuffers(1, &vbo_instance);
         ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo_instance);
         ctx.glBufferData(GL_ARRAY_BUFFER, instances.size() * sizeof(InstanceData), instances.data(), GL_STATIC_DRAW);
 
-        // 4. 閰嶇疆 VAO 灞炴€?
+        // 4. 配置 VAO 属性
         // ------------------------------------------------
-        // 灞炴€?0: Local Position (vec3) -> 鏁版嵁婧? vbo
+        // 属性 0: Local Position (vec3) -> 数据源: vbo
         ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo);
         ctx.glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * sizeof(float), (void*)0);
         ctx.glEnableVertexAttribArray(0);
-        ctx.glVertexAttribDivisor(0, 0); // Divisor 0: 姣忎釜椤剁偣鏇存柊 (Mesh)
+        ctx.glVertexAttribDivisor(0, 0); // Divisor 0: 每个顶点更新 (Mesh)
 
-        // 灞炴€?1: Instance Offset (vec3) -> 鏁版嵁婧? vbo_instance
+        // 属性 1: Instance Offset (vec3) -> 数据源: vbo_instance
         ctx.glBindBuffer(GL_ARRAY_BUFFER, vbo_instance);
         // stride = sizeof(InstanceData), offset = 0
         ctx.glVertexAttribPointer(1, 3, GL_FLOAT, false, sizeof(InstanceData), (void*)offsetof(InstanceData, x));
         ctx.glEnableVertexAttribArray(1);
-        ctx.glVertexAttribDivisor(1, 1); // Divisor 1: 姣忎釜瀹炰緥鏇存柊 (Instance Data)
+        ctx.glVertexAttribDivisor(1, 1); // Divisor 1: 每个实例更新 (Instance Data)
 
-        // 灞炴€?2: Instance Color (vec3) -> 鏁版嵁婧? vbo_instance
+        // 属性 2: Instance Color (vec3) -> 数据源: vbo_instance
         // stride = sizeof(InstanceData), offset = 12 (3 floats)
         ctx.glVertexAttribPointer(2, 3, GL_FLOAT, false, sizeof(InstanceData), (void*)offsetof(InstanceData, r));
         ctx.glEnableVertexAttribArray(2);
         ctx.glVertexAttribDivisor(2, 1); // Divisor 1
 
-        // 灞炴€?3: Rotation Params (vec3) -> 鏁版嵁婧? vbo_instance
+        // 属性 3: Rotation Params (vec3) -> 数据源: vbo_instance
         // stride = sizeof(InstanceData), offset = 24 (6 floats)
         ctx.glVertexAttribPointer(3, 3, GL_FLOAT, false, sizeof(InstanceData), (void*)offsetof(InstanceData, spdX));
         ctx.glEnableVertexAttribArray(3);
         ctx.glVertexAttribDivisor(3, 1); // Divisor 1
         
-        // 缁戝畾 EBO
+        // 绑定 EBO
         ctx.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     }
 
@@ -166,29 +166,29 @@ public:
     }
 
     void onUpdate(float dt) override {
-        // 鏇存柊鏃堕棿
+        // 更新时间
         total_time += dt;
         shader.time = total_time;
     }
 
     void onRender(SoftRenderContext& ctx) override {
         // View Matrix (LookAt 0,0,0)
-        // 杩欓噷绠€鍗曟ā鎷熶竴涓?LookAt锛屽疄闄呭簲浣跨敤瀹屾暣鐨?LookAt 鍑芥暟
-        // 涓轰簡绠€鍖栵紝鎴戜滑鍙仛涓€涓钩绉?+ 绠€鍗曠殑閫忚
+        // 这里简单模拟一个 LookAt，实际应使用完整的 LookAt 函数
+        // 为了简化，我们只做一个平移 + 简单的透视
         const auto& vp = ctx.glGetViewport();
         float aspect = (float)vp.w / (float)vp.h;
         Mat4 proj = Mat4::Perspective(60.0f, aspect, 0.1f, 100.0f);
         
-        // 绠€鍗曠殑 View: 鍚戝悗閫€ Z=12
+        // 简单的 View: 向后退 Z=12
         Mat4 view = Mat4::Translate(0.0f, 0.0f, -12.0f); 
 
-        // 娣诲姞涓€鐐圭浉鏈虹殑鎽嗗姩
+        // 添加一点相机的摆动
         view = view * Mat4::RotateZ(sin(total_time) * 5.0f); 
 
         shader.viewProj = proj * view;
 
-        // 5. 缁樺埗璋冪敤
-        // 浣跨敤 glDrawElementsInstanced 涓€娆℃€х粯鍒?100 涓?Cube
+        // 5. 绘制调用
+        // 使用 glDrawElementsInstanced 一次性绘制 100 个 Cube
         // 36 indices, GL_UNSIGNED_INT, offset 0, 100 instances
         ctx.glDrawElementsInstanced(shader, GL_TRIANGLES, 36, GL_UNSIGNED_INT, (void *)0, INSTANCE_COUNT);
 
@@ -203,7 +203,7 @@ private:
     std::vector<InstanceData> instances;
     InstancedCubeShader shader;
 
-    // 绠€鍗曠殑鐩告満鍙傛暟
+    // 简单的相机参数
     float cam_yaw = 0.0f;
     float total_time = 0.0f;
 };

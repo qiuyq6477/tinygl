@@ -4,11 +4,11 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
-#include <framework/texture.h>
+#include <texture.h>
 
-namespace framework {
+namespace tests {
 
-class TINYGL_API TextureManager {
+class TextureManager {
 public:
     // Thread-safe texture loading/retrieval
     // Uses weak_ptr to allow automatic unloading when no models reference the texture
@@ -22,4 +22,4 @@ private:
     static std::mutex m_mutex;
 };
 
-} // namespace tinygl
+} // namespace tests

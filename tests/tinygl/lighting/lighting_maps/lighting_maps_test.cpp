@@ -2,12 +2,13 @@
 #include <test_registry.h>
 #include <tinygl/tinygl.h>
 #include <framework/camera.h>
-#include <framework/texture_manager.h>
+#include <texture_manager.h>
 #include <vector>
 #include <cmath>
 
 using namespace tinygl;
 using namespace framework;
+using namespace tests;
 
 // Vertex Structure
 struct Vertex {

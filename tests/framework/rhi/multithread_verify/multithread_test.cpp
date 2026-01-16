@@ -4,7 +4,7 @@
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
 #include <rhi/shader_registry.h>
-#include <framework/material.h>
+#include <material.h>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -12,6 +12,7 @@
 using namespace tinygl;
 using namespace framework;
 using namespace rhi;
+using namespace tests;
 
 // Simple shader that draws a solid color provided by uniforms
 struct SolidColorShader : public ShaderBuiltins {

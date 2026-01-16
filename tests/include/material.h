@@ -6,7 +6,7 @@
 #include <tinygl/base/tmath.h>
 #include <tinygl/tinygl.h>
 
-namespace framework {
+namespace tests {
 
 class IShaderPass; // Forward declaration
 

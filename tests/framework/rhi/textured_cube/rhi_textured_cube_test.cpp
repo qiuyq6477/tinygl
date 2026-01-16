@@ -5,7 +5,7 @@
 #include <rhi/encoder.h>
 #include <rhi/shader_registry.h>
 #include <framework/geometry.h>
-#include <framework/texture_manager.h>
+#include <texture_manager.h>
 #include <framework/camera.h>
 #include <cmath>
 #include <vector>
@@ -13,6 +13,7 @@
 using namespace tinygl;
 using namespace framework;
 using namespace rhi;
+using namespace tests;
 
 // Define RHI-compatible Shader
 struct RhiCubeShader : public ShaderBuiltins {

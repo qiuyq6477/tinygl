@@ -1,12 +1,12 @@
 #pragma once
 
 #include <tinygl/tinygl.h>
-#include <framework/render_defs.h>
-#include <framework/mesh.h> 
+#include <render_defs.h>
+#include <mesh.h> 
 #include <iostream>
 #include <concepts>
 
-namespace framework {
+namespace tests {
 
 // Concept: 定义一个合法的 TinyGL Shader 必须满足的条件
 template <typename T>

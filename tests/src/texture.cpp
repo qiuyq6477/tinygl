@@ -1,9 +1,9 @@
-#include <framework/texture.h>
+#include <texture.h>
 #include <tinygl/base/log.h>
 #include <stb_image.h>
 #include <utility>
 
-namespace framework {
+namespace tests {
 
 Texture::Texture(SoftRenderContext& ctx, const std::string& relPath, const std::string& directory) 
     : m_ctx(&ctx) 
@@ -79,4 +79,4 @@ void Texture::Bind(SoftRenderContext& ctx, int unit) const {
     ctx.glBindTexture(GL_TEXTURE_2D, id);
 }
 
-} // namespace tinygl
+} // namespace tests

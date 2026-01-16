@@ -1,7 +1,7 @@
-#include <framework/texture_manager.h>
+#include <texture_manager.h>
 #include <iostream>
 
-namespace framework {
+namespace tests {
 
 std::unordered_map<std::string, std::weak_ptr<Texture>> TextureManager::m_cache;
 std::mutex TextureManager::m_mutex;
@@ -45,4 +45,4 @@ void TextureManager::Clear() {
     m_cache.clear();
 }
 
-} // namespace tinygl
+} // namespace tests

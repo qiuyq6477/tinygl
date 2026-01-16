@@ -5,19 +5,20 @@
 #include <tinygl/tinygl.h>
 #include <framework/application.h>
 #include <framework/camera.h>
-#include <framework/model.h>
-#include <framework/shader_pass.h>
+#include <model.h>
+#include <shader_pass.h>
 #include <ITestCase.h>
 #include <test_registry.h>
 
 using namespace tinygl;
 using namespace framework;
+using namespace tests;
 namespace fs = std::filesystem;
 
 // Simple Blinn-Phong Shader
-// 娉ㄦ剰锛氱幇鍦ㄤ笉闇€瑕佹墜鍔ㄧ鐞嗘垚鍛樺彉閲忕殑璧嬪€硷紝ShaderPass 浼氳嚜鍔ㄦ敞鍏?
+// 注意：现在不需要手动管理成员变量的赋值，ShaderPass 会自动注入
 struct ModelShader : public ShaderBuiltins {
-    // 1. 鍏ㄥ眬 Uniforms (鑷姩娉ㄥ叆)
+    // 1. 全局 Uniforms (自动注入)
     Mat4 model;
     Mat4 view;
     Mat4 projection;
@@ -25,10 +26,10 @@ struct ModelShader : public ShaderBuiltins {
     Vec4 lightPos;
     Vec4 lightColor;
 
-    // 2. 鏉愯川鏁版嵁 (鑷姩娉ㄥ叆)
+    // 2. 材质数据 (自动注入)
     MaterialData materialData;
 
-    // 3. 涓婁笅鏂?(鑷姩娉ㄥ叆)
+    // 3. 上下文 (自动注入)
     SoftRenderContext* renderCtx = nullptr;
 
     // Vertex Shader
@@ -192,7 +193,7 @@ public:
         ctx.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (currentModel) {
-            // 鏋勫缓 Render State
+            // 构建 Render State
             RenderState state;
             state.view = camera.GetViewMatrix();
             state.projection = camera.GetProjectionMatrix();
@@ -200,7 +201,7 @@ public:
             state.lightPos = Vec4(2.0f, 2.0f, 2.0f, 1.0f);
             state.lightColor = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // 妯″瀷鐭╅樀
+            // 模型矩阵
             Mat4 modelMatrix = Mat4::Translate(0.0f, -0.5f, 0.0f) * Mat4::Scale(modelScale, modelScale, modelScale);
             
             // Draw
@@ -214,8 +215,8 @@ public:
             ? std::static_pointer_cast<IShaderPass>(normalPass) 
             : std::static_pointer_cast<IShaderPass>(phongPass);
 
-        // 銆愬叧閿楠ゃ€戯細涓哄姞杞界殑 Mesh 鍒嗛厤 Shader
-        // 鍦ㄥ晢涓氬紩鎿庝腑锛岃繖涓€姝ラ€氬父鐢?Material 搴忓垪鍖栨暟鎹喅瀹?
+        // 【关键步骤】：为加载的 Mesh 分配 Shader
+        // 在商业引擎中，这一步通常由 Material 序列化数据决定
         for (auto& mesh : currentModel->meshes) {
             mesh.material.shader = targetPass;
         }

@@ -9,14 +9,14 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include <framework/mesh.h>
-#include <framework/texture.h>
+#include <mesh.h>
+#include <texture.h>
 #include <tinygl/tinygl.h>
 #include <memory>
 
-namespace framework {
+namespace tests {
 
-class TINYGL_API Model {
+class Model {
 public:
     // Model data
     std::vector<Mesh> meshes;
@@ -63,4 +63,4 @@ private:
     std::vector<GLuint> loadMaterialTextures(aiMaterial *mat, aiTextureType type, SoftRenderContext& ctx);
 };
 
-} // namespace tinygl
+} // namespace tests

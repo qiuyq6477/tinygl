@@ -4,12 +4,13 @@
 #include <rhi/soft_device.h>
 #include <rhi/encoder.h>
 #include <rhi/shader_registry.h>
-#include <framework/material.h>
+#include <material.h>
 #include <vector>
 
 using namespace tinygl;
 using namespace framework;
 using namespace rhi;
+using namespace tests;
 
 // Shader that accepts Position from Binding 0 and Color from Binding 1
 struct SoATriangleShader : public ShaderBuiltins {

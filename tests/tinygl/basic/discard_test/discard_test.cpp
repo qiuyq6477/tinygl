@@ -3,12 +3,13 @@
 #include <tinygl/tinygl.h>
 #include <framework/camera.h>
 #include <framework/geometry.h>
-#include <framework/texture_manager.h>
+#include <texture_manager.h>
 #include <vector>
 #include <random>
 
 using namespace tinygl;
 using namespace framework;
+using namespace tests;
 
 struct DiscardShader : ShaderBuiltins {
     SimdMat4 mvp;
