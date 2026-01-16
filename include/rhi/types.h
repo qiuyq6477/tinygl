@@ -11,6 +11,7 @@ struct BufferHandle { uint32_t id; bool IsValid() const { return id != 0; } };
 struct TextureHandle { uint32_t id; bool IsValid() const { return id != 0; } };
 struct ShaderHandle { uint32_t id; bool IsValid() const { return id != 0; } };
 struct PipelineHandle { uint32_t id; bool IsValid() const { return id != 0; } };
+struct VertexArrayHandle { uint32_t id; bool IsValid() const { return id != 0; } };
 
 static constexpr uint32_t INVALID_ID = 0;
 

@@ -6,7 +6,7 @@ namespace tinygl {
 void SoftRenderContext::glGenBuffers(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
         res[i] = buffers.allocate();
-        LOG_INFO("GenBuffer ID: " + std::to_string(res[i]));
+        // LOG_INFO("GenBuffer ID: " + std::to_string(res[i]));
     }
 }
 
@@ -24,15 +24,15 @@ void SoftRenderContext::glBufferData(GLenum target, GLsizei size, const void* da
         LOG_ERROR("Invalid Buffer Binding");
         return;
     }
-    LOG_INFO("glBufferData: Resizing buffer " + std::to_string(id) + " to " + std::to_string(size));
+    // LOG_INFO("glBufferData: Resizing buffer " + std::to_string(id) + " to " + std::to_string(size));
     buffer->data.resize(size);
     if (data) {
-        LOG_INFO("glBufferData: Memcpy start");
+        // LOG_INFO("glBufferData: Memcpy start");
         std::memcpy(buffer->data.data(), data, size);
-        LOG_INFO("glBufferData: Memcpy done");
+        // LOG_INFO("glBufferData: Memcpy done");
     }
     buffer->usage = usage;
-    LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
+    // LOG_INFO("BufferData " + std::to_string(size) + " bytes to ID " + std::to_string(id));
 }
 
 void SoftRenderContext::glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
@@ -126,7 +126,7 @@ void SoftRenderContext::glCreateBuffers(GLsizei n, GLuint* res) {
         if (buf) {
             buf->immutable = false;
         }
-        LOG_INFO("CreateBuffer (DSA) ID: " + std::to_string(res[i]));
+        // LOG_INFO("CreateBuffer (DSA) ID: " + std::to_string(res[i]));
     }
 }
 
@@ -147,14 +147,14 @@ void SoftRenderContext::glNamedBufferStorage(GLuint buffer, GLsizeiptr size, con
     buf->immutable = true;
     buf->size = size;
     buf->storageFlags = flags;
-    LOG_INFO("NamedBufferStorage " + std::to_string(size) + " bytes to ID " + std::to_string(buffer));
+    // LOG_INFO("NamedBufferStorage " + std::to_string(size) + " bytes to ID " + std::to_string(buffer));
 }
 
 // --- VAO ---
 void SoftRenderContext::glGenVertexArrays(GLsizei n, GLuint* res) {
     for(int i=0; i<n; i++) {
         res[i] = vaos.allocate();
-        LOG_INFO("GenVAO ID: " + std::to_string(res[i]));
+        // LOG_INFO("GenVAO ID: " + std::to_string(res[i]));
     }
 }
 
@@ -162,7 +162,7 @@ void SoftRenderContext::glGenVertexArrays(GLsizei n, GLuint* res) {
 void SoftRenderContext::glCreateVertexArrays(GLsizei n, GLuint* arrays) {
     for (int i = 0; i < n; i++) {
         arrays[i] = vaos.allocate();
-        LOG_INFO("CreateVertexArray (DSA) ID: " + std::to_string(arrays[i]));
+        // LOG_INFO("CreateVertexArray (DSA) ID: " + std::to_string(arrays[i]));
     }
 }
 
@@ -234,7 +234,7 @@ void SoftRenderContext::glDeleteBuffers(GLsizei n, const GLuint* buffers_to_dele
 
             if (buffers.isActive(id)) {
                 buffers.release(id);
-                LOG_INFO("Deleted Buffer ID: " + std::to_string(id));
+                // LOG_INFO("Deleted Buffer ID: " + std::to_string(id));
             }
         }
     }
@@ -251,7 +251,7 @@ void SoftRenderContext::glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
 
             if (vaos.isActive(id)) {
                 vaos.release(id);
-                LOG_INFO("Deleted VAO ID: " + std::to_string(id));
+                // LOG_INFO("Deleted VAO ID: " + std::to_string(id));
             }
         }
     }

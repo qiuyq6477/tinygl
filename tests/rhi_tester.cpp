@@ -42,7 +42,7 @@ protected:
         }
 
         // Initialize Device (Default to GL if available)
-        doSetBackend(Backend::Software);
+        doSetBackend(Backend::OpenGL);
 
         initBlitResources();
 

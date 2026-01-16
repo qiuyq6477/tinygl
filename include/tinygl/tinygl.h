@@ -392,12 +392,10 @@ public:
     }
 
     void glEnable(GLenum cap) {
-        LOG_WARN("glEnable called for cap: " + GLenumToString(cap));
         m_capabilities[cap] = GL_TRUE;
     }
 
     void glDisable(GLenum cap) {
-        LOG_WARN("glDisable called for cap: " + GLenumToString(cap));
         m_capabilities[cap] = GL_FALSE;
     }
 
