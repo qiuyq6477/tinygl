@@ -52,7 +52,7 @@ void TileBinningSystem::BinTriangle(const TriangleData& tri, uint16_t pipelineId
             m_tiles[y * m_gridWidth + x].commands.push_back(cmd);
         }
     }
-    LOG_INFO("Binned triangle to " + std::to_string((maxTx-minTx+1)*(maxTy-minTy+1)) + " tiles");
+    // LOG_INFO("Binned triangle to " + std::to_string((maxTx-minTx+1)*(maxTy-minTy+1)) + " tiles");
 }
 
 } // namespace tinygl

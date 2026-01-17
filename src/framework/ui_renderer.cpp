@@ -93,9 +93,9 @@ struct UIShader : public tinygl::ShaderBuiltins {
     // Resources
     const TextureObject* texture = nullptr;
 
-    void BindUniforms(const std::vector<uint8_t>& data) {
-        if (data.size() >= sizeof(Mat4)) {
-            std::memcpy(&projection, data.data(), sizeof(Mat4));
+    void BindUniforms(const uint8_t* data, size_t size) {
+        if (size >= sizeof(Mat4)) {
+            std::memcpy(&projection, data, sizeof(Mat4));
         }
     }
     

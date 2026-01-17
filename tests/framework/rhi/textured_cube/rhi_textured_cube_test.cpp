@@ -64,9 +64,9 @@ struct RhiCubeShader : public ShaderBuiltins {
     }
 
     // RHI Binding Hooks
-    void BindUniforms(const std::vector<uint8_t>& data) {
-        if (data.size() >= sizeof(SimdMat4)) {
-            memcpy(&mvp, data.data(), sizeof(SimdMat4));
+    void BindUniforms(const uint8_t* data, size_t size) {
+        if (size >= sizeof(SimdMat4)) {
+            memcpy(&mvp, data, sizeof(SimdMat4));
         }
     }
 

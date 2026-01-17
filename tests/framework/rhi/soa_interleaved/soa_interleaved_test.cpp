@@ -39,9 +39,9 @@ struct SoAPlaneShader : public ShaderBuiltins {
         gl_FragColor = ctx.varyings[0];
     }
 
-    void BindUniforms(const std::vector<uint8_t>& data) {
-        if (data.size() >= sizeof(Uniforms)) {
-            memcpy(&uniformData, data.data(), sizeof(Uniforms));
+    void BindUniforms(const uint8_t* data, size_t size) {
+        if (size >= sizeof(Uniforms)) {
+            memcpy(&uniformData, data, sizeof(Uniforms));
         }
     }
 };

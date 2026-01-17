@@ -518,7 +518,7 @@ public:
             return;
         }
         
-        LOG_INFO("rasterizeTriangleTemplate: " + std::to_string((int)v0.scn.x) + "," + std::to_string((int)v0.scn.y));
+        // LOG_INFO("rasterizeTriangleTemplate: " + std::to_string((int)v0.scn.x) + "," + std::to_string((int)v0.scn.y));
 
         // 1. 包围盒计算 (Bounding Box)
         int limitMinX = std::max(0, m_viewport.x);

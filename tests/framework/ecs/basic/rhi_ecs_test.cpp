@@ -36,15 +36,15 @@ struct ECSShader : public ShaderBuiltins {
         specularMap = ctx.getTexture(1);
     }
 
-    void BindUniforms(const std::vector<uint8_t>& uniformData) {
+    void BindUniforms(const uint8_t* uniformData, size_t size) {
         size_t slotSize = 256; 
         
-        if (uniformData.size() >= sizeof(material)) {
-            std::memcpy(&material, uniformData.data(), sizeof(material));
+        if (size >= sizeof(material)) {
+            std::memcpy(&material, uniformData, sizeof(material));
         }
         
-        if (uniformData.size() >= slotSize + sizeof(transform)) {
-            std::memcpy(&transform, uniformData.data() + slotSize, sizeof(transform));
+        if (size >= slotSize + sizeof(transform)) {
+            std::memcpy(&transform, uniformData + slotSize, sizeof(transform));
         }
     }
     
