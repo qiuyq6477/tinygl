@@ -179,9 +179,12 @@ void main() {
 
         // Load Prefab (Offline format expected)
         std::string modelPath = "assets/backpack/backpack.obj";
-        prefab = SharedAsset<Prefab>(AssetManager::Get().Load<Prefab>(modelPath));
+        // Load now returns SharedAsset<Prefab> directly
+        prefab = AssetManager::Get().Load<Prefab>(modelPath);
         
         Prefab* prefabData = AssetManager::Get().GetPrefab(prefab.GetHandle());
+        // No nullptr check needed strictly for GetPrefab anymore, but 'prefabData' could be fallback.
+        // The fallback prefab has empty nodes, so this loop is safe even if fallback.
         if (prefabData) {
             for (const auto& node : prefabData->nodes) {
                 Entity e;
@@ -246,30 +249,40 @@ void main() {
             MeshResource* mesh = AssetManager::Get().GetMesh(e.mesh.GetHandle());
             MaterialResource* mat = AssetManager::Get().GetMaterial(e.material.GetHandle());
             
-            if (mesh && mat) {
-                // Bind Buffers
-                if (mesh->vbo.IsValid()) encoder.SetVertexBuffer(mesh->vbo);
-                if (mesh->ebo.IsValid()) encoder.SetIndexBuffer(mesh->ebo);
-                
-                // Bind Texture (Slot 0: Diffuse, Slot 1: Specular)
-                if (mat->rhiTextures[0].IsValid()) {
-                    encoder.SetTexture(0, mat->rhiTextures[0]);
-                }
-                if (mat->rhiTextures[1].IsValid()) {
-                    encoder.SetTexture(1, mat->rhiTextures[1]);
-                }
+            // GetMesh/GetMaterial now guaranteed to return valid fallback if missing
+            // So we can remove the 'if (mesh && mat)' check or keep it as sanity check.
+            // Fallbacks have valid VBO/EBO (or empty but safe).
 
-                // Update Uniforms
-                // Slot 0: Material Data
-                encoder.UpdateUniform(0, &mat->data, sizeof(MaterialResource::Data));
+            // Bind Buffers
+            if (mesh->vbo.IsValid()) encoder.SetVertexBuffer(mesh->vbo);
+            if (mesh->ebo.IsValid()) encoder.SetIndexBuffer(mesh->ebo);
+            
+            // Bind Texture (Slot 0: Diffuse, Slot 1: Specular)
+            // GetRHI works on handles, inside it calls GetTexture which returns fallback if needed.
+            // Wait, we need rhiTextures from MaterialResource.
+            // If Material is fallback, it has default values. 
+            // The textures inside fallback material are Invalid AssetHandles.
+            // We should check if handle is valid before accessing.
+            
+            if (mat->rhiTextures[0].IsValid()) {
+                encoder.SetTexture(0, mat->rhiTextures[0]);
+            }
+            if (mat->rhiTextures[1].IsValid()) {
+                encoder.SetTexture(1, mat->rhiTextures[1]);
+            }
 
-                // Slot 1: Transform
-                PerDrawData tData;
-                Mat4 model = e.transform * Mat4::RotateY(rotation);
-                tData.mvp = proj * view * model;
-                encoder.UpdateUniform(1, tData);
+            // Update Uniforms
+            // Slot 0: Material Data
+            encoder.UpdateUniform(0, &mat->data, sizeof(MaterialResource::Data));
 
-                // Draw
+            // Slot 1: Transform
+            PerDrawData tData;
+            Mat4 model = e.transform * Mat4::RotateY(rotation);
+            tData.mvp = proj * view * model;
+            encoder.UpdateUniform(1, tData);
+
+            // Draw
+            if (mesh->indexCount > 0) {
                 encoder.DrawIndexed(mesh->indexCount);
             }
         }

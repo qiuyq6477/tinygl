@@ -3,6 +3,7 @@
 #include <tinygl/tinygl.h>
 #include <rhi/types.h>
 #include <framework/asset_handle.h>
+#include <framework/shared_asset.h>
 #include <vector>
 #include <string>
 
@@ -34,10 +35,10 @@ struct MaterialResource {
         int doubleSided = 0;
     } data;
 
-    // Texture Slots (Asset Handles, not RHI handles directly, to allow reloading)
+    // Texture Slots (Shared Handles for auto-refcount)
     // Slot 0: Diffuse, 1: Specular, 2: Normal
     static constexpr int MAX_TEXTURES = 6;
-    AssetHandle<TextureResource> textures[MAX_TEXTURES]; 
+    SharedAsset<TextureResource> textures[MAX_TEXTURES]; 
     
     // Cached RHI handles for fast binding (updated by RenderSystem if dirty)
     rhi::TextureHandle rhiTextures[MAX_TEXTURES];
@@ -70,8 +71,8 @@ struct PrefabNode {
     Vec4 scale = {1,1,1,0};
     
     // Components to attach
-    AssetHandle<MeshResource> mesh;
-    AssetHandle<MaterialResource> material;
+    SharedAsset<MeshResource> mesh;
+    SharedAsset<MaterialResource> material;
     
     // Hierarchy
     int parentIndex = -1; // -1 means root

@@ -1,9 +1,11 @@
 #pragma once
 
 #include "asset_handle.h"
-#include <framework/asset_manager.h>
 
 namespace framework {
+
+// Forward Declaration
+class AssetManager;
 
 template<typename T>
 class SharedAsset {
@@ -15,7 +17,7 @@ public:
     // Copy: AddRef
     SharedAsset(const SharedAsset& other) : m_handle(other.m_handle) {
         if (m_handle.IsValid()) {
-            AssetManager::Get().AddRef(m_handle);
+            AddRefInternal();
         }
     }
 
@@ -30,7 +32,7 @@ public:
             Release();
             m_handle = other.m_handle;
             if (m_handle.IsValid()) {
-                AssetManager::Get().AddRef(m_handle);
+                AddRefInternal();
             }
         }
         return *this;
@@ -51,7 +53,7 @@ public:
 
     void Release() {
         if (m_handle.IsValid()) {
-            AssetManager::Get().Release(m_handle);
+            ReleaseInternal();
             m_handle = AssetHandle<T>::Invalid();
         }
     }
@@ -67,6 +69,11 @@ public:
 
 private:
     AssetHandle<T> m_handle;
+
+    // Helper to allow breaking dependency cycle. 
+    // Implemented in a way that requires AssetManager visibility only at instantiation.
+    void AddRefInternal();
+    void ReleaseInternal();
 };
 
 } // namespace framework

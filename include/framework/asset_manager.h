@@ -1,8 +1,7 @@
 #pragma once
 
-#pragma once
-
 #include "asset_handle.h"
+#include "shared_asset.h"
 #include <rhi/device.h>
 #include <framework/resources.h>
 #include <string>
@@ -19,17 +18,18 @@ public:
     void Init(rhi::IGraphicsDevice* device);
     void Shutdown();
 
-    // Generic Load Interface
+    // Generic Load Interface - Returns RAII Wrapper
     template<typename T>
-    AssetHandle<T> Load(const std::string& path);
+    SharedAsset<T> Load(const std::string& path);
 
+    // Internal RefCount Management (Called by SharedAsset)
     template<typename T>
     void AddRef(AssetHandle<T> handle);
 
     template<typename T>
     void Release(AssetHandle<T> handle);
     
-    // Resource Access API
+    // Resource Access API (Never returns nullptr)
     TextureResource* GetTexture(AssetHandle<TextureResource> handle);
     MeshResource*    GetMesh(AssetHandle<MeshResource> handle);
     MaterialResource* GetMaterial(AssetHandle<MaterialResource> handle);
@@ -46,6 +46,15 @@ private:
     ~AssetManager() = default;
 
     rhi::IGraphicsDevice* m_device = nullptr;
+
+    // Fallback Resources
+    TextureResource m_fallbackTexture;
+    MeshResource    m_fallbackMesh;
+    MaterialResource m_fallbackMaterial;
+    Prefab          m_fallbackPrefab;
+
+    void CreateFallbacks();
+    void DestroyFallbacks();
 
     // Internal Structures for Pools
     
@@ -73,9 +82,7 @@ private:
     // --- Lookups ---
     std::unordered_map<std::string, uint32_t> m_textureLookup;
     std::unordered_map<std::string, uint32_t> m_prefabLookup;
-    // Meshes and Materials are typically sub-assets loaded via Prefab, 
-    // so they might not have a direct file path lookup unless externally referenced.
-
+    
     // --- Internal Allocators ---
     uint32_t AllocTextureSlot();
     uint32_t AllocMeshSlot();
@@ -93,10 +100,10 @@ private:
 
 // Template Specializations
 template<>
-TINYGL_API AssetHandle<TextureResource> AssetManager::Load(const std::string& path);
+TINYGL_API SharedAsset<TextureResource> AssetManager::Load(const std::string& path);
 
 template<>
-TINYGL_API AssetHandle<Prefab> AssetManager::Load(const std::string& path);
+TINYGL_API SharedAsset<Prefab> AssetManager::Load(const std::string& path);
 
 template<>
 TINYGL_API void AssetManager::AddRef(AssetHandle<TextureResource> handle);
@@ -123,3 +130,5 @@ template<>
 TINYGL_API void AssetManager::Release(AssetHandle<Prefab> handle);
 
 } // namespace framework
+
+#include "shared_asset_impl.h"

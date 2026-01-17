@@ -21,9 +21,13 @@ void AssetManager::Init(rhi::IGraphicsDevice* device) {
     m_prefabPool.push_back({});
     m_meshPool.push_back({});
     m_materialPool.push_back({});
+
+    CreateFallbacks();
 }
 
 void AssetManager::Shutdown() {
+    DestroyFallbacks();
+
     // Clear Lookups
     m_textureLookup.clear();
     m_prefabLookup.clear();
@@ -41,6 +45,38 @@ void AssetManager::Shutdown() {
     m_freePrefabIndices.clear();
 
     m_device = nullptr;
+}
+
+void AssetManager::CreateFallbacks() {
+    // 1. Fallback Texture (1x1 Magenta)
+    if (m_device) {
+        uint32_t magenta = 0xFF00FFFF; // RGBA
+        m_fallbackTexture.rhiHandle = m_device->CreateTexture((unsigned char*)&magenta, 1, 1, 4);
+        m_fallbackTexture.width = 1;
+        m_fallbackTexture.height = 1;
+        m_fallbackTexture.name = "Fallback_Texture";
+    }
+
+    // 2. Fallback Material (Magenta)
+    m_fallbackMaterial.name = "Fallback_Material";
+    m_fallbackMaterial.data.diffuse = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+    m_fallbackMaterial.data.emissive = Vec4(0.2f, 0.0f, 0.2f, 1.0f);
+
+    // 3. Fallback Mesh (Simple Cube)
+    // We can create a simple cube here if needed, but for now empty is safer than crashing
+    // Ideally we would bake a small cube buffer.
+    m_fallbackMesh.name = "Fallback_Mesh";
+}
+
+void AssetManager::DestroyFallbacks() {
+    if (m_device) {
+        if (m_fallbackTexture.rhiHandle.id != 0) {
+            m_device->DestroyTexture(m_fallbackTexture.rhiHandle);
+            m_fallbackTexture.rhiHandle = {0};
+        }
+        if (m_fallbackMesh.vbo.IsValid()) m_device->DestroyBuffer(m_fallbackMesh.vbo);
+        if (m_fallbackMesh.ebo.IsValid()) m_device->DestroyBuffer(m_fallbackMesh.ebo);
+    }
 }
 
 // =================================================================================================
@@ -172,36 +208,44 @@ void AssetManager::Release(AssetHandle<Prefab> handle) {
 // =================================================================================================
 
 template<>
-AssetHandle<TextureResource> AssetManager::Load(const std::string& path) {
+SharedAsset<TextureResource> AssetManager::Load(const std::string& path) {
+    uint32_t idx;
+    bool exists = false;
+    
     if (auto it = m_textureLookup.find(path); it != m_textureLookup.end()) {
-        uint32_t idx = it->second;
-        m_texturePool[idx].refCount++;
-        uint32_t id = (m_texturePool[idx].generation << 20) | idx;
-        return AssetHandle<TextureResource>(id);
+        idx = it->second;
+        exists = true;
+    } else {
+        idx = AllocTextureSlot();
+        m_textureLookup[path] = idx;
+        m_texturePool[idx].path = path;
+        m_texturePool[idx].loaded = false;
+        LoadTextureInternal(idx, path);
     }
-
-    uint32_t idx = AllocTextureSlot();
-    m_textureLookup[path] = idx;
-    m_texturePool[idx].path = path;
-    m_texturePool[idx].refCount = 1;
-    m_texturePool[idx].loaded = false;
-
-    LoadTextureInternal(idx, path);
-
+    
+    // Create Handle
     uint32_t id = (m_texturePool[idx].generation << 20) | idx;
-    return AssetHandle<TextureResource>(id);
+    AssetHandle<TextureResource> handle(id);
+    
+    // Increment RefCount
+    m_texturePool[idx].refCount++;
+    return SharedAsset<TextureResource>(handle);
 }
 
 TextureResource* AssetManager::GetTexture(AssetHandle<TextureResource> handle) {
     uint32_t idx = handle.GetIndex();
-    if (idx >= m_texturePool.size()) return nullptr;
-    if (m_texturePool[idx].generation != handle.GetGeneration()) return nullptr;
+    if (idx >= m_texturePool.size()) return &m_fallbackTexture;
+    if (m_texturePool[idx].generation != handle.GetGeneration()) return &m_fallbackTexture;
+    
+    if (!m_texturePool[idx].loaded) return &m_fallbackTexture;
+    
     return &m_texturePool[idx].asset;
 }
 
 rhi::TextureHandle AssetManager::GetRHI(AssetHandle<TextureResource> handle) {
     auto* res = GetTexture(handle);
-    return res ? res->rhiHandle : rhi::TextureHandle{0};
+    // GetTexture now guarantees non-null return (fallback if needed)
+    return res->rhiHandle;
 }
 
 void AssetManager::LoadTextureInternal(uint32_t index, const std::string& path) {
@@ -212,17 +256,7 @@ void AssetManager::LoadTextureInternal(uint32_t index, const std::string& path) 
     // Strict Offline Check
     if (!fs::exists(binPath)) {
         LOG_ERROR("Asset not found (Need Cook): " + binPath.string());
-        // Fallback: Create a 1x1 magenta texture
-        static rhi::TextureHandle errorTex = {0};
-        if (errorTex.id == 0) {
-             uint32_t magenta = 0xFF00FFFF;
-             errorTex = m_device->CreateTexture((unsigned char*)&magenta, 1, 1, 4);
-        }
-        m_texturePool[index].asset.rhiHandle = errorTex;
-        m_texturePool[index].asset.width = 1;
-        m_texturePool[index].asset.height = 1;
-        m_texturePool[index].asset.name = "ErrorTexture";
-        m_texturePool[index].loaded = true;
+        // Do NOT set loaded=true here. Let it fail so GetTexture returns fallback.
         return;
     }
 
@@ -268,44 +302,46 @@ bool AssetManager::LoadTextureBin(uint32_t index, const fs::path& path) {
 // =================================================================================================
 
 template<>
-AssetHandle<Prefab> AssetManager::Load(const std::string& path) {
+SharedAsset<Prefab> AssetManager::Load(const std::string& path) {
+    uint32_t idx;
     if (auto it = m_prefabLookup.find(path); it != m_prefabLookup.end()) {
-        uint32_t idx = it->second;
-        m_prefabPool[idx].refCount++;
-        uint32_t id = (m_prefabPool[idx].generation << 20) | idx;
-        return AssetHandle<Prefab>(id);
+        idx = it->second;
+    } else {
+        idx = AllocPrefabSlot();
+        m_prefabLookup[path] = idx;
+        m_prefabPool[idx].path = path;
+        m_prefabPool[idx].loaded = false;
+        LoadPrefabInternal(idx, path);
     }
 
-    uint32_t idx = AllocPrefabSlot();
-    m_prefabLookup[path] = idx;
-    m_prefabPool[idx].path = path;
-    m_prefabPool[idx].refCount = 1;
-    m_prefabPool[idx].loaded = false;
-
-    LoadPrefabInternal(idx, path);
-
     uint32_t id = (m_prefabPool[idx].generation << 20) | idx;
-    return AssetHandle<Prefab>(id);
+    AssetHandle<Prefab> handle(id);
+    
+    m_prefabPool[idx].refCount++;
+    return SharedAsset<Prefab>(handle);
 }
 
 Prefab* AssetManager::GetPrefab(AssetHandle<Prefab> handle) {
     uint32_t idx = handle.GetIndex();
-    if (idx >= m_prefabPool.size()) return nullptr;
-    if (m_prefabPool[idx].generation != handle.GetGeneration()) return nullptr;
+    if (idx >= m_prefabPool.size()) return &m_fallbackPrefab;
+    if (m_prefabPool[idx].generation != handle.GetGeneration()) return &m_fallbackPrefab;
+    if (!m_prefabPool[idx].loaded) return &m_fallbackPrefab;
     return &m_prefabPool[idx].asset;
 }
 
 MeshResource* AssetManager::GetMesh(AssetHandle<MeshResource> handle) {
     uint32_t idx = handle.GetIndex();
-    if (idx >= m_meshPool.size()) return nullptr;
-    if (m_meshPool[idx].generation != handle.GetGeneration()) return nullptr;
+    if (idx >= m_meshPool.size()) return &m_fallbackMesh;
+    if (m_meshPool[idx].generation != handle.GetGeneration()) return &m_fallbackMesh;
+    if (!m_meshPool[idx].loaded) return &m_fallbackMesh;
     return &m_meshPool[idx].asset;
 }
 
 MaterialResource* AssetManager::GetMaterial(AssetHandle<MaterialResource> handle) {
     uint32_t idx = handle.GetIndex();
-    if (idx >= m_materialPool.size()) return nullptr;
-    if (m_materialPool[idx].generation != handle.GetGeneration()) return nullptr;
+    if (idx >= m_materialPool.size()) return &m_fallbackMaterial;
+    if (m_materialPool[idx].generation != handle.GetGeneration()) return &m_fallbackMaterial;
+    if (!m_materialPool[idx].loaded) return &m_fallbackMaterial;
     return &m_materialPool[idx].asset;
 }
 
@@ -340,7 +376,7 @@ bool AssetManager::LoadPrefabBin(uint32_t index, const fs::path& path) {
     std::string directory = path.parent_path().string();
 
     // 1. Read Materials
-    std::vector<AssetHandle<MaterialResource>> materialHandles;
+    std::vector<SharedAsset<MaterialResource>> materialHandles;
     for(uint32_t i=0; i<modelHeader.materialCount; i++) {
         MaterialHeader matHeader;
         in.read(reinterpret_cast<char*>(&matHeader), sizeof(matHeader));
@@ -370,16 +406,16 @@ bool AssetManager::LoadPrefabBin(uint32_t index, const fs::path& path) {
                 std::string fullPath = texPath;
                 if (!directory.empty()) fullPath = directory + '/' + texPath;
 
-                // Recursive Load
-                AssetHandle<TextureResource> hTex = Load<TextureResource>(fullPath);
-                matRes.textures[t] = hTex;
-                matRes.rhiTextures[t] = GetRHI(hTex);
+                // Load directly into SharedAsset slot. RefCount +1 done automatically.
+                matRes.textures[t] = Load<TextureResource>(fullPath);
+                matRes.rhiTextures[t] = GetRHI(matRes.textures[t].GetHandle());
             }
         }
 
         m_materialPool[matIdx].loaded = true;
         m_materialPool[matIdx].refCount = 1; // Held by Prefab logic temporarily
-        materialHandles.push_back(AssetHandle<MaterialResource>((m_materialPool[matIdx].generation << 20) | matIdx));
+        AssetHandle<MaterialResource> hMat((m_materialPool[matIdx].generation << 20) | matIdx);
+        materialHandles.push_back(SharedAsset<MaterialResource>(hMat));
     }
 
     // 2. Read Meshes
@@ -425,7 +461,7 @@ bool AssetManager::LoadPrefabBin(uint32_t index, const fs::path& path) {
         // Create Node
         PrefabNode node;
         node.name = meshRes.name;
-        node.mesh = hMesh;
+        node.mesh = SharedAsset<MeshResource>(hMesh);
         if(smh.materialIndex < materialHandles.size()) {
             node.material = materialHandles[smh.materialIndex];
         }
@@ -446,11 +482,6 @@ void AssetManager::GarbageCollect() {
         for(size_t i=0; i<m_prefabPool.size(); ++i) {
             auto& rec = m_prefabPool[i];
             if(rec.loaded && rec.refCount == 0) {
-                // Release dependencies
-                for(auto& node : rec.asset.nodes) {
-                     Release(node.mesh);
-                     Release(node.material);
-                }
                 rec.loaded = false;
                 if(!rec.path.empty()) m_prefabLookup.erase(rec.path);
                 m_freePrefabIndices.push_back((uint32_t)i);
@@ -465,11 +496,6 @@ void AssetManager::GarbageCollect() {
         for(size_t i=0; i<m_materialPool.size(); ++i) {
              auto& rec = m_materialPool[i];
              if(rec.loaded && rec.refCount == 0) {
-                 for(int t=0; t<MaterialResource::MAX_TEXTURES; t++) {
-                     if(rec.asset.textures[t].IsValid()) {
-                         Release(rec.asset.textures[t]);
-                     }
-                 }
                  rec.loaded = false;
                  // m_materialLookup.erase(rec.path); // If exists
                  m_freeMaterialIndices.push_back((uint32_t)i);
