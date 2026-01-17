@@ -21,6 +21,7 @@ public:
     void Reset();
     size_t GetUsedMemory() const { return m_offset; }
     size_t GetTotalMemory() const { return m_totalSize; }
+    uint8_t* GetBasePtr() const { return m_basePtr; }
 
     template<typename T>
     T* New(size_t count = 1) {

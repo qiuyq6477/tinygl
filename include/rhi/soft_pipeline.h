@@ -1,6 +1,8 @@
 #pragma once
 #include <tinygl/tinygl.h>
 #include <rhi/types.h>
+#include <tinygl/core/linear_allocator.h>
+#include <tinygl/core/tiler.h>
 #include <cstring>
 #include <vector>
 
@@ -11,7 +13,43 @@ class ISoftPipeline {
 public:
     virtual ~ISoftPipeline() = default;
 
-    virtual void Draw(SoftRenderContext& ctx, 
+    // Frontend: VS + Clipping + Binning
+    virtual void ProcessGeometry(tinygl::SoftRenderContext& ctx,
+                                 tinygl::LinearAllocator& frameMem,
+                                 tinygl::TileBinningSystem& tiler,
+                                 uint16_t pipelineId,
+                                 const std::vector<uint8_t>& uniformData,
+                                 uint32_t vertexCount, 
+                                 uint32_t firstVertex, 
+                                 uint32_t instanceCount,
+                                 const uint32_t* vboIds,
+                                 const uint32_t* offsets,
+                                 const uint32_t* strides,
+                                 uint32_t bindingCount) = 0;
+                      
+    virtual void ProcessGeometryIndexed(tinygl::SoftRenderContext& ctx,
+                                        tinygl::LinearAllocator& frameMem,
+                                        tinygl::TileBinningSystem& tiler,
+                                        uint16_t pipelineId,
+                                        const std::vector<uint8_t>& uniformData,
+                                        uint32_t indexCount, 
+                                        uint32_t firstIndex, 
+                                        int32_t baseVertex, 
+                                        uint32_t instanceCount,
+                                        const uint32_t* vboIds,
+                                        const uint32_t* offsets,
+                                        const uint32_t* strides,
+                                        uint32_t bindingCount,
+                                        uint32_t iboId) = 0;
+
+    // Backend: FS (Rasterization)
+    virtual void RasterizeTriangle(tinygl::SoftRenderContext& ctx,
+                                   const uint8_t* uniformData,
+                                   const tinygl::TriangleData& tri,
+                                   const tinygl::Rect& tileRect) = 0;
+
+    // Legacy Draw for compatibility or non-TBR paths
+    virtual void Draw(tinygl::SoftRenderContext& ctx, 
                       const std::vector<uint8_t>& uniformData,
                       uint32_t vertexCount, 
                       uint32_t firstVertex, 
@@ -21,7 +59,7 @@ public:
                       const uint32_t* strides,
                       uint32_t bindingCount) = 0;
                       
-    virtual void DrawIndexed(SoftRenderContext& ctx,
+    virtual void DrawIndexed(tinygl::SoftRenderContext& ctx,
                              const std::vector<uint8_t>& uniformData,
                              uint32_t indexCount, 
                              uint32_t firstIndex, 
@@ -39,10 +77,10 @@ template <typename ShaderT>
 class SoftPipeline : public ISoftPipeline {
 public:
     PipelineDesc desc;
-    SoftRenderContext* m_ctx = nullptr;
+    tinygl::SoftRenderContext* m_ctx = nullptr;
     GLuint m_vao = 0;
 
-    SoftPipeline(SoftRenderContext& ctx, const PipelineDesc& d) : desc(d), m_ctx(&ctx) {
+    SoftPipeline(tinygl::SoftRenderContext& ctx, const PipelineDesc& d) : desc(d), m_ctx(&ctx) {
         m_ctx->glCreateVertexArrays(1, &m_vao);
         
         for (const auto& attr : desc.inputLayout.attributes) {
@@ -60,10 +98,8 @@ public:
             }
             
             m_ctx->glVertexArrayAttribFormat(m_vao, attr.shaderLocation, size, type, normalized, attr.offset);
-            
             uint32_t bindingIndex = desc.useInterleavedAttributes ? 0 : attr.shaderLocation;
             m_ctx->glVertexArrayAttribBinding(m_vao, attr.shaderLocation, bindingIndex);
-            
             m_ctx->glEnableVertexArrayAttrib(m_vao, attr.shaderLocation);
         }
     }
@@ -74,19 +110,21 @@ public:
         }
     }
 
-    void Draw(SoftRenderContext& ctx, 
-              const std::vector<uint8_t>& uniformData,
-              uint32_t vertexCount, 
-              uint32_t firstVertex, 
-              uint32_t instanceCount,
-              const uint32_t* vboIds,
-              const uint32_t* offsets,
-              const uint32_t* strides,
-              uint32_t bindingCount) override {
+    void ProcessGeometry(tinygl::SoftRenderContext& ctx,
+                         tinygl::LinearAllocator& frameMem,
+                         tinygl::TileBinningSystem& tiler,
+                         uint16_t pipelineId,
+                         const std::vector<uint8_t>& uniformData,
+                         uint32_t vertexCount, 
+                         uint32_t firstVertex, 
+                         uint32_t instanceCount,
+                         const uint32_t* vboIds,
+                         const uint32_t* offsets,
+                         const uint32_t* strides,
+                         uint32_t bindingCount) override {
         
         SetupState(ctx);
         ctx.glBindVertexArray(m_vao);
-        
         for (uint32_t i = 0; i < bindingCount; ++i) {
              if (vboIds[i] != 0) {
                  uint32_t effStride = strides[i] > 0 ? strides[i] : desc.inputLayout.stride;
@@ -95,19 +133,132 @@ public:
         }
 
         ShaderT shader;
-        InjectUniforms(shader, uniformData);
+        InjectUniforms(shader, uniformData.data(), uniformData.size());
         InjectResources(shader, ctx);
-        
-        if (instanceCount > 1) {
-             ctx.glDrawArraysInstanced(shader, GL_TRIANGLES, firstVertex, vertexCount, instanceCount);
-        } else {
-             ctx.glDrawArrays(shader, GL_TRIANGLES, firstVertex, vertexCount);
-        }
-        
-        RestoreState(ctx);
+
+        // Snapshot uniforms for this draw call
+        uint8_t* savedUniforms = frameMem.New<uint8_t>(uniformData.size());
+        if (savedUniforms) std::memcpy(savedUniforms, uniformData.data(), uniformData.size());
+        uint32_t uniformOffset = (uint32_t)(savedUniforms - frameMem.GetBasePtr());
+
+        ctx.setBinningMode(true, [&](const tinygl::VOut& v0, const tinygl::VOut& v1, const tinygl::VOut& v2) {
+            tinygl::TriangleData* tri = frameMem.New<tinygl::TriangleData>();
+            if (!tri) return;
+            tri->p[0] = v0.scn;
+            tri->p[1] = v1.scn;
+            tri->p[2] = v2.scn;
+            std::memcpy(tri->varyings[0], v0.ctx.varyings, sizeof(tri->varyings[0]));
+            std::memcpy(tri->varyings[1], v1.ctx.varyings, sizeof(tri->varyings[1]));
+            std::memcpy(tri->varyings[2], v2.ctx.varyings, sizeof(tri->varyings[2]));
+            uint32_t dataOffset = (uint32_t)((uint8_t*)tri - frameMem.GetBasePtr());
+            tiler.BinTriangle(*tri, pipelineId, dataOffset, uniformOffset);
+        });
+
+        if (instanceCount > 1) ctx.glDrawArraysInstanced(shader, GL_TRIANGLES, firstVertex, vertexCount, instanceCount);
+        else ctx.glDrawArrays(shader, GL_TRIANGLES, firstVertex, vertexCount);
+
+        ctx.setBinningMode(false);
     }
 
-    void DrawIndexed(SoftRenderContext& ctx, 
+    void ProcessGeometryIndexed(tinygl::SoftRenderContext& ctx,
+                                tinygl::LinearAllocator& frameMem,
+                                tinygl::TileBinningSystem& tiler,
+                                uint16_t pipelineId,
+                                const std::vector<uint8_t>& uniformData,
+                                uint32_t indexCount, 
+                                uint32_t firstIndex, 
+                                int32_t baseVertex, 
+                                uint32_t instanceCount,
+                                const uint32_t* vboIds,
+                                const uint32_t* offsets,
+                                const uint32_t* strides,
+                                uint32_t bindingCount,
+                                uint32_t iboId) override {
+        SetupState(ctx);
+        ctx.glBindVertexArray(m_vao);
+        for (uint32_t i = 0; i < bindingCount; ++i) {
+             if (vboIds[i] != 0) {
+                 uint32_t effStride = strides[i] > 0 ? strides[i] : desc.inputLayout.stride;
+                 ctx.glVertexArrayVertexBuffer(m_vao, i, vboIds[i], offsets[i], effStride);
+             }
+        }
+        ctx.glVertexArrayElementBuffer(m_vao, iboId);
+
+        ShaderT shader;
+        InjectUniforms(shader, uniformData.data(), uniformData.size());
+        InjectResources(shader, ctx);
+
+        uint8_t* savedUniforms = frameMem.New<uint8_t>(uniformData.size());
+        if (savedUniforms) std::memcpy(savedUniforms, uniformData.data(), uniformData.size());
+        uint32_t uniformOffset = (uint32_t)(savedUniforms - frameMem.GetBasePtr());
+
+        ctx.setBinningMode(true, [&](const tinygl::VOut& v0, const tinygl::VOut& v1, const tinygl::VOut& v2) {
+            tinygl::TriangleData* tri = frameMem.New<tinygl::TriangleData>();
+            if (!tri) return;
+            tri->p[0] = v0.scn;
+            tri->p[1] = v1.scn;
+            tri->p[2] = v2.scn;
+            std::memcpy(tri->varyings[0], v0.ctx.varyings, sizeof(tri->varyings[0]));
+            std::memcpy(tri->varyings[1], v1.ctx.varyings, sizeof(tri->varyings[1]));
+            std::memcpy(tri->varyings[2], v2.ctx.varyings, sizeof(tri->varyings[2]));
+            uint32_t dataOffset = (uint32_t)((uint8_t*)tri - frameMem.GetBasePtr());
+            tiler.BinTriangle(*tri, pipelineId, dataOffset, uniformOffset);
+        });
+
+        void* offset = (void*)(uintptr_t)(firstIndex * sizeof(uint32_t));
+        if (instanceCount > 1) ctx.glDrawElementsInstanced(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset, instanceCount);
+        else ctx.glDrawElements(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset);
+
+        ctx.setBinningMode(false);
+    }
+
+    void RasterizeTriangle(tinygl::SoftRenderContext& ctx,
+                           const uint8_t* uniformData,
+                           const tinygl::TriangleData& tri,
+                           const tinygl::Rect& tileRect) override {
+        tinygl::VOut v0, v1, v2;
+        v0.scn = tri.p[0];
+        v1.scn = tri.p[1];
+        v2.scn = tri.p[2];
+        std::memcpy(v0.ctx.varyings, tri.varyings[0], sizeof(v0.ctx.varyings));
+        std::memcpy(v1.ctx.varyings, tri.varyings[1], sizeof(v1.ctx.varyings));
+        std::memcpy(v2.ctx.varyings, tri.varyings[2], sizeof(v2.ctx.varyings));
+
+        SetupState(ctx);
+        ctx.glEnable(GL_SCISSOR_TEST);
+        ctx.glScissor(tileRect.x, tileRect.y, tileRect.w, tileRect.h);
+
+        ShaderT shader;
+        InjectUniforms(shader, uniformData, 1024); 
+        InjectResources(shader, ctx);
+        ctx.rasterizeTriangleTemplate(shader, v0, v1, v2);
+    }
+
+    void Draw(tinygl::SoftRenderContext& ctx, 
+              const std::vector<uint8_t>& uniformData,
+              uint32_t vertexCount, 
+              uint32_t firstVertex, 
+              uint32_t instanceCount,
+              const uint32_t* vboIds,
+              const uint32_t* offsets,
+              const uint32_t* strides,
+              uint32_t bindingCount) override {
+        SetupState(ctx);
+        ctx.glBindVertexArray(m_vao);
+        for (uint32_t i = 0; i < bindingCount; ++i) {
+             if (vboIds[i] != 0) {
+                 uint32_t effStride = strides[i] > 0 ? strides[i] : desc.inputLayout.stride;
+                 ctx.glVertexArrayVertexBuffer(m_vao, i, vboIds[i], offsets[i], effStride);
+             }
+        }
+        ShaderT shader;
+        InjectUniforms(shader, uniformData.data(), uniformData.size());
+        InjectResources(shader, ctx);
+        if (instanceCount > 1) ctx.glDrawArraysInstanced(shader, GL_TRIANGLES, firstVertex, vertexCount, instanceCount);
+        else ctx.glDrawArrays(shader, GL_TRIANGLES, firstVertex, vertexCount);
+    }
+
+    void DrawIndexed(tinygl::SoftRenderContext& ctx, 
                      const std::vector<uint8_t>& uniformData,
                      uint32_t indexCount, 
                      uint32_t firstIndex, 
@@ -120,28 +271,19 @@ public:
                      uint32_t iboId) override {
         SetupState(ctx);
         ctx.glBindVertexArray(m_vao);
-        
         for (uint32_t i = 0; i < bindingCount; ++i) {
              if (vboIds[i] != 0) {
                  uint32_t effStride = strides[i] > 0 ? strides[i] : desc.inputLayout.stride;
                  ctx.glVertexArrayVertexBuffer(m_vao, i, vboIds[i], offsets[i], effStride);
              }
         }
-        ctx.glVertexArrayElementBuffer(m_vao, iboId); 
-        
+        ctx.glVertexArrayElementBuffer(m_vao, iboId);
         ShaderT shader;
-        InjectUniforms(shader, uniformData);
+        InjectUniforms(shader, uniformData.data(), uniformData.size());
         InjectResources(shader, ctx);
-
         void* offset = (void*)(uintptr_t)(firstIndex * sizeof(uint32_t));
-        
-        if (instanceCount > 1) {
-            ctx.glDrawElementsInstanced(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset, instanceCount);
-        } else {
-            ctx.glDrawElements(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset);
-        }
-        
-        RestoreState(ctx);
+        if (instanceCount > 1) ctx.glDrawElementsInstanced(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset, instanceCount);
+        else ctx.glDrawElements(shader, GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, offset);
     }
 
 private:
@@ -172,7 +314,7 @@ private:
         }
     }
 
-    void SetupState(SoftRenderContext& ctx) {
+    void SetupState(tinygl::SoftRenderContext& ctx) {
         if (desc.depthTestEnabled) ctx.glEnable(GL_DEPTH_TEST); else ctx.glDisable(GL_DEPTH_TEST);
         ctx.glDepthMask(desc.depthWriteEnabled ? GL_TRUE : GL_FALSE);
 
@@ -198,21 +340,18 @@ private:
         }
     }
 
-    void RestoreState(SoftRenderContext& ctx) {
-    }
-
-    void InjectUniforms(ShaderT& shader, const std::vector<uint8_t>& uniformData) {
-        if constexpr (requires { shader.BindUniforms(uniformData); }) {
-            shader.BindUniforms(uniformData);
+    void InjectUniforms(ShaderT& shader, const uint8_t* uniformData, size_t size) {
+        if constexpr (requires { shader.BindUniforms(uniformData, size); }) {
+            shader.BindUniforms(uniformData, size);
         } 
         else if constexpr (requires { shader.materialData; }) {
-            if (uniformData.size() >= sizeof(shader.materialData)) {
-                std::memcpy(&shader.materialData, uniformData.data(), sizeof(shader.materialData));
+            if (size >= sizeof(shader.materialData)) {
+                std::memcpy(&shader.materialData, uniformData, sizeof(shader.materialData));
             }
         }
     }
 
-    void InjectResources(ShaderT& shader, SoftRenderContext& ctx) {
+    void InjectResources(ShaderT& shader, tinygl::SoftRenderContext& ctx) {
         if constexpr (requires { shader.BindResources(ctx); }) {
             shader.BindResources(ctx);
         }

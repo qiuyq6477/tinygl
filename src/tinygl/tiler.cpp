@@ -1,6 +1,8 @@
 #include <tinygl/core/tiler.h>
+#include <tinygl/base/log.h>
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace tinygl {
 
@@ -21,7 +23,7 @@ void TileBinningSystem::Reset() {
     }
 }
 
-void TileBinningSystem::BinTriangle(const TriangleData& tri, uint16_t pipelineId, uint32_t dataOffset) {
+void TileBinningSystem::BinTriangle(const TriangleData& tri, uint16_t pipelineId, uint32_t dataOffset, uint32_t uniformOffset) {
     // 1. Calculate Bounding Box of the triangle in screen space
     // Screen coords are usually in [0, width] x [0, height]
     
@@ -41,6 +43,7 @@ void TileBinningSystem::BinTriangle(const TriangleData& tri, uint16_t pipelineId
     cmd.type = TileCommand::DRAW_TRIANGLE;
     cmd.pipelineId = pipelineId;
     cmd.dataIndex = dataOffset;
+    cmd.uniformOffset = uniformOffset;
 
     for (int y = minTy; y <= maxTy; ++y) {
         for (int x = minTx; x <= maxTx; ++x) {
@@ -49,6 +52,7 @@ void TileBinningSystem::BinTriangle(const TriangleData& tri, uint16_t pipelineId
             m_tiles[y * m_gridWidth + x].commands.push_back(cmd);
         }
     }
+    LOG_INFO("Binned triangle to " + std::to_string((maxTx-minTx+1)*(maxTy-minTy+1)) + " tiles");
 }
 
 } // namespace tinygl

@@ -126,6 +126,10 @@ void SoftDevice::DestroyPipeline(PipelineHandle handle) {
 // --- Execution ---
 
 void SoftDevice::Submit(const CommandBuffer& buffer) {
+    // --- Phase 1: Record / Binning ---
+    m_frameMem.Reset();
+    m_tiler.Reset();
+
     // Reset state
     m_activePipelineId = 0;
     std::memset(m_bindings, 0, sizeof(m_bindings));
@@ -243,9 +247,11 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
                          }
                     }
 
-                    m_currentPipeline->Draw(m_ctx, m_uniformData, 
-                                            pkt->vertexCount, pkt->firstVertex, pkt->instanceCount,
-                                            vboGLIds, offsets, strides, MAX_BINDINGS);
+                    m_currentPipeline->ProcessGeometry(m_ctx, m_frameMem, m_tiler, 
+                                                       m_activePipelineId,
+                                                       m_uniformData, 
+                                                       pkt->vertexCount, pkt->firstVertex, pkt->instanceCount,
+                                                       vboGLIds, offsets, strides, MAX_BINDINGS);
                 }
                 break;
             }
@@ -277,10 +283,12 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
                     if (BufferRes* res = m_buffers.Get(m_activeIBOId)) {
                         iboGLId = res->glId;
                     }
-                    m_currentPipeline->DrawIndexed(m_ctx, m_uniformData, 
-                                                   pkt->indexCount, pkt->firstIndex, pkt->baseVertex, pkt->instanceCount,
-                                                   vboGLIds, offsets, strides, MAX_BINDINGS,
-                                                   iboGLId);
+                    m_currentPipeline->ProcessGeometryIndexed(m_ctx, m_frameMem, m_tiler,
+                                                              m_activePipelineId,
+                                                              m_uniformData, 
+                                                              pkt->indexCount, pkt->firstIndex, pkt->baseVertex, pkt->instanceCount,
+                                                              vboGLIds, offsets, strides, MAX_BINDINGS,
+                                                              iboGLId);
                 }
                 break;
             }
@@ -362,12 +370,36 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
         }
         ptr += header->size;
     }
+
+    // --- Phase 2: Rasterization (Backend) ---
+    int gridW = m_tiler.GetGridWidth();
+    int gridH = m_tiler.GetGridHeight();
+    int tileSize = m_tiler.GetTileSize();
+
+    for (int y = 0; y < gridH; ++y) {
+        for (int x = 0; x < gridW; ++x) {
+            tinygl::Tile& tile = m_tiler.GetTile(x, y);
+            if (tile.commands.empty()) continue;
+
+            tinygl::Rect tileRect = { x * tileSize, y * tileSize, tileSize, tileSize };
+            
+            for (const auto& cmd : tile.commands) {
+                if (cmd.type == tinygl::TileCommand::DRAW_TRIANGLE) {
+                    auto* pipelinePtr = m_pipelines.Get(cmd.pipelineId);
+                    if (pipelinePtr && *pipelinePtr) {
+                        const uint8_t* uniformPtr = m_frameMem.GetBasePtr() + cmd.uniformOffset;
+                        const tinygl::TriangleData* tri = (const tinygl::TriangleData*)(m_frameMem.GetBasePtr() + cmd.dataIndex);
+                        LOG_INFO("Rasterizing Triangle at Tile: " + std::to_string(x) + ", " + std::to_string(y) + 
+                                 " P0:(" + std::to_string(tri->p[0].x) + "," + std::to_string(tri->p[0].y) + ")");
+                        (*pipelinePtr)->RasterizeTriangle(m_ctx, uniformPtr, *tri, tileRect);
+                    }
+                }
+            }
+        }
+    }
 }
 
 void SoftDevice::Present() {
-    // End of frame, reset allocator and tiler
-    m_frameMem.Reset();
-    m_tiler.Reset();
 }
 
 }

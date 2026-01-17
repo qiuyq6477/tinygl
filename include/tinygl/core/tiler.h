@@ -24,6 +24,7 @@ struct TileCommand {
     Type type;
     uint16_t pipelineId; // Reference to the Shader Pipeline
     uint32_t dataIndex;  // Offset/Index into the LinearAllocator triangle pool
+    uint32_t uniformOffset; // Offset/Index into the LinearAllocator uniform pool
 };
 
 // A screen tile (e.g. 64x64 pixels)
@@ -43,7 +44,7 @@ public:
     
     // Add a triangle to the relevant tiles
     // dataOffset is the byte offset or index in LinearAllocator where the triangle data is stored
-    void BinTriangle(const TriangleData& tri, uint16_t pipelineId, uint32_t dataOffset);
+    void BinTriangle(const TriangleData& tri, uint16_t pipelineId, uint32_t dataOffset, uint32_t uniformOffset);
 
     Tile& GetTile(int x, int y) {
         return m_tiles[y * m_gridWidth + x];

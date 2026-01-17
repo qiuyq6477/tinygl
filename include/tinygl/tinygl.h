@@ -147,7 +147,7 @@ private:
     GLint m_clearStencil = 0;
     float m_clearDepth = 1.0f;
 
-    // Capabilities
+    // --- Capabilities ---
     std::unordered_map<GLenum, GLboolean> m_capabilities = {
         {GL_DEPTH_TEST, GL_TRUE}, // Default enabled for backward compatibility
         {GL_CULL_FACE, GL_FALSE}, // Default disabled
@@ -156,6 +156,11 @@ private:
         {GL_BLEND, GL_FALSE}
     };
     GLenum m_depthFunc = GL_LESS;
+
+    // --- Binning / Capture Mode for TBR ---
+    using TriangleReceiver = std::function<void(const VOut& v0, const VOut& v1, const VOut& v2)>;
+    bool m_binningMode = false;
+    TriangleReceiver m_triangleReceiver;
 
     std::string GLenumToString(GLenum value) {
         static const std::unordered_map<GLenum, std::string> enumMap = {
@@ -420,6 +425,11 @@ public:
     GLsizei getHeight() const { return fbHeight; }
     const Viewport& glGetViewport() const { return m_viewport; }
 
+    void setBinningMode(bool enabled, TriangleReceiver receiver = nullptr) {
+        m_binningMode = enabled;
+        m_triangleReceiver = receiver;
+    }
+
     // --- Buffers ---
     void glGenBuffers(GLsizei n, GLuint* res);
     void glDeleteBuffers(GLsizei n, const GLuint* buffers);
@@ -503,6 +513,13 @@ public:
     // --- rasterize ---
     template <typename ShaderT>
     void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
+        if (m_binningMode && m_triangleReceiver) {
+            m_triangleReceiver(v0, v1, v2);
+            return;
+        }
+        
+        LOG_INFO("rasterizeTriangleTemplate: " + std::to_string((int)v0.scn.x) + "," + std::to_string((int)v0.scn.y));
+
         // 1. 包围盒计算 (Bounding Box)
         int limitMinX = std::max(0, m_viewport.x);
         int limitMaxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);

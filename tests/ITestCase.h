@@ -8,10 +8,6 @@
 #include <microui.h>
 #include <SDL2/SDL.h>
 
-struct Rect {
-    int x, y, w, h;
-};
-
 class ITinyGLTestCase {
 public:
     virtual ~ITinyGLTestCase() = default;
@@ -26,7 +22,7 @@ public:
 
     // Called every frame to render the test case specific UI
     // The UI should be constrained within the provided rect
-    virtual void onGui(mu_Context* ctx, const Rect& rect) = 0;
+    virtual void onGui(mu_Context* ctx, const tinygl::Rect& rect) = 0;
 
     // Called every frame to render the 3D scene
     // The viewport is already set to the left side of the screen
@@ -54,7 +50,7 @@ public:
 
     // Called every frame to render the test case specific UI
     // The UI should be constrained within the provided rect
-    virtual void onGui(mu_Context* ctx, const Rect& rect) = 0;
+    virtual void onGui(mu_Context* ctx, const tinygl::Rect& rect) = 0;
 
     // Called every frame to render the 3D scene
     // The viewport is already set to the left side of the screen

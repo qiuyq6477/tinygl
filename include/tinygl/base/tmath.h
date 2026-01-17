@@ -31,6 +31,7 @@ inline float distance(float p0, float p1) { return std::abs(p0 - p1); }
 
 
 struct Vec2 { float x, y; };
+struct Rect { int x, y, w, h; };
 struct Vec4 {
     float x, y, z, w;
     Vec4() : x(0), y(0), z(0), w(1) {}

@@ -1,1 +1,1 @@
-add_tinygl_test(allocator_test allocator_test.cpp)
+add_tinygl_test(allocator_test allocator_test.cpp tiler_test.cpp)

@@ -41,8 +41,8 @@ protected:
             return false;
         }
 
-        // Initialize Device (Default to GL if available)
-        doSetBackend(Backend::OpenGL);
+        // Initialize Device (Default to Software for testing TBR)
+        doSetBackend(Backend::Software);
 
         initBlitResources();
 
@@ -253,7 +253,7 @@ protected:
         
         if (m_currentTest) {
             mu_label(ctx, "Test Settings:");
-            Rect rect = {uiPanelRect.x, uiPanelRect.y, uiPanelRect.w, uiPanelRect.h};
+            tinygl::Rect rect = {uiPanelRect.x, uiPanelRect.y, uiPanelRect.w, uiPanelRect.h};
             m_currentTest->onGui(ctx, rect);
         } else {
             mu_label(ctx, "Select a test from the list.");
@@ -431,7 +431,7 @@ private:
         glUseProgram(0);
     }
 
-    Backend m_backend = Backend::OpenGL;
+    Backend m_backend = Backend::Software;
     std::optional<Backend> m_nextBackend;
     SDL_GLContext m_glContext = nullptr;
     std::unique_ptr<SoftRenderContext> m_context;
