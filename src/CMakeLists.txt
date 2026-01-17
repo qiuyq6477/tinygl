@@ -22,6 +22,7 @@ add_library(tinygl_framework SHARED
     tinygl/tinygl.cpp
     tinygl/linear_allocator.cpp
     tinygl/tiler.cpp
+    tinygl/job_system.cpp
     rhi/soft_device.cpp
     rhi/gl_device.cpp
     rhi/shader_registry.cpp

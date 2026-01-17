@@ -12,9 +12,11 @@ SoftDevice::SoftDevice(SoftRenderContext& ctx) : m_ctx(ctx) {
     // Initialize Tile-Based Rendering Infrastructure
     m_frameMem.Init(16 * 1024 * 1024); // 16MB
     m_tiler.Init(m_ctx.getWidth(), m_ctx.getHeight(), 64); // 64x64 tiles
+    m_jobSystem.Init();
 }
 
 SoftDevice::~SoftDevice() {
+    m_jobSystem.Shutdown();
     // Cleanup Buffers
     for (size_t i = 0; i < m_buffers.pool.size(); ++i) {
         if (m_buffers.pool[i].active) {
@@ -375,28 +377,39 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
     int gridW = m_tiler.GetGridWidth();
     int gridH = m_tiler.GetGridHeight();
     int tileSize = m_tiler.GetTileSize();
+    int totalTiles = gridW * gridH;
 
-    for (int y = 0; y < gridH; ++y) {
-        for (int x = 0; x < gridW; ++x) {
-            tinygl::Tile& tile = m_tiler.GetTile(x, y);
-            if (tile.commands.empty()) continue;
+    m_jobSystem.ParallelFor(0, totalTiles, [&](int tileIndex) {
+        int x = tileIndex % gridW;
+        int y = tileIndex / gridW;
+        
+        tinygl::Tile& tile = m_tiler.GetTile(x, y);
+        if (tile.commands.empty()) return;
 
-            tinygl::Rect tileRect = { x * tileSize, y * tileSize, tileSize, tileSize };
-            
-            for (const auto& cmd : tile.commands) {
-                if (cmd.type == tinygl::TileCommand::DRAW_TRIANGLE) {
-                    auto* pipelinePtr = m_pipelines.Get(cmd.pipelineId);
-                    if (pipelinePtr && *pipelinePtr) {
-                        const uint8_t* uniformPtr = m_frameMem.GetBasePtr() + cmd.uniformOffset;
-                        const tinygl::TriangleData* tri = (const tinygl::TriangleData*)(m_frameMem.GetBasePtr() + cmd.dataIndex);
-                        LOG_INFO("Rasterizing Triangle at Tile: " + std::to_string(x) + ", " + std::to_string(y) + 
-                                 " P0:(" + std::to_string(tri->p[0].x) + "," + std::to_string(tri->p[0].y) + ")");
-                        (*pipelinePtr)->RasterizeTriangle(m_ctx, uniformPtr, *tri, tileRect);
-                    }
+        tinygl::Rect tileRect = { x * tileSize, y * tileSize, tileSize, tileSize };
+        
+        for (const auto& cmd : tile.commands) {
+            if (cmd.type == tinygl::TileCommand::DRAW_TRIANGLE) {
+                // Warning: m_pipelines.Get is not thread-safe if we are adding/removing pipelines 
+                // concurrently, but here we are in Submit phase (Execute), resource creation is done.
+                // However, ResourcePool::Get might need inspection. 
+                // ResourcePool::Get simply returns a pointer to vector element.
+                // As long as m_pipelines vector is not resized (no creation during Submit), it is safe.
+                
+                // Pipeline pointer access needs to be careful if pool is dynamic.
+                // In this architecture, creation happens before Submit.
+                auto* pipelinePtr = m_pipelines.Get(cmd.pipelineId);
+                
+                if (pipelinePtr && *pipelinePtr) {
+                    const uint8_t* uniformPtr = m_frameMem.GetBasePtr() + cmd.uniformOffset;
+                    const tinygl::TriangleData* tri = (const tinygl::TriangleData*)(m_frameMem.GetBasePtr() + cmd.dataIndex);
+                    // LOG_INFO("Rasterizing Triangle at Tile: " + std::to_string(x) + ", " + std::to_string(y) + 
+                    //          " P0:(" + std::to_string(tri->p[0].x) + "," + std::to_string(tri->p[0].y) + ")");
+                    (*pipelinePtr)->RasterizeTriangle(m_ctx, uniformPtr, *tri, tileRect);
                 }
             }
         }
-    }
+    });
 }
 
 void SoftDevice::Present() {

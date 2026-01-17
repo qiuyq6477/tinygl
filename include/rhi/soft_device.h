@@ -5,6 +5,7 @@
 #include <rhi/soft_pipeline.h>
 #include <tinygl/core/linear_allocator.h>
 #include <tinygl/core/tiler.h>
+#include <tinygl/core/job_system.h>
 #include <vector>
 #include <memory>
 #include <map>
@@ -118,6 +119,7 @@ private:
     // --- Phase 1: Tile-Based Rendering Infrastructure ---
     tinygl::LinearAllocator m_frameMem;
     tinygl::TileBinningSystem m_tiler;
+    tinygl::JobSystem m_jobSystem;
 };
 
 }

@@ -1,1 +1,1 @@
-add_tinygl_test(rhi_multithread_test multithread_test.cpp)
+add_tinygl_test(rhi_multithread_test multithread_test.cpp stress_test.cpp)
