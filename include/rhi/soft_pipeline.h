@@ -224,14 +224,44 @@ public:
         std::memcpy(v1.ctx.varyings, tri.varyings[1], sizeof(v1.ctx.varyings));
         std::memcpy(v2.ctx.varyings, tri.varyings[2], sizeof(v2.ctx.varyings));
 
-        SetupState(ctx);
-        ctx.glEnable(GL_SCISSOR_TEST);
-        ctx.glScissor(tileRect.x, tileRect.y, tileRect.w, tileRect.h);
+        // --- Stateless Rasterization Setup ---
+        tinygl::SoftRenderContext::RasterState state;
+        
+        // 1. Scissor / Viewport
+        // In TBR, we use tileRect as Scissor, and full FB as Viewport bounds
+        state.viewport = {0, 0, ctx.getWidth(), ctx.getHeight()};
+        state.scissor = {tileRect.x, tileRect.y, tileRect.w, tileRect.h};
+        state.scissorTest = true;
+
+        // 2. Depth / Stencil
+        state.depthTest = desc.depthTestEnabled;
+        state.depthMask = desc.depthWriteEnabled ? GL_TRUE : GL_FALSE;
+        state.depthFunc = GL_LESS; 
+        
+        // 3. Culling
+        if (desc.cullMode == CullMode::None) {
+            state.cullFace = false;
+        } else {
+            state.cullFace = true;
+            state.cullFaceMode = (desc.cullMode == CullMode::Back) ? GL_BACK : GL_FRONT;
+        }
+        state.frontFace = GL_CCW; 
+
+        // 4. Blending
+        state.blendEnabled = desc.blend.enabled;
+        if (state.blendEnabled) {
+            state.blend.srcRGB = MapFactor(desc.blend.srcRGB);
+            state.blend.dstRGB = MapFactor(desc.blend.dstRGB);
+            state.blend.srcAlpha = MapFactor(desc.blend.srcAlpha);
+            state.blend.dstAlpha = MapFactor(desc.blend.dstAlpha);
+            state.blend.equationRGB = MapOp(desc.blend.opRGB);
+            state.blend.equationAlpha = MapOp(desc.blend.opAlpha);
+        }
 
         ShaderT shader;
         InjectUniforms(shader, uniformData, 1024); 
         InjectResources(shader, ctx);
-        ctx.rasterizeTriangleTemplate(shader, v0, v1, v2);
+        ctx.rasterizeTriangleTemplate(shader, v0, v1, v2, state);
     }
 
     void Draw(tinygl::SoftRenderContext& ctx, 

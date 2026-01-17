@@ -37,6 +37,48 @@ struct Viewport {
 
 class TINYGL_API SoftRenderContext {
 public:
+    struct ScissorBox {
+        GLint x, y;
+        GLsizei w, h;
+    };
+
+    struct BlendState {
+        GLenum srcRGB = GL_ONE;
+        GLenum dstRGB = GL_ZERO;
+        GLenum srcAlpha = GL_ONE;
+        GLenum dstAlpha = GL_ZERO;
+        GLenum equationRGB = GL_FUNC_ADD;
+        GLenum equationAlpha = GL_FUNC_ADD;
+    };
+
+    struct RasterState {
+        Viewport viewport;
+        ScissorBox scissor;
+        BlendState blend;
+        
+        bool depthTest = true;
+        bool stencilTest = false;
+        bool scissorTest = false;
+        bool blendEnabled = false;
+        bool cullFace = false;
+
+        GLenum polygonMode = GL_FILL;
+        GLenum cullFaceMode = GL_BACK;
+        GLenum frontFace = GL_CCW;
+        GLboolean depthMask = GL_TRUE;
+        GLenum depthFunc = GL_LESS;
+
+        GLenum stencilFunc = GL_ALWAYS;
+        GLint stencilRef = 0;
+        GLuint stencilValueMask = 0xFFFFFFFF;
+        GLuint stencilWriteMask = 0xFFFFFFFF;
+        GLenum stencilFail = GL_KEEP;
+        GLenum stencilPassDepthFail = GL_KEEP;
+        GLenum stencilPassDepthPass = GL_KEEP;
+        GLint clearStencil = 0;
+        float clearDepth = 1.0f;
+    };
+
     template <typename T>
     class ResourcePool {
     private:
@@ -114,48 +156,7 @@ private:
     std::vector<uint32_t> m_indexCache;
     Vec4 m_clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Default clear color is black
 
-    struct ScissorBox {
-        GLint x, y;
-        GLsizei w, h;
-    };
-
-    struct BlendState {
-        GLenum srcRGB = GL_ONE;
-        GLenum dstRGB = GL_ZERO;
-        GLenum srcAlpha = GL_ONE;
-        GLenum dstAlpha = GL_ZERO;
-        GLenum equationRGB = GL_FUNC_ADD;
-        GLenum equationAlpha = GL_FUNC_ADD;
-    };
-
-    Viewport m_viewport;
-    ScissorBox m_scissorBox;
-    BlendState m_blendState;
-    GLenum m_polygonMode = GL_FILL; // 默认填充
-    GLenum m_cullFaceMode = GL_BACK; // Default cull back faces
-    GLenum m_frontFace = GL_CCW;     // Default counter-clockwise is front
-    GLboolean m_depthMask = GL_TRUE; // Default depth writing enabled
-
-    // Stencil State
-    GLenum m_stencilFunc = GL_ALWAYS;
-    GLint m_stencilRef = 0;
-    GLuint m_stencilValueMask = 0xFFFFFFFF;
-    GLuint m_stencilWriteMask = 0xFFFFFFFF;
-    GLenum m_stencilFail = GL_KEEP;
-    GLenum m_stencilPassDepthFail = GL_KEEP;
-    GLenum m_stencilPassDepthPass = GL_KEEP;
-    GLint m_clearStencil = 0;
-    float m_clearDepth = 1.0f;
-
-    // --- Capabilities ---
-    std::unordered_map<GLenum, GLboolean> m_capabilities = {
-        {GL_DEPTH_TEST, GL_TRUE}, // Default enabled for backward compatibility
-        {GL_CULL_FACE, GL_FALSE}, // Default disabled
-        {GL_STENCIL_TEST, GL_FALSE},
-        {GL_SCISSOR_TEST, GL_FALSE},
-        {GL_BLEND, GL_FALSE}
-    };
-    GLenum m_depthFunc = GL_LESS;
+    RasterState m_state;
 
     // --- Binning / Capture Mode for TBR ---
     using TriangleReceiver = std::function<void(const VOut& v0, const VOut& v1, const VOut& v2)>;
@@ -178,7 +179,7 @@ private:
         return "UNKNOWN_ENUM (" + std::to_string(value) + ")";
     }
     // Helper to calculate blending
-    inline Vec4 applyBlending(const Vec4& src, const Vec4& dst) {
+    inline Vec4 applyBlending(const Vec4& src, const Vec4& dst, const RasterState& state) {
         auto getFactor = [&](GLenum factor, const Vec4& s, const Vec4& d) -> Vec4 {
             switch (factor) {
                 case GL_ZERO: return Vec4(0, 0, 0, 0);
@@ -200,10 +201,10 @@ private:
             }
         };
 
-        Vec4 srcFactorRGB = getFactor(m_blendState.srcRGB, src, dst);
-        Vec4 dstFactorRGB = getFactor(m_blendState.dstRGB, src, dst);
-        Vec4 srcFactorA = getFactor(m_blendState.srcAlpha, src, dst);
-        Vec4 dstFactorA = getFactor(m_blendState.dstAlpha, src, dst);
+        Vec4 srcFactorRGB = getFactor(state.blend.srcRGB, src, dst);
+        Vec4 dstFactorRGB = getFactor(state.blend.dstRGB, src, dst);
+        Vec4 srcFactorA = getFactor(state.blend.srcAlpha, src, dst);
+        Vec4 dstFactorA = getFactor(state.blend.dstAlpha, src, dst);
 
         auto combine = [](const Vec4& s, const Vec4& sf, const Vec4& d, const Vec4& df, GLenum op) -> Vec4 {
             switch (op) {
@@ -216,19 +217,19 @@ private:
             }
         };
 
-        Vec4 resRGB = combine(src, srcFactorRGB, dst, dstFactorRGB, m_blendState.equationRGB);
-        Vec4 resA = combine(src, srcFactorA, dst, dstFactorA, m_blendState.equationAlpha);
+        Vec4 resRGB = combine(src, srcFactorRGB, dst, dstFactorRGB, state.blend.equationRGB);
+        Vec4 resA = combine(src, srcFactorA, dst, dstFactorA, state.blend.equationAlpha);
 
         return Vec4(resRGB.x, resRGB.y, resRGB.z, resA.w);
     }
 
     // Stencil Op Helper
-    inline void applyStencilOp(GLenum op, uint8_t& val) {
+    inline void applyStencilOp(GLenum op, uint8_t& val, const RasterState& state) {
         uint8_t newVal = val;
         switch (op) {
             case GL_KEEP: return;
             case GL_ZERO: newVal = 0; break;
-            case GL_REPLACE: newVal = (uint8_t)(m_stencilRef & 0xFF); break;
+            case GL_REPLACE: newVal = (uint8_t)(state.stencilRef & 0xFF); break;
             case GL_INCR: if (newVal < 255) newVal++; break;
             case GL_DECR: if (newVal > 0) newVal--; break;
             case GL_INVERT: newVal = ~newVal; break;
@@ -236,15 +237,15 @@ private:
             case GL_DECR_WRAP: newVal--; break;
             default: return;
         }
-        val = (val & ~m_stencilWriteMask) | (newVal & m_stencilWriteMask);
+        val = (val & ~state.stencilWriteMask) | (newVal & state.stencilWriteMask);
     }
 
-    inline bool checkStencil(uint8_t stencilVal) {
+    inline bool checkStencil(uint8_t stencilVal, const RasterState& state) {
         // Optimization: Capability check moved to caller
-        uint8_t val = stencilVal & m_stencilValueMask;
-        uint8_t ref = m_stencilRef & m_stencilValueMask;
+        uint8_t val = stencilVal & state.stencilValueMask;
+        uint8_t ref = state.stencilRef & state.stencilValueMask;
         
-        switch (m_stencilFunc) {
+        switch (state.stencilFunc) {
             case GL_NEVER: return false;
             case GL_LESS: return ref < val;
             case GL_LEQUAL: return ref <= val;
@@ -260,15 +261,15 @@ private:
     // Stencil Test Helper
     // Returns true if the fragment passes the stencil test.
     // DOES NOT update stencil buffer (that depends on depth result).
-    inline bool checkStencil(int x, int y) {
-        if (!m_capabilities[GL_STENCIL_TEST]) return true;
+    inline bool checkStencil(int x, int y, const RasterState& state) {
+        if (!state.stencilTest) return true;
         int idx = y * fbWidth + x;
-        return checkStencil(stencilBuffer[idx]);
+        return checkStencil(stencilBuffer[idx], state);
     }
 
-    inline bool testDepth(float z, float currentDepth) {
+    inline bool testDepth(float z, float currentDepth, const RasterState& state) {
         // Optimization: Capability check moved to caller
-        switch (m_depthFunc) {
+        switch (state.depthFunc) {
             case GL_NEVER:      return false;
             case GL_LESS:       return z < currentDepth;
             case GL_EQUAL:      return std::abs(z - currentDepth) < EPSILON;
@@ -295,12 +296,12 @@ private:
     // Depth Test Helper
     // Returns true if the fragment passes the depth test.
     // Automatically updates the depth buffer if the test passes and Depth Test is enabled.
-    inline bool checkDepth(float z, float& currentDepth) {
-        if (!m_capabilities[GL_DEPTH_TEST]) return true;
+    inline bool checkDepth(float z, float& currentDepth, const RasterState& state) {
+        if (!state.depthTest) return true;
 
-        bool pass = testDepth(z, currentDepth);
+        bool pass = testDepth(z, currentDepth, state);
 
-        if (pass && m_depthMask) {
+        if (pass && state.depthMask) {
             currentDepth = z;
         }
         return pass;
@@ -310,14 +311,14 @@ public:
         fbWidth = width;
         fbHeight = height;
         // Viewport 初始化
-        m_viewport = {0, 0, fbWidth, fbHeight};
-        m_scissorBox = {0, 0, fbWidth, fbHeight};
+        m_state.viewport = {0, 0, fbWidth, fbHeight};
+        m_state.scissor = {0, 0, fbWidth, fbHeight};
         
         vaos.forceAllocate(0); 
         colorBuffer.resize(fbWidth * fbHeight, COLOR_BLACK); // 黑色背景
         m_colorBufferPtr = colorBuffer.data();               // Default to internal buffer
 
-        depthBuffer.resize(fbWidth * fbHeight, m_clearDepth); 
+        depthBuffer.resize(fbWidth * fbHeight, m_state.clearDepth); 
         // Stencil Init
         stencilBuffer.resize(fbWidth * fbHeight, 0);
 
@@ -337,7 +338,7 @@ public:
     void glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
     
     void glScissor(GLint x, GLint y, GLsizei width, GLsizei height) {
-        m_scissorBox = {x, y, width, height};
+        m_state.scissor = {x, y, width, height};
     }
 
     void glBlendFunc(GLenum sfactor, GLenum dfactor) {
@@ -345,10 +346,10 @@ public:
     }
 
     void glBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
-        m_blendState.srcRGB = srcRGB;
-        m_blendState.dstRGB = dstRGB;
-        m_blendState.srcAlpha = srcAlpha;
-        m_blendState.dstAlpha = dstAlpha;
+        m_state.blend.srcRGB = srcRGB;
+        m_state.blend.dstRGB = dstRGB;
+        m_state.blend.srcAlpha = srcAlpha;
+        m_state.blend.dstAlpha = dstAlpha;
     }
 
     void glBlendEquation(GLenum mode) {
@@ -356,62 +357,79 @@ public:
     }
 
     void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
-        m_blendState.equationRGB = modeRGB;
-        m_blendState.equationAlpha = modeAlpha;
+        m_state.blend.equationRGB = modeRGB;
+        m_state.blend.equationAlpha = modeAlpha;
     }
 
     // 设置多边形模式 API
     void glPolygonMode(GLenum face, GLenum mode);
 
     void glCullFace(GLenum mode) {
-        m_cullFaceMode = mode;
+        m_state.cullFaceMode = mode;
     }
 
     void glFrontFace(GLenum mode) {
-        m_frontFace = mode;
+        m_state.frontFace = mode;
     }
     
     void glDepthMask(GLboolean flag){
-        m_depthMask = flag;
+        m_state.depthMask = flag;
     }
 
     void glStencilFunc(GLenum func, GLint ref, GLuint mask){
-        m_stencilFunc = func;
-        m_stencilRef = ref;
-        m_stencilValueMask = mask;
+        m_state.stencilFunc = func;
+        m_state.stencilRef = ref;
+        m_state.stencilValueMask = mask;
     }
     void glStencilOp(GLenum fail, GLenum zfail, GLenum zpass){
-        m_stencilFail = fail;
-        m_stencilPassDepthFail = zfail;
-        m_stencilPassDepthPass = zpass;
+        m_state.stencilFail = fail;
+        m_state.stencilPassDepthFail = zfail;
+        m_state.stencilPassDepthPass = zpass;
     }
     void glStencilMask(GLuint mask){
-        m_stencilWriteMask = mask;
+        m_state.stencilWriteMask = mask;
     }
     void glClearStencil(GLint s){
-        m_clearStencil = s;
+        m_state.clearStencil = s;
     }
 
     void glClearDepth(float depth) {
-        m_clearDepth = depth;
+        m_state.clearDepth = depth;
     }
 
     void glEnable(GLenum cap) {
-        m_capabilities[cap] = GL_TRUE;
+        switch(cap) {
+            case GL_DEPTH_TEST: m_state.depthTest = true; break;
+            case GL_STENCIL_TEST: m_state.stencilTest = true; break;
+            case GL_SCISSOR_TEST: m_state.scissorTest = true; break;
+            case GL_BLEND: m_state.blendEnabled = true; break;
+            case GL_CULL_FACE: m_state.cullFace = true; break;
+        }
     }
 
     void glDisable(GLenum cap) {
-        m_capabilities[cap] = GL_FALSE;
+        switch(cap) {
+            case GL_DEPTH_TEST: m_state.depthTest = false; break;
+            case GL_STENCIL_TEST: m_state.stencilTest = false; break;
+            case GL_SCISSOR_TEST: m_state.scissorTest = false; break;
+            case GL_BLEND: m_state.blendEnabled = false; break;
+            case GL_CULL_FACE: m_state.cullFace = false; break;
+        }
     }
 
     GLboolean glIsEnabled(GLenum cap) {
-        auto it = m_capabilities.find(cap);
-        if (it != m_capabilities.end()) return it->second;
-        return GL_FALSE;
+        switch(cap) {
+            case GL_DEPTH_TEST: return m_state.depthTest;
+            case GL_STENCIL_TEST: return m_state.stencilTest;
+            case GL_SCISSOR_TEST: return m_state.scissorTest;
+            case GL_BLEND: return m_state.blendEnabled;
+            case GL_CULL_FACE: return m_state.cullFace;
+            default: return GL_FALSE;
+        }
     }
 
     void glDepthFunc(GLenum func) {
-        m_depthFunc = func;
+        m_state.depthFunc = func;
     }
 
     // --- State Management ---
@@ -423,7 +441,7 @@ public:
     
     GLsizei getWidth() const { return fbWidth; }
     GLsizei getHeight() const { return fbHeight; }
-    const Viewport& glGetViewport() const { return m_viewport; }
+    const Viewport& glGetViewport() const { return m_state.viewport; }
 
     void setBinningMode(bool enabled, TriangleReceiver receiver = nullptr) {
         m_binningMode = enabled;
@@ -513,6 +531,11 @@ public:
     // --- rasterize ---
     template <typename ShaderT>
     void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2) {
+        rasterizeTriangleTemplate(shader, v0, v1, v2, m_state);
+    }
+
+    template <typename ShaderT>
+    void rasterizeTriangleTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const VOut& v2, const RasterState& state) {
         if (m_binningMode && m_triangleReceiver) {
             m_triangleReceiver(v0, v1, v2);
             return;
@@ -521,16 +544,16 @@ public:
         // LOG_INFO("rasterizeTriangleTemplate: " + std::to_string((int)v0.scn.x) + "," + std::to_string((int)v0.scn.y));
 
         // 1. 包围盒计算 (Bounding Box)
-        int limitMinX = std::max(0, m_viewport.x);
-        int limitMaxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-        int limitMinY = std::max(0, m_viewport.y);
-        int limitMaxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+        int limitMinX = std::max(0, state.viewport.x);
+        int limitMaxX = std::min((int)fbWidth, state.viewport.x + state.viewport.w);
+        int limitMinY = std::max(0, state.viewport.y);
+        int limitMaxY = std::min((int)fbHeight, state.viewport.y + state.viewport.h);
 
-        if (m_capabilities[GL_SCISSOR_TEST]) {
-            limitMinX = std::max(limitMinX, m_scissorBox.x);
-            limitMaxX = std::min(limitMaxX, m_scissorBox.x + m_scissorBox.w);
-            limitMinY = std::max(limitMinY, m_scissorBox.y);
-            limitMaxY = std::min(limitMaxY, m_scissorBox.y + m_scissorBox.h);
+        if (state.scissorTest) {
+            limitMinX = std::max(limitMinX, state.scissor.x);
+            limitMaxX = std::min(limitMaxX, state.scissor.x + state.scissor.w);
+            limitMinY = std::max(limitMinY, state.scissor.y);
+            limitMaxY = std::min(limitMaxY, state.scissor.y + state.scissor.h);
         }
 
         // Early out if scissor/viewport is empty
@@ -551,12 +574,12 @@ public:
         // Determine Face Orientation
         // In this implementation: Positive Area = CCW, Negative Area = CW
         bool isCCW = area > 0;
-        bool isFront = (m_frontFace == GL_CCW) ? isCCW : !isCCW;
+        bool isFront = (state.frontFace == GL_CCW) ? isCCW : !isCCW;
         
-        if (m_capabilities[GL_CULL_FACE]) {
-            if (m_cullFaceMode == GL_FRONT_AND_BACK) return;
-            if (m_cullFaceMode == GL_FRONT && isFront) return;
-            if (m_cullFaceMode == GL_BACK && !isFront) return;
+        if (state.cullFace) {
+            if (state.cullFaceMode == GL_FRONT_AND_BACK) return;
+            if (state.cullFaceMode == GL_FRONT && isFront) return;
+            if (state.cullFaceMode == GL_BACK && !isFront) return;
         }
 
         // Setup vertex references (handle winding for rasterizer math)
@@ -612,8 +635,8 @@ public:
         float w2_row = edgeFunc(tv0.scn.x, tv0.scn.y, tv1.scn.x, tv1.scn.y, startX, startY);
 
         // Optimization: Cache capability flags
-        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
-        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
+        bool enableDepthTest = state.depthTest;
+        bool enableStencilTest = state.stencilTest;
 
         // 6. 像素遍历循环
         for (int y = minY; y <= maxY; ++y) {
@@ -642,7 +665,7 @@ public:
                         // 1. Early-Z Optimization (Read-only)
                         bool earlyZPass = true;
                         if (enableDepthTest) {
-                            earlyZPass = testDepth(fragDepth, *pDepth);
+                            earlyZPass = testDepth(fragDepth, *pDepth, state);
                         }
 
                         if (earlyZPass) {
@@ -696,32 +719,32 @@ public:
                                 bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
 
                                 if (enableStencilTest) {
-                                    if (!checkStencil(*pStencil)) {
-                                        applyStencilOp(m_stencilFail, *pStencil);
+                                    if (!checkStencil(*pStencil, state)) {
+                                        applyStencilOp(state.stencilFail, *pStencil, state);
                                         stencilPass = false;
                                     } else {
                                         // Stencil Passed, check Depth for Stencil Op
-                                        if (needDepthTest && !testDepth(finalZ, *pDepth)) {
-                                            applyStencilOp(m_stencilPassDepthFail, *pStencil);
+                                        if (needDepthTest && !testDepth(finalZ, *pDepth, state)) {
+                                            applyStencilOp(state.stencilPassDepthFail, *pStencil, state);
                                             depthPass = false;
                                         } else {
-                                            applyStencilOp(m_stencilPassDepthPass, *pStencil);
+                                            applyStencilOp(state.stencilPassDepthPass, *pStencil, state);
                                             depthPass = true;
                                         }
                                     }
                                 } else {
                                     // No Stencil, just check Depth
-                                    if (needDepthTest && !testDepth(finalZ, *pDepth)) {
+                                    if (needDepthTest && !testDepth(finalZ, *pDepth, state)) {
                                         depthPass = false;
                                     }
                                 }
 
                                 if (stencilPass && depthPass) {
-                                    if (m_depthMask) *pDepth = finalZ;
+                                    if (state.depthMask) *pDepth = finalZ;
                                     
-                                    if (m_capabilities[GL_BLEND]) {
+                                    if (state.blendEnabled) {
                                         Vec4 dstColor = ColorUtils::Uint32ToFloat(*pColor);
-                                        fColor = applyBlending(fColor, dstColor);
+                                        fColor = applyBlending(fColor, dstColor, state);
                                     }
                                     *pColor = ColorUtils::FloatToUint32(fColor);
                                 }
@@ -757,9 +780,14 @@ public:
         return std::sqrt(std::max(rhoX2, rhoY2));
     }
 
-    // 模板化的线段光栅化 (Bresenham)
     template <typename ShaderT>
     void rasterizeLineTemplate(ShaderT& shader, const VOut& v0, const VOut& v1) {
+        rasterizeLineTemplate(shader, v0, v1, m_state);
+    }
+
+    // 模板化的线段光栅化 (Bresenham)
+    template <typename ShaderT>
+    void rasterizeLineTemplate(ShaderT& shader, const VOut& v0, const VOut& v1, const RasterState& state) {
         int x0 = (int)v0.scn.x; int y0 = (int)v0.scn.y;
         int x1 = (int)v1.scn.x; int y1 = (int)v1.scn.y;
 
@@ -774,22 +802,22 @@ public:
         if (total_dist < 1e-5f) total_dist = 1.0f;
 
         // 视口与裁剪边界
-        int minX = std::max(0, m_viewport.x);
-        int maxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-        int minY = std::max(0, m_viewport.y);
-        int maxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+        int minX = std::max(0, state.viewport.x);
+        int maxX = std::min((int)fbWidth, state.viewport.x + state.viewport.w);
+        int minY = std::max(0, state.viewport.y);
+        int maxY = std::min((int)fbHeight, state.viewport.y + state.viewport.h);
 
-        if (m_capabilities[GL_SCISSOR_TEST]) {
-            minX = std::max(minX, m_scissorBox.x);
-            maxX = std::min(maxX, m_scissorBox.x + m_scissorBox.w);
-            minY = std::max(minY, m_scissorBox.y);
-            maxY = std::min(maxY, m_scissorBox.y + m_scissorBox.h);
+        if (state.scissorTest) {
+            minX = std::max(minX, state.scissor.x);
+            maxX = std::min(maxX, state.scissor.x + state.scissor.w);
+            minY = std::max(minY, state.scissor.y);
+            maxY = std::min(maxY, state.scissor.y + state.scissor.h);
         }
 
         // Optimization: Cache capability flags
-        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
-        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
-        bool enableBlend = m_capabilities[GL_BLEND];
+        bool enableDepthTest = state.depthTest;
+        bool enableStencilTest = state.stencilTest;
+        bool enableBlend = state.blendEnabled;
 
         while (true) {
             // 像素裁剪
@@ -811,7 +839,7 @@ public:
                     // 1. Early-Z Optimization
                     bool earlyZPass = true;
                     if (enableDepthTest) {
-                        earlyZPass = testDepth(fragDepth, depthBuffer[pix]);
+                        earlyZPass = testDepth(fragDepth, depthBuffer[pix], state);
                     }
 
                     if (earlyZPass) {
@@ -846,29 +874,29 @@ public:
                             bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
 
                             if (enableStencilTest) {
-                                if (!checkStencil(stencilBuffer[pix])) {
-                                    applyStencilOp(m_stencilFail, stencilBuffer[pix]);
+                                if (!checkStencil(stencilBuffer[pix], state)) {
+                                    applyStencilOp(state.stencilFail, stencilBuffer[pix], state);
                                     stencilPass = false;
                                 } else {
-                                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
-                                        applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
+                                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix], state)) {
+                                        applyStencilOp(state.stencilPassDepthFail, stencilBuffer[pix], state);
                                         depthPass = false;
                                     } else {
-                                        applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                                        applyStencilOp(state.stencilPassDepthPass, stencilBuffer[pix], state);
                                         depthPass = true;
                                     }
                                 }
                             } else {
-                                if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
+                                if (needDepthTest && !testDepth(finalZ, depthBuffer[pix], state)) {
                                     depthPass = false;
                                 }
                             }
 
                             if (stencilPass && depthPass) {
-                                if (m_depthMask) depthBuffer[pix] = finalZ;
+                                if (state.depthMask) depthBuffer[pix] = finalZ;
                                 if (enableBlend) {
                                     Vec4 dstColor = ColorUtils::Uint32ToFloat(m_colorBufferPtr[pix]);
-                                    fColor = applyBlending(fColor, dstColor);
+                                    fColor = applyBlending(fColor, dstColor, state);
                                 }
                                 m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                             }
@@ -884,23 +912,28 @@ public:
         }
     }
 
-    // 模板化的点光栅化
     template <typename ShaderT>
     void rasterizePointTemplate(ShaderT& shader, const VOut& v) {
+        rasterizePointTemplate(shader, v, m_state);
+    }
+
+    // 模板化的点光栅化
+    template <typename ShaderT>
+    void rasterizePointTemplate(ShaderT& shader, const VOut& v, const RasterState& state) {
         int x = (int)v.scn.x;
         int y = (int)v.scn.y;
 
         // 视口与裁剪边界
-        int minX = std::max(0, m_viewport.x);
-        int maxX = std::min((int)fbWidth, m_viewport.x + m_viewport.w);
-        int minY = std::max(0, m_viewport.y);
-        int maxY = std::min((int)fbHeight, m_viewport.y + m_viewport.h);
+        int minX = std::max(0, state.viewport.x);
+        int maxX = std::min((int)fbWidth, state.viewport.x + state.viewport.w);
+        int minY = std::max(0, state.viewport.y);
+        int maxY = std::min((int)fbHeight, state.viewport.y + state.viewport.h);
 
-        if (m_capabilities[GL_SCISSOR_TEST]) {
-            minX = std::max(minX, m_scissorBox.x);
-            maxX = std::min(maxX, m_scissorBox.x + m_scissorBox.w);
-            minY = std::max(minY, m_scissorBox.y);
-            maxY = std::min(maxY, m_scissorBox.y + m_scissorBox.h);
+        if (state.scissorTest) {
+            minX = std::max(minX, state.scissor.x);
+            maxX = std::min(maxX, state.scissor.x + state.scissor.w);
+            minY = std::max(minY, state.scissor.y);
+            maxY = std::min(maxY, state.scissor.y + state.scissor.h);
         }
 
         // 简单的裁剪检查
@@ -912,14 +945,14 @@ public:
         float fragDepth = v.scn.z; 
 
         // Optimization: Cache capability flags
-        bool enableDepthTest = m_capabilities[GL_DEPTH_TEST];
-        bool enableStencilTest = m_capabilities[GL_STENCIL_TEST];
-        bool enableBlend = m_capabilities[GL_BLEND];
+        bool enableDepthTest = state.depthTest;
+        bool enableStencilTest = state.stencilTest;
+        bool enableBlend = state.blendEnabled;
 
         // 1. Early-Z
         bool earlyZPass = true;
         if (enableDepthTest) {
-            earlyZPass = testDepth(fragDepth, depthBuffer[pix]);
+            earlyZPass = testDepth(fragDepth, depthBuffer[pix], state);
         }
 
         if (earlyZPass) {
@@ -947,29 +980,29 @@ public:
                 bool needDepthTest = enableDepthTest && shader.gl_FragDepth.written;
 
                 if (enableStencilTest) {
-                    if (!checkStencil(stencilBuffer[pix])) {
-                        applyStencilOp(m_stencilFail, stencilBuffer[pix]);
+                    if (!checkStencil(stencilBuffer[pix], state)) {
+                        applyStencilOp(state.stencilFail, stencilBuffer[pix], state);
                         stencilPass = false;
                     } else {
-                        if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
-                            applyStencilOp(m_stencilPassDepthFail, stencilBuffer[pix]);
+                        if (needDepthTest && !testDepth(finalZ, depthBuffer[pix], state)) {
+                            applyStencilOp(state.stencilPassDepthFail, stencilBuffer[pix], state);
                             depthPass = false;
                         } else {
-                            applyStencilOp(m_stencilPassDepthPass, stencilBuffer[pix]);
+                            applyStencilOp(state.stencilPassDepthPass, stencilBuffer[pix], state);
                             depthPass = true;
                         }
                     }
                 } else {
-                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix])) {
+                    if (needDepthTest && !testDepth(finalZ, depthBuffer[pix], state)) {
                         depthPass = false;
                     }
                 }
 
                 if (stencilPass && depthPass) {
-                    if (m_depthMask) depthBuffer[pix] = finalZ;
+                    if (state.depthMask) depthBuffer[pix] = finalZ;
                     if (enableBlend) {
                         Vec4 dstColor = ColorUtils::Uint32ToFloat(m_colorBufferPtr[pix]);
-                        fColor = applyBlending(fColor, dstColor);
+                        fColor = applyBlending(fColor, dstColor, state);
                     }
                     m_colorBufferPtr[pix] = ColorUtils::FloatToUint32(fColor);
                 }
@@ -1026,13 +1059,13 @@ public:
 
         // 4. Rasterization Stage (根据模式分发)
         
-        if (m_polygonMode == GL_FILL) {
+        if (m_state.polygonMode == GL_FILL) {
             // 三角形化处理裁剪后的多边形 (Triangle Fan)
             for (size_t k = 1; k < polygon.size() - 1; ++k) {
                 rasterizeTriangleTemplate(shader, polygon[0], polygon[k], polygon[k+1]);
             }
         } 
-        else if (m_polygonMode == GL_LINE) {
+        else if (m_state.polygonMode == GL_LINE) {
             // 线框模式
             // 注意：这里我们绘制的是裁剪后多边形的边缘
             // 对于一个三角形，如果不被裁剪，就是 3 条边
@@ -1043,7 +1076,7 @@ public:
                 rasterizeLineTemplate(shader, vStart, vEnd);
             }
         }
-        else if (m_polygonMode == GL_POINT) {
+        else if (m_state.polygonMode == GL_POINT) {
             // 点模式
             for (const auto& v : polygon) {
                 rasterizePointTemplate(shader, v);

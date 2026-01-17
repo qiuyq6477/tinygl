@@ -3,16 +3,16 @@
 namespace tinygl {
 
 void SoftRenderContext::glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {
-    m_viewport.x = x;
-    m_viewport.y = y;
-    m_viewport.w = w;
-    m_viewport.h = h;
+    m_state.viewport.x = x;
+    m_state.viewport.y = y;
+    m_state.viewport.w = w;
+    m_state.viewport.h = h;
 }
 
 void SoftRenderContext::glPolygonMode(GLenum face, GLenum mode) {
     // 暂时只支持 GL_FRONT_AND_BACK
     if (face == GL_FRONT_AND_BACK) {
-        m_polygonMode = mode;
+        m_state.polygonMode = mode;
     }
 }
 
@@ -23,11 +23,11 @@ void SoftRenderContext::glClearColor(float r, float g, float b, float a) {
 
 void SoftRenderContext::glClear(uint32_t buffersToClear) {
     int minX = 0, minY = 0, maxX = fbWidth, maxY = fbHeight;
-    if (m_capabilities[GL_SCISSOR_TEST]) {
-        minX = std::max(0, m_scissorBox.x);
-        minY = std::max(0, m_scissorBox.y);
-        maxX = std::min(fbWidth, m_scissorBox.x + m_scissorBox.w);
-        maxY = std::min(fbHeight, m_scissorBox.y + m_scissorBox.h);
+    if (m_state.scissorTest) {
+        minX = std::max(0, m_state.scissor.x);
+        minY = std::max(0, m_state.scissor.y);
+        maxX = std::min(fbWidth, m_state.scissor.x + m_state.scissor.w);
+        maxY = std::min(fbHeight, m_state.scissor.y + m_state.scissor.h);
     }
 
     if (minX >= maxX || minY >= maxY) return;
@@ -54,27 +54,27 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
         // but it IS affected by it in some old versions. 
         // OpenGL 4.6 says: "The masked subset of the color, depth, and stencil buffers are cleared"
         // So we should respect the masks.
-        if (m_depthMask) {
+        if (m_state.depthMask) {
             if (fullClear) {
-                std::fill(depthBuffer.begin(), depthBuffer.end(), m_clearDepth);
+                std::fill(depthBuffer.begin(), depthBuffer.end(), m_state.clearDepth);
             } else {
                 for (int y = minY; y < maxY; ++y) {
-                    std::fill_n(depthBuffer.data() + y * fbWidth + minX, maxX - minX, m_clearDepth);
+                    std::fill_n(depthBuffer.data() + y * fbWidth + minX, maxX - minX, m_state.clearDepth);
                 }
             }
         }
     }
     if (buffersToClear & GL_STENCIL_BUFFER_BIT) {
-        uint8_t s = (uint8_t)(m_clearStencil & 0xFF);
+        uint8_t s = (uint8_t)(m_state.clearStencil & 0xFF);
         // Stencil mask also affects glClear
-        if (m_stencilWriteMask != 0) {
-             if (fullClear && m_stencilWriteMask == 0xFF) {
+        if (m_state.stencilWriteMask != 0) {
+             if (fullClear && m_state.stencilWriteMask == 0xFF) {
                 std::fill(stencilBuffer.begin(), stencilBuffer.end(), s);
             } else {
                 for (int y = minY; y < maxY; ++y) {
                     uint8_t* row = stencilBuffer.data() + y * fbWidth + minX;
                     for (int x = 0; x < (maxX - minX); ++x) {
-                        row[x] = (row[x] & ~m_stencilWriteMask) | (s & m_stencilWriteMask);
+                        row[x] = (row[x] & ~m_state.stencilWriteMask) | (s & m_state.stencilWriteMask);
                     }
                 }
             }
@@ -85,10 +85,10 @@ void SoftRenderContext::glClear(uint32_t buffersToClear) {
 void SoftRenderContext::printContextState() {
     LOG_INFO("=== SoftRenderContext State ===");
     LOG_INFO("Framebuffer: " + std::to_string(fbWidth) + "x" + std::to_string(fbHeight));
-    LOG_INFO("Viewport: x=" + std::to_string(m_viewport.x) + 
-             ", y=" + std::to_string(m_viewport.y) + 
-             ", w=" + std::to_string(m_viewport.w) + 
-             ", h=" + std::to_string(m_viewport.h));
+    LOG_INFO("Viewport: x=" + std::to_string(m_state.viewport.x) + 
+             ", y=" + std::to_string(m_state.viewport.y) + 
+             ", w=" + std::to_string(m_state.viewport.w) + 
+             ", h=" + std::to_string(m_state.viewport.h));
     
     LOG_INFO("--- Buffers State ---");
     LOG_INFO("Bound Array Buffer: " + std::to_string(m_boundArrayBuffer));
@@ -162,30 +162,30 @@ void SoftRenderContext::printContextState() {
     }
 
     LOG_INFO("--- Rasterizer State ---");
-    LOG_INFO("Polygon Mode: " + std::to_string(m_polygonMode));
-    LOG_INFO("Cull Face Mode: " + std::to_string(m_cullFaceMode));
-    LOG_INFO("Front Face: " + std::to_string(m_frontFace));
+    LOG_INFO("Polygon Mode: " + std::to_string(m_state.polygonMode));
+    LOG_INFO("Cull Face Mode: " + std::to_string(m_state.cullFaceMode));
+    LOG_INFO("Front Face: " + std::to_string(m_state.frontFace));
     LOG_INFO("Clear Color: (" + std::to_string(m_clearColor.x) + ", " + 
              std::to_string(m_clearColor.y) + ", " + 
              std::to_string(m_clearColor.z) + ", " + 
              std::to_string(m_clearColor.w) + ")");
 
     LOG_INFO("--- Depth & Stencil ---");
-    LOG_INFO("Depth Test Enabled: " + std::string(m_capabilities[GL_DEPTH_TEST] ? "TRUE" : "FALSE"));
-    LOG_INFO("Depth Mask: " + std::string(m_depthMask ? "TRUE" : "FALSE"));
-    LOG_INFO("Depth Func: " + std::to_string(m_depthFunc));
+    LOG_INFO("Depth Test Enabled: " + std::string(m_state.depthTest ? "TRUE" : "FALSE"));
+    LOG_INFO("Depth Mask: " + std::string(m_state.depthMask ? "TRUE" : "FALSE"));
+    LOG_INFO("Depth Func: " + std::to_string(m_state.depthFunc));
     
-    LOG_INFO("Stencil Test Enabled: " + std::string(m_capabilities[GL_STENCIL_TEST] ? "TRUE" : "FALSE"));
-    LOG_INFO("Stencil Func: " + std::to_string(m_stencilFunc) + 
-             ", Ref: " + std::to_string(m_stencilRef) + 
-             ", Mask: " + std::to_string(m_stencilValueMask));
+    LOG_INFO("Stencil Test Enabled: " + std::string(m_state.stencilTest ? "TRUE" : "FALSE"));
+    LOG_INFO("Stencil Func: " + std::to_string(m_state.stencilFunc) + 
+             ", Ref: " + std::to_string(m_state.stencilRef) + 
+             ", Mask: " + std::to_string(m_state.stencilValueMask));
     LOG_INFO("Stencil Op (Fail, ZFail, ZPass): " + 
-             std::to_string(m_stencilFail) + ", " + 
-             std::to_string(m_stencilPassDepthFail) + ", " + 
-             std::to_string(m_stencilPassDepthPass));
-    LOG_INFO("Stencil Write Mask: " + std::to_string(m_stencilWriteMask));
+             std::to_string(m_state.stencilFail) + ", " + 
+             std::to_string(m_state.stencilPassDepthFail) + ", " + 
+             std::to_string(m_state.stencilPassDepthPass));
+    LOG_INFO("Stencil Write Mask: " + std::to_string(m_state.stencilWriteMask));
     
-    LOG_INFO("Cull Face Enabled: " + std::string(m_capabilities[GL_CULL_FACE] ? "TRUE" : "FALSE"));
+    LOG_INFO("Cull Face Enabled: " + std::string(m_state.cullFace ? "TRUE" : "FALSE"));
     LOG_INFO("=============================");
 }
 
