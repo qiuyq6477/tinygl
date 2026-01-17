@@ -1,12 +1,9 @@
 #include <framework/asset_manager.h>
 #include <framework/asset_formats.h>
-#include <stb_image.h>
 #include <tinygl/base/log.h>
 #include <fstream>
 #include <filesystem>
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -99,6 +96,78 @@ uint32_t AssetManager::AllocPrefabSlot() {
 }
 
 // =================================================================================================
+// AddRef Implementations
+// =================================================================================================
+
+template<>
+void AssetManager::AddRef(AssetHandle<TextureResource> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_texturePool.size() && m_texturePool[idx].generation == handle.GetGeneration()) {
+        m_texturePool[idx].refCount++;
+    }
+}
+
+template<>
+void AssetManager::AddRef(AssetHandle<MeshResource> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_meshPool.size() && m_meshPool[idx].generation == handle.GetGeneration()) {
+        m_meshPool[idx].refCount++;
+    }
+}
+
+template<>
+void AssetManager::AddRef(AssetHandle<MaterialResource> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_materialPool.size() && m_materialPool[idx].generation == handle.GetGeneration()) {
+        m_materialPool[idx].refCount++;
+    }
+}
+
+template<>
+void AssetManager::AddRef(AssetHandle<Prefab> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_prefabPool.size() && m_prefabPool[idx].generation == handle.GetGeneration()) {
+        m_prefabPool[idx].refCount++;
+    }
+}
+
+// =================================================================================================
+// Release Implementations
+// =================================================================================================
+
+template<>
+void AssetManager::Release(AssetHandle<TextureResource> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_texturePool.size() && m_texturePool[idx].generation == handle.GetGeneration()) {
+        if (m_texturePool[idx].refCount > 0) m_texturePool[idx].refCount--;
+    }
+}
+
+template<>
+void AssetManager::Release(AssetHandle<MeshResource> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_meshPool.size() && m_meshPool[idx].generation == handle.GetGeneration()) {
+        if (m_meshPool[idx].refCount > 0) m_meshPool[idx].refCount--;
+    }
+}
+
+template<>
+void AssetManager::Release(AssetHandle<MaterialResource> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_materialPool.size() && m_materialPool[idx].generation == handle.GetGeneration()) {
+        if (m_materialPool[idx].refCount > 0) m_materialPool[idx].refCount--;
+    }
+}
+
+template<>
+void AssetManager::Release(AssetHandle<Prefab> handle) {
+    uint32_t idx = handle.GetIndex();
+    if (idx < m_prefabPool.size() && m_prefabPool[idx].generation == handle.GetGeneration()) {
+        if (m_prefabPool[idx].refCount > 0) m_prefabPool[idx].refCount--;
+    }
+}
+
+// =================================================================================================
 // Texture Management
 // =================================================================================================
 
@@ -140,72 +209,54 @@ void AssetManager::LoadTextureInternal(uint32_t index, const std::string& path) 
     fs::path binPath = srcPath;
     binPath.replace_extension(".ttex");
 
-    bool needCook = true;
-    if (fs::exists(binPath)) {
-        if (fs::last_write_time(binPath) >= fs::last_write_time(srcPath)) {
-            needCook = false;
+    // Strict Offline Check
+    if (!fs::exists(binPath)) {
+        LOG_ERROR("Asset not found (Need Cook): " + binPath.string());
+        // Fallback: Create a 1x1 magenta texture
+        static rhi::TextureHandle errorTex = {0};
+        if (errorTex.id == 0) {
+             uint32_t magenta = 0xFF00FFFF;
+             errorTex = m_device->CreateTexture((unsigned char*)&magenta, 1, 1, 4);
         }
-    }
-
-    if (needCook) {
-        LOG_INFO("Cooking Texture: " + path);
-        if (!CookTexture(srcPath, binPath)) {
-            LOG_ERROR("Failed to cook texture: " + path);
-            return; 
-        }
-        LOG_INFO("Cook Texture Done: " + path);
+        m_texturePool[index].asset.rhiHandle = errorTex;
+        m_texturePool[index].asset.width = 1;
+        m_texturePool[index].asset.height = 1;
+        m_texturePool[index].asset.name = "ErrorTexture";
+        m_texturePool[index].loaded = true;
+        return;
     }
 
     if (!LoadTextureBin(index, binPath)) {
         LOG_ERROR("Failed to load binary texture: " + binPath.string());
     }
-    LOG_INFO("Loaded Texture: " + path);
-}
-
-bool AssetManager::CookTexture(const fs::path& source, const fs::path& dest) {
-    int w, h, c;
-    stbi_set_flip_vertically_on_load(true); 
-    unsigned char* data = stbi_load(source.string().c_str(), &w, &h, &c, 4); // Force RGBA
-    if (!data) return false;
-
-    TextureMetadata header;
-    header.magic = MAGIC_TTEX;
-    header.version = ASSET_VERSION;
-    header.width = w;
-    header.height = h;
-    header.mipLevels = 1;
-    header.format = 0; // RGBA8
-    header.dataSize = w * h * 4;
-
-    std::ofstream out(dest, std::ios::binary);
-    out.write(reinterpret_cast<char*>(&header), sizeof(header));
-    out.write(reinterpret_cast<char*>(data), header.dataSize);
-    
-    stbi_image_free(data);
-    return true;
 }
 
 bool AssetManager::LoadTextureBin(uint32_t index, const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
 
-    TextureMetadata header;
+    AssetHeader header;
     in.read(reinterpret_cast<char*>(&header), sizeof(header));
 
     if (header.magic != MAGIC_TTEX || header.version != ASSET_VERSION) {
-        LOG_ERROR("Invalid .ttex format version");
+        LOG_ERROR("Invalid .ttex format version: " + path.string());
         return false;
     }
 
-    std::vector<unsigned char> data(header.dataSize);
-    in.read(reinterpret_cast<char*>(data.data()), header.dataSize);
+    TextureHeader texHeader;
+    in.read(reinterpret_cast<char*>(&texHeader), sizeof(texHeader));
+
+    // Calculate remaining size
+    size_t dataSize = (size_t)header.dataSize - sizeof(TextureHeader);
+    std::vector<unsigned char> data(dataSize);
+    in.read(reinterpret_cast<char*>(data.data()), dataSize);
 
     // Create Texture via RHI
-    rhi::TextureHandle handle = m_device->CreateTexture(data.data(), header.width, header.height, 4);
+    rhi::TextureHandle handle = m_device->CreateTexture(data.data(), texHeader.width, texHeader.height, 4);
     
     m_texturePool[index].asset.rhiHandle = handle;
-    m_texturePool[index].asset.width = header.width;
-    m_texturePool[index].asset.height = header.height;
+    m_texturePool[index].asset.width = texHeader.width;
+    m_texturePool[index].asset.height = texHeader.height;
     m_texturePool[index].asset.name = path.filename().string();
     m_texturePool[index].loaded = true;
     
@@ -261,280 +312,124 @@ MaterialResource* AssetManager::GetMaterial(AssetHandle<MaterialResource> handle
 void AssetManager::LoadPrefabInternal(uint32_t index, const std::string& path) {
     fs::path srcPath(path);
     fs::path binPath = srcPath;
-    binPath.replace_extension(".tmodel"); // Keep using .tmodel extension
+    binPath.replace_extension(".tmodel"); 
 
-    bool needCook = true;
-    if (fs::exists(binPath)) {
-         if (fs::last_write_time(binPath) >= fs::last_write_time(srcPath)) {
-            needCook = false;
-        }
-    }
-    LOG_INFO("Loading Prefab: " + path);
-    if (needCook) {
-        LOG_INFO("Cooking Prefab: " + path);
-        if (!CookModel(srcPath, binPath)) {
-            LOG_ERROR("Failed to cook prefab");
-            return;
-        }
-        LOG_INFO("Cook Prefab Done: " + path);
+    if (!fs::exists(binPath)) {
+        LOG_ERROR("Asset not found (Need Cook): " + binPath.string());
+        return;
     }
     
     if (!LoadPrefabBin(index, binPath)) {
-         LOG_ERROR("Failed to load binary prefab");
+         LOG_ERROR("Failed to load binary prefab: " + binPath.string());
     }
-    LOG_INFO("Loaded Prefab: " + path);
-}
-
-// COOKER LOGIC (Mostly same as before, just creates .tmodel)
-bool AssetManager::CookModel(const fs::path& source, const fs::path& dest) {
-    Assimp::Importer importer;
-    // Use FlipUVs (standard OpenGL convention)
-    // Use PreTransformVertices to bake node transforms into meshes, ensuring multi-part models (like backpack)
-    // are assembled correctly even if we flatten the hierarchy.
-    const aiScene* scene = importer.ReadFile(source.string(), aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_PreTransformVertices | aiProcess_FlipUVs);
-    if (!scene || !scene->mRootNode) 
-    {
-        LOG_ERROR("ERROR::ASSIMP:: " + std::string(importer.GetErrorString()));
-        return false;
-    }
-
-    // Simplification: We flatten the mesh list into the file.
-    // In a real prefab cooker, we would traverse nodes and write hierarchy.
-    // Here we just write meshes.
-    
-    std::vector<aiMesh*> meshes;
-    std::function<void(aiNode*)> process = [&](aiNode* node) {
-        for(unsigned int i = 0; i < node->mNumMeshes; i++) {
-            meshes.push_back(scene->mMeshes[node->mMeshes[i]]);
-        }
-        for(unsigned int i = 0; i < node->mNumChildren; i++) {
-            process(node->mChildren[i]);
-        }
-    };
-    process(scene->mRootNode);
-
-    std::ofstream out(dest, std::ios::binary);
-    
-    ModelHeader header;
-    header.magic = MAGIC_TMODEL;
-    header.version = ASSET_VERSION;
-    header.meshCount = (uint32_t)meshes.size();
-    header.dataSize = 0;
-    
-    out.write(reinterpret_cast<char*>(&header), sizeof(header));
-    
-    for (aiMesh* mesh : meshes) {
-        SubMeshHeader smh;
-        smh.vertexCount = mesh->mNumVertices;
-        smh.indexCount = mesh->mNumFaces * 3;
-        smh.vertexAttributes = 0; 
-        
-        // Count textures
-        aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
-        std::vector<std::string> texPaths;
-        
-        auto getTexturePath = [&](aiTextureType type) -> std::string {
-            if (mat->GetTextureCount(type) > 0) {
-                aiString str;
-                mat->GetTexture(type, 0, &str);
-                return str.C_Str();
-            }
-            return "";
-        };
-
-        // Slot 0: Diffuse
-        texPaths.push_back(getTexturePath(aiTextureType_DIFFUSE));
-        // Slot 1: Specular
-        texPaths.push_back(getTexturePath(aiTextureType_SPECULAR));
-        // Slot 2: Normal / Height
-        std::string normalPath = getTexturePath(aiTextureType_NORMALS);
-        if (normalPath.empty()) normalPath = getTexturePath(aiTextureType_HEIGHT);
-        texPaths.push_back(normalPath);
-        // Slot 3: Ambient
-        texPaths.push_back(getTexturePath(aiTextureType_AMBIENT));
-        // Slot 4: Emissive
-        texPaths.push_back(getTexturePath(aiTextureType_EMISSIVE));
-        // Slot 5: Opacity
-        texPaths.push_back(getTexturePath(aiTextureType_OPACITY));
-
-        smh.textureCount = (uint32_t)texPaths.size();
-
-        out.write(reinterpret_cast<char*>(&smh), sizeof(smh));
-        
-        // Fill Material Data
-        MaterialDataPOD matData = {}; 
-        aiColor3D color(1.f, 1.f, 1.f);
-        if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
-            matData.diffuse[0] = color.r; matData.diffuse[1] = color.g; matData.diffuse[2] = color.b; matData.diffuse[3] = 1.0f;
-        } else {
-            matData.diffuse[0] = 1.0f; matData.diffuse[1] = 1.0f; matData.diffuse[2] = 1.0f; matData.diffuse[3] = 1.0f;
-        }
-
-        if (mat->Get(AI_MATKEY_COLOR_AMBIENT, color) == AI_SUCCESS) {
-            matData.ambient[0] = color.r; matData.ambient[1] = color.g; matData.ambient[2] = color.b; matData.ambient[3] = 1.0f;
-        }
-        if (mat->Get(AI_MATKEY_COLOR_SPECULAR, color) == AI_SUCCESS) {
-            matData.specular[0] = color.r; matData.specular[1] = color.g; matData.specular[2] = color.b; matData.specular[3] = 1.0f;
-        }
-        if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, color) == AI_SUCCESS) {
-            matData.emissive[0] = color.r; matData.emissive[1] = color.g; matData.emissive[2] = color.b; matData.emissive[3] = 1.0f;
-        }
-        
-        float val = 0.0f;
-        if (mat->Get(AI_MATKEY_SHININESS, val) == AI_SUCCESS) matData.shininess = val; else matData.shininess = 32.0f;
-        if (mat->Get(AI_MATKEY_OPACITY, val) == AI_SUCCESS) matData.opacity = val; else matData.opacity = 1.0f;
-        
-        int bVal = 0;
-        if (mat->Get(AI_MATKEY_TWOSIDED, bVal) == AI_SUCCESS) matData.doubleSided = bVal;
-
-        out.write(reinterpret_cast<char*>(&matData), sizeof(matData));
-
-        for(const auto& p : texPaths) {
-            uint32_t len = (uint32_t)p.length();
-            out.write(reinterpret_cast<char*>(&len), sizeof(len));
-            if(len > 0) out.write(p.c_str(), len);
-        }
-        
-        // Write Vertices
-        struct VertexPacked {
-            float pos[4];
-            float norm[4];
-            float uv[4];
-        };
-        std::vector<VertexPacked> vertices(mesh->mNumVertices);
-        for(unsigned int i=0; i<mesh->mNumVertices; i++) {
-            vertices[i].pos[0] = mesh->mVertices[i].x; vertices[i].pos[1] = mesh->mVertices[i].y; vertices[i].pos[2] = mesh->mVertices[i].z; vertices[i].pos[3] = 1.0f;
-            if(mesh->HasNormals()) {
-                vertices[i].norm[0] = mesh->mNormals[i].x; vertices[i].norm[1] = mesh->mNormals[i].y; vertices[i].norm[2] = mesh->mNormals[i].z; vertices[i].norm[3] = 0.0f;
-            }
-            else {
-                vertices[i].norm[0] = 0.0f; vertices[i].norm[1] = 0.0f; vertices[i].norm[2] = 0.0f; vertices[i].norm[3] = 0.0f;
-            }
-            if(mesh->mTextureCoords[0]) {
-                vertices[i].uv[0] = mesh->mTextureCoords[0][i].x; vertices[i].uv[1] = mesh->mTextureCoords[0][i].y;
-                vertices[i].uv[2] = 0.0f; vertices[i].uv[3] = 0.0f;
-            }
-            else {
-                vertices[i].uv[0] = 0.0f; vertices[i].uv[1] = 0.0f; vertices[i].uv[2] = 0.0f; vertices[i].uv[3] = 0.0f;
-            }
-        }
-        out.write(reinterpret_cast<char*>(vertices.data()), vertices.size() * sizeof(VertexPacked));
-
-        // Write Indices
-        std::vector<uint32_t> indices;
-        for(unsigned int i=0; i<mesh->mNumFaces; i++) {
-            indices.push_back(mesh->mFaces[i].mIndices[0]);
-            indices.push_back(mesh->mFaces[i].mIndices[1]);
-            indices.push_back(mesh->mFaces[i].mIndices[2]);
-        }
-        out.write(reinterpret_cast<char*>(indices.data()), indices.size() * sizeof(uint32_t));
-    }
-    
-    return true;
 }
 
 bool AssetManager::LoadPrefabBin(uint32_t index, const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
 
-    ModelHeader header;
-    in.read(reinterpret_cast<char*>(&header), sizeof(header));
-    if (header.magic != MAGIC_TMODEL) return false;
+    AssetHeader assetHeader;
+    in.read(reinterpret_cast<char*>(&assetHeader), sizeof(assetHeader));
+    if (assetHeader.magic != MAGIC_TMODEL || assetHeader.version != ASSET_VERSION) return false;
+
+    ModelHeader modelHeader;
+    in.read(reinterpret_cast<char*>(&modelHeader), sizeof(modelHeader));
 
     Prefab& prefab = m_prefabPool[index].asset;
     prefab.name = path.filename().string();
-    
     std::string directory = path.parent_path().string();
 
-    for(uint32_t i=0; i<header.meshCount; i++) {
-        SubMeshHeader smh;
-        in.read(reinterpret_cast<char*>(&smh), sizeof(smh));
-
-        MaterialDataPOD matPod;
-        in.read(reinterpret_cast<char*>(&matPod), sizeof(matPod));
+    // 1. Read Materials
+    std::vector<AssetHandle<MaterialResource>> materialHandles;
+    for(uint32_t i=0; i<modelHeader.materialCount; i++) {
+        MaterialHeader matHeader;
+        in.read(reinterpret_cast<char*>(&matHeader), sizeof(matHeader));
         
-        // 1. Create Material Resource
+        // Create Resource
         uint32_t matIdx = AllocMaterialSlot();
         MaterialResource& matRes = m_materialPool[matIdx].asset;
         matRes.name = prefab.name + "_mat_" + std::to_string(i);
-        
-        matRes.data.diffuse = Vec4(matPod.diffuse[0], matPod.diffuse[1], matPod.diffuse[2], matPod.diffuse[3]);
-        matRes.data.ambient = Vec4(matPod.ambient[0], matPod.ambient[1], matPod.ambient[2], matPod.ambient[3]);
-        matRes.data.specular = Vec4(matPod.specular[0], matPod.specular[1], matPod.specular[2], matPod.specular[3]);
-        matRes.data.emissive = Vec4(matPod.emissive[0], matPod.emissive[1], matPod.emissive[2], matPod.emissive[3]);
-        matRes.data.shininess = matPod.shininess;
-        matRes.data.opacity = matPod.opacity;
-        matRes.data.alphaTest = matPod.alphaTest;
-        matRes.data.doubleSided = matPod.doubleSided;
-        
-        // Read Textures
-        for(uint32_t t=0; t<smh.textureCount; t++) {
-            uint32_t len = 0;
-            in.read(reinterpret_cast<char*>(&len), sizeof(len));
+
+        // Copy Data
+        matRes.data.diffuse = Vec4(matHeader.data.diffuse[0], matHeader.data.diffuse[1], matHeader.data.diffuse[2], matHeader.data.diffuse[3]);
+        matRes.data.ambient = Vec4(matHeader.data.ambient[0], matHeader.data.ambient[1], matHeader.data.ambient[2], matHeader.data.ambient[3]);
+        matRes.data.specular = Vec4(matHeader.data.specular[0], matHeader.data.specular[1], matHeader.data.specular[2], matHeader.data.specular[3]);
+        matRes.data.emissive = Vec4(matHeader.data.emissive[0], matHeader.data.emissive[1], matHeader.data.emissive[2], matHeader.data.emissive[3]);
+        matRes.data.shininess = matHeader.data.shininess;
+        matRes.data.opacity = matHeader.data.opacity;
+        matRes.data.alphaTest = matHeader.data.alphaTest;
+        matRes.data.doubleSided = matHeader.data.doubleSided;
+
+        // Read Texture Paths
+        for(int t=0; t<6; t++) {
+            uint32_t len = matHeader.texturePathLengths[t];
             if(len > 0) {
-                std::vector<char> buf(len + 1);
-                in.read(buf.data(), len);
-                buf[len] = '\0';
-                std::string texPath = std::string(buf.data());
+                std::string texPath(len, '\0');
+                in.read(texPath.data(), len);
                 
                 std::string fullPath = texPath;
                 if (!directory.empty()) fullPath = directory + '/' + texPath;
 
+                // Recursive Load
                 AssetHandle<TextureResource> hTex = Load<TextureResource>(fullPath);
-                if (t < MaterialResource::MAX_TEXTURES) {
-                    matRes.textures[t] = hTex;
-                    matRes.rhiTextures[t] = GetRHI(hTex);
-                }
+                matRes.textures[t] = hTex;
+                matRes.rhiTextures[t] = GetRHI(hTex);
             }
         }
-        
-        m_materialPool[matIdx].loaded = true;
-        m_materialPool[matIdx].refCount = 1;
-        AssetHandle<MaterialResource> hMat((m_materialPool[matIdx].generation << 20) | matIdx);
 
-        // 2. Create Mesh Resource
+        m_materialPool[matIdx].loaded = true;
+        m_materialPool[matIdx].refCount = 1; // Held by Prefab logic temporarily
+        materialHandles.push_back(AssetHandle<MaterialResource>((m_materialPool[matIdx].generation << 20) | matIdx));
+    }
+
+    // 2. Read Meshes
+    for(uint32_t i=0; i<modelHeader.meshCount; i++) {
+        SubMeshHeader smh;
+        in.read(reinterpret_cast<char*>(&smh), sizeof(smh));
+
+        // Create Mesh Resource
         uint32_t meshIdx = AllocMeshSlot();
         MeshResource& meshRes = m_meshPool[meshIdx].asset;
         meshRes.name = prefab.name + "_mesh_" + std::to_string(i);
         meshRes.vertexCount = smh.vertexCount;
         meshRes.indexCount = smh.indexCount;
+        meshRes.minBounds = Vec4(smh.minBounds[0], smh.minBounds[1], smh.minBounds[2], 1.0f);
+        meshRes.maxBounds = Vec4(smh.maxBounds[0], smh.maxBounds[1], smh.maxBounds[2], 1.0f);
 
-        // Read Vertices & Create VBO
-        struct VertexPacked {
-            float pos[4];
-            float norm[4];
-            float uv[4];
-        };
+        // Read Vertices
         std::vector<VertexPacked> vertices(smh.vertexCount);
         in.read(reinterpret_cast<char*>(vertices.data()), smh.vertexCount * sizeof(VertexPacked));
 
-        // Create VBO via RHI
+        // Create VBO
         rhi::BufferDesc vboDesc;
         vboDesc.type = rhi::BufferType::VertexBuffer;
         vboDesc.size = vertices.size() * sizeof(VertexPacked);
         vboDesc.initialData = vertices.data();
         meshRes.vbo = m_device->CreateBuffer(vboDesc);
 
-        // Read Indices & Create EBO
+        // Read Indices
         std::vector<uint32_t> indices(smh.indexCount);
         in.read(reinterpret_cast<char*>(indices.data()), smh.indexCount * sizeof(uint32_t));
         
+        // Create EBO
         rhi::BufferDesc eboDesc;
         eboDesc.type = rhi::BufferType::IndexBuffer;
         eboDesc.size = indices.size() * sizeof(uint32_t);
         eboDesc.initialData = indices.data();
         meshRes.ebo = m_device->CreateBuffer(eboDesc);
-        
+
         m_meshPool[meshIdx].loaded = true;
         m_meshPool[meshIdx].refCount = 1;
         AssetHandle<MeshResource> hMesh((m_meshPool[meshIdx].generation << 20) | meshIdx);
 
-        // 3. Add Node to Prefab
+        // Create Node
         PrefabNode node;
         node.name = meshRes.name;
         node.mesh = hMesh;
-        node.material = hMat;
-        node.parentIndex = -1; // All flat for now
+        if(smh.materialIndex < materialHandles.size()) {
+            node.material = materialHandles[smh.materialIndex];
+        }
+        node.parentIndex = -1;
         prefab.nodes.push_back(node);
     }
     
@@ -543,7 +438,78 @@ bool AssetManager::LoadPrefabBin(uint32_t index, const fs::path& path) {
 }
 
 void AssetManager::GarbageCollect() {
-    // TODO
+    bool changed = true;
+    while(changed) {
+        changed = false;
+        
+        // 1. Prefabs
+        for(size_t i=0; i<m_prefabPool.size(); ++i) {
+            auto& rec = m_prefabPool[i];
+            if(rec.loaded && rec.refCount == 0) {
+                // Release dependencies
+                for(auto& node : rec.asset.nodes) {
+                     Release(node.mesh);
+                     Release(node.material);
+                }
+                rec.loaded = false;
+                if(!rec.path.empty()) m_prefabLookup.erase(rec.path);
+                m_freePrefabIndices.push_back((uint32_t)i);
+                rec.generation++; 
+                rec.path = "";
+                rec.asset.nodes.clear();
+                changed = true;
+            }
+        }
+
+        // 2. Materials
+        for(size_t i=0; i<m_materialPool.size(); ++i) {
+             auto& rec = m_materialPool[i];
+             if(rec.loaded && rec.refCount == 0) {
+                 for(int t=0; t<MaterialResource::MAX_TEXTURES; t++) {
+                     if(rec.asset.textures[t].IsValid()) {
+                         Release(rec.asset.textures[t]);
+                     }
+                 }
+                 rec.loaded = false;
+                 // m_materialLookup.erase(rec.path); // If exists
+                 m_freeMaterialIndices.push_back((uint32_t)i);
+                 rec.generation++;
+                 changed = true;
+             }
+        }
+
+        // 3. Meshes
+        for(size_t i=0; i<m_meshPool.size(); ++i) {
+            auto& rec = m_meshPool[i];
+            if(rec.loaded && rec.refCount == 0) {
+                if (m_device) {
+                    m_device->DestroyBuffer(rec.asset.vbo);
+                    m_device->DestroyBuffer(rec.asset.ebo);
+                }
+                rec.loaded = false;
+                m_freeMeshIndices.push_back((uint32_t)i);
+                rec.generation++;
+                changed = true;
+            }
+        }
+
+        // 4. Textures
+        for(size_t i=0; i<m_texturePool.size(); ++i) {
+            auto& rec = m_texturePool[i];
+            if(rec.loaded && rec.refCount == 0) {
+                if (m_device && rec.asset.rhiHandle.id != 0) {
+                     m_device->DestroyTexture(rec.asset.rhiHandle);
+                }
+                
+                rec.loaded = false;
+                if(!rec.path.empty()) m_textureLookup.erase(rec.path);
+                m_freeTextureIndices.push_back((uint32_t)i);
+                rec.generation++;
+                changed = true;
+            }
+        }
+    }
 }
+
 
 } // namespace framework

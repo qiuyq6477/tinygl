@@ -22,6 +22,12 @@ public:
     // Generic Load Interface
     template<typename T>
     AssetHandle<T> Load(const std::string& path);
+
+    template<typename T>
+    void AddRef(AssetHandle<T> handle);
+
+    template<typename T>
+    void Release(AssetHandle<T> handle);
     
     // Resource Access API
     TextureResource* GetTexture(AssetHandle<TextureResource> handle);
@@ -80,10 +86,6 @@ private:
     void LoadTextureInternal(uint32_t index, const std::string& path);
     void LoadPrefabInternal(uint32_t index, const std::string& path);
 
-    // Cookers
-    bool CookTexture(const std::filesystem::path& source, const std::filesystem::path& dest);
-    bool CookModel(const std::filesystem::path& source, const std::filesystem::path& dest);
-    
     // Binary Loaders
     bool LoadTextureBin(uint32_t index, const std::filesystem::path& path);
     bool LoadPrefabBin(uint32_t index, const std::filesystem::path& path);
@@ -95,5 +97,29 @@ TINYGL_API AssetHandle<TextureResource> AssetManager::Load(const std::string& pa
 
 template<>
 TINYGL_API AssetHandle<Prefab> AssetManager::Load(const std::string& path);
+
+template<>
+TINYGL_API void AssetManager::AddRef(AssetHandle<TextureResource> handle);
+
+template<>
+TINYGL_API void AssetManager::AddRef(AssetHandle<MeshResource> handle);
+
+template<>
+TINYGL_API void AssetManager::AddRef(AssetHandle<MaterialResource> handle);
+
+template<>
+TINYGL_API void AssetManager::AddRef(AssetHandle<Prefab> handle);
+
+template<>
+TINYGL_API void AssetManager::Release(AssetHandle<TextureResource> handle);
+
+template<>
+TINYGL_API void AssetManager::Release(AssetHandle<MeshResource> handle);
+
+template<>
+TINYGL_API void AssetManager::Release(AssetHandle<MaterialResource> handle);
+
+template<>
+TINYGL_API void AssetManager::Release(AssetHandle<Prefab> handle);
 
 } // namespace framework

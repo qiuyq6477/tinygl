@@ -18,17 +18,22 @@ define_property(GLOBAL PROPERTY TINYGL_CORE_TEST_LIBS
 
 # Find SDL2 (Required for camera test which uses SDL directly)
 find_package(SDL2 REQUIRED)
+find_package(assimp REQUIRED)
 
 # --- Common Test Utilities & Include Paths ---
 # Collect optional sources from tests/src
 file(GLOB_RECURSE TEST_UTILS_SOURCES "src/*.cpp")
 
+# Add missing stb_image implementation for tests (legacy support)
+list(APPEND TEST_UTILS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/stb_image_impl.cpp")
+
 if(TEST_UTILS_SOURCES)
     add_library(tinygl_test_utils STATIC ${TEST_UTILS_SOURCES})
-    target_link_libraries(tinygl_test_utils PUBLIC tinygl_framework SDL2::SDL2main SDL2::SDL2)
+    target_link_libraries(tinygl_test_utils PUBLIC tinygl_framework SDL2::SDL2main SDL2::SDL2 assimp::assimp)
     target_include_directories(tinygl_test_utils PUBLIC 
         ${CMAKE_CURRENT_SOURCE_DIR}         # Allows <ITestCase.h>
         ${CMAKE_CURRENT_SOURCE_DIR}/include # Allows custom headers in tests/include/
+        ${CMAKE_SOURCE_DIR}/include/third_party # For stb_image.h
     )
 else()
     # If no sources, create an INTERFACE library to hold properties

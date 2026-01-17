@@ -1,6 +1,6 @@
 # 查找 SDL2
 find_package(SDL2 REQUIRED)
-find_package(assimp REQUIRED)
+# Assimp moved to tools/asset_compiler
 
 # 定义平台宏
 add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
@@ -9,7 +9,6 @@ add_definitions(-DVC_PLATFORM=VC_SDL_PLATFORM)
 add_library(tinygl_framework SHARED 
     third_party/glad.c
     third_party/microui.c
-    third_party/stb_image.cpp
     framework/atlas.c
     framework/geometry.cpp
     framework/application.cpp
@@ -29,8 +28,6 @@ add_library(tinygl_framework SHARED
 # 定义导出宏
 target_compile_definitions(tinygl_framework PRIVATE TINYGL_EXPORTS)
 
-# macOS dynamic lookup for runtime symbols (though Application uses virtual functions now, 
-# keeping it for flexibility if needed, or we can remove it if everything is linked).
 if(APPLE)
     target_link_options(tinygl_framework PRIVATE -undefined dynamic_lookup)
 endif()
@@ -47,4 +44,4 @@ target_include_directories(tinygl_framework PUBLIC
     ${CMAKE_SOURCE_DIR}/include/third_party
 )
 
-target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES} PUBLIC assimp::assimp)
+target_link_libraries(tinygl_framework PRIVATE ${SDL2_LIBRARIES})

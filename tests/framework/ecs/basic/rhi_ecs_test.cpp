@@ -1,6 +1,7 @@
 ﻿#include <ITestCase.h>
 #include <test_registry.h>
 #include <framework/asset_manager.h>
+#include <framework/shared_asset.h>
 #include <rhi/encoder.h>
 #include <rhi/shader_registry.h>
 #include <rhi/soft_pipeline.h>
@@ -74,15 +75,15 @@ struct ECSShader : public ShaderBuiltins {
 };
 
 struct Entity {
-    AssetHandle<MeshResource> mesh;
-    AssetHandle<MaterialResource> material;
+    SharedAsset<MeshResource> mesh;
+    SharedAsset<MaterialResource> material;
     Mat4 transform;
 };
 
 class RHIECSTest : public ITestCase {
 public:
     framework::Camera camera;
-    AssetHandle<Prefab> prefabHandle;
+    SharedAsset<Prefab> prefab;
     std::vector<Entity> entities;
     float rotation = 0.0f;
     
@@ -97,6 +98,8 @@ public:
         sDesc.softFactory = [](SoftRenderContext& ctx, const PipelineDesc& pDesc) {
             return std::make_unique<SoftPipeline<ECSShader>>(ctx, pDesc);
         };
+        // ... GLSL removed for brevity in this replace call if possible, 
+        // but I must provide full context for 'replace' tool.
         sDesc.glsl.vertex = R"(#version 330 core
 layout(location = 0) in vec4 aPos;
 layout(location = 1) in vec4 aNormal;
@@ -174,16 +177,16 @@ void main() {
         
         pipeline = device->CreatePipeline(pDesc);
 
-        // Load Prefab
+        // Load Prefab (Offline format expected)
         std::string modelPath = "assets/backpack/backpack.obj";
-        prefabHandle = AssetManager::Get().Load<Prefab>(modelPath);
+        prefab = SharedAsset<Prefab>(AssetManager::Get().Load<Prefab>(modelPath));
         
-        Prefab* prefab = AssetManager::Get().GetPrefab(prefabHandle);
-        if (prefab) {
-            for (const auto& node : prefab->nodes) {
+        Prefab* prefabData = AssetManager::Get().GetPrefab(prefab.GetHandle());
+        if (prefabData) {
+            for (const auto& node : prefabData->nodes) {
                 Entity e;
-                e.mesh = node.mesh;
-                e.material = node.material;
+                e.mesh = SharedAsset<MeshResource>(node.mesh);
+                e.material = SharedAsset<MaterialResource>(node.material);
                 e.transform = Mat4::Translate(0, 0, 0) * Mat4::Scale(1,1,1);
                 entities.push_back(e);
             }
@@ -195,6 +198,12 @@ void main() {
     }
 
     void destroy(rhi::IGraphicsDevice* device) override {
+        entities.clear();
+        prefab.Release();
+        
+        // Demonstrate GC
+        AssetManager::Get().GarbageCollect();
+        
         AssetManager::Get().Shutdown();
         device->DestroyPipeline(pipeline);
     }
@@ -207,7 +216,11 @@ void main() {
 
     void onGui(mu_Context* ctx, const Rect& rect) override {
         mu_label(ctx, "RHI ECS Test");
-        mu_label(ctx, "Pure RHI Commands");
+        mu_label(ctx, "Stateless Asset Management");
+        
+        if (mu_button(ctx, "Garbage Collect")) {
+             AssetManager::Get().GarbageCollect();
+        }
     }
 
     void onRender(rhi::IGraphicsDevice* device, int width, int height) override {
@@ -230,8 +243,8 @@ void main() {
         Mat4 proj = camera.GetProjectionMatrix();
 
         for (const auto& e : entities) {
-            MeshResource* mesh = AssetManager::Get().GetMesh(e.mesh);
-            MaterialResource* mat = AssetManager::Get().GetMaterial(e.material);
+            MeshResource* mesh = AssetManager::Get().GetMesh(e.mesh.GetHandle());
+            MaterialResource* mat = AssetManager::Get().GetMaterial(e.material.GetHandle());
             
             if (mesh && mat) {
                 // Bind Buffers
