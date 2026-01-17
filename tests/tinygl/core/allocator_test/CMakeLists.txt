@@ -1,0 +1,1 @@
+add_tinygl_test(allocator_test allocator_test.cpp)

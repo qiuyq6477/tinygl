@@ -8,6 +8,10 @@ namespace rhi {
 
 SoftDevice::SoftDevice(SoftRenderContext& ctx) : m_ctx(ctx) {
     m_uniformData.resize(MAX_UNIFORM_SIZE);
+    
+    // Initialize Tile-Based Rendering Infrastructure
+    m_frameMem.Init(16 * 1024 * 1024); // 16MB
+    m_tiler.Init(m_ctx.getWidth(), m_ctx.getHeight(), 64); // 64x64 tiles
 }
 
 SoftDevice::~SoftDevice() {
@@ -361,6 +365,9 @@ void SoftDevice::Submit(const CommandBuffer& buffer) {
 }
 
 void SoftDevice::Present() {
+    // End of frame, reset allocator and tiler
+    m_frameMem.Reset();
+    m_tiler.Reset();
 }
 
 }

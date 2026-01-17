@@ -3,6 +3,8 @@
 #include <rhi/command_buffer.h>
 #include <tinygl/tinygl.h>
 #include <rhi/soft_pipeline.h>
+#include <tinygl/core/linear_allocator.h>
+#include <tinygl/core/tiler.h>
 #include <vector>
 #include <memory>
 #include <map>
@@ -112,6 +114,10 @@ private:
     // when we see UpdateUniform, and pass pointers into it during Draw.
     static constexpr size_t MAX_UNIFORM_SIZE = 1024 * 64; // Increase to 64KB
     std::vector<uint8_t> m_uniformData;
+
+    // --- Phase 1: Tile-Based Rendering Infrastructure ---
+    tinygl::LinearAllocator m_frameMem;
+    tinygl::TileBinningSystem m_tiler;
 };
 
 }
